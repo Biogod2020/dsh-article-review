@@ -9,7 +9,7 @@ kind: "package-bundle"
 
 ## 概述
 
-在原生会话旁阅读 Markdown 稿件，积累批注并请求局部修改。浮动进度轨可以跳转到章节和段落，不会压窄正文。绑定 `.bib` 文件作为引用键的权威来源，书目索引单独查看。智能体可以打开稿件、管理书目条目，以及新建或修改待审稿件提案。论文模式保留原有工具；有文件写入权限的智能体仍能绕过审阅流程编辑。此仓库目前发布的是插件源码，尚非可直接从 Git 安装的独立构建。
+在原生会话旁阅读 Markdown 稿件，积累批注并请求局部修改。浮动进度轨可以跳转到章节和段落，不会压窄正文。绑定 `.bib` 文件作为引用键的权威来源，书目索引单独查看。智能体可以打开稿件、管理书目条目，以及新建或修改待审稿件提案。论文模式保留原有工具；有文件写入权限的智能体仍能绕过审阅流程编辑。可把预构建的 Git 版本 tag 安装到 Web 配置。
 
 ## 目录
 
@@ -25,7 +25,14 @@ kind: "package-bundle"
 <a id="use-this-package"></a>
 ## 使用本包
 
-此源码版本须放在兼容的 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 工作区的 `packages/experimental/paper-review` 中构建。其构建配置和 `workspace:^` 依赖当前都依赖该工作区；本 tag **尚未验证** `dsh plugin add github:Biogod2020/dsh-article-review` 或 npm 安装。要在本地开发或使用，先构建兼容的 DSH 工作区，再运行 `dsh plugin --profile web add /absolute/path/to/deepseek-harness/packages/experimental/paper-review`。原生安装器会保存本地包，并在 Web 层之后启用其[组合包配置](cordis.patch.yml)。正常打开 DSH 并刷新浏览器即可，无需额外启动器或模型配置。本地安装链接到已构建文件，请保留安装时的仓库路径。
+使用 DSH 的配置管理命令安装预构建的版本 tag：
+
+```sh
+dsh plugin --profile web add 'github:Biogod2020/dsh-article-review#v0.1.7-alpha.2'
+dsh web
+```
+
+安装器会把本包的[组合包配置](cordis.patch.yml)加入 Web 层之后。若 Web 配置正在运行，安装后需要重启；无需额外启动器或模型配置。这个独立维护的插件已在 macOS 上使用 DSH `0.1.6-alpha.2` 完成启动检查。`main` 分支是带有 `workspace:^` 依赖的开发源码，不能直接作为 Git 安装目标；请固定版本 tag。本地开发时，先在包含此包的兼容 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 工作区构建，再运行 `dsh plugin --profile web add /absolute/path/to/deepseek-harness/packages/experimental/paper-review`，并保留该工作区。
 
 ### 配置
 
@@ -149,6 +156,7 @@ Only change the selected blocks. Read with paper_read, then submit each independ
 - 选区限定在一个 Markdown 段落内。跨段选择会明确提示；可分别批注后一起提交。高亮需要支持 CSS Custom Highlight API 的浏览器。段落原文变化后，渲染选区会标为**需要重新定位**，即使引文仍出现在其他位置。尚未实现模糊匹配和手动重定位；请保留旧记录，在目标位置新建。
 - 锁定只约束本插件，不约束外部编辑器。不配合的外部写入可能在最终检查与重命名之间竞争。原子替换和恢复日志针对进程中断，不保证突然断电持久性或抵御恶意本地文件系统修改。
 - Finder 选择窗口打开在 macOS DSH 宿主上，不会在远程浏览器所在电脑上弹出。远程或无人值守的宿主应通过 `paper_open` 选择已知路径。普通写入工具可以绕过提案审阅；若必须由作者批准，请使用 DSH 权限模式并明确说明要求。
+- Git 发行包不会自动安装 `koffi`，因为这个原生依赖只用于 Windows 工作区锁。Windows 上的安装与运行尚未验收；在 Windows 打开稿件前，需先在同一个配置中安装 `koffi`。
 - 完整版本和批注持续保留，没有清理机制或恢复按钮。长历史可能占用磁盘并拖慢状态载入；阅读区与审阅对比会在接近可见区域时挂载，但版本对比仍会立即渲染。工作区锁允许一个服务器进程及多个浏览器窗口，不提供多作者同步。
 - BibTeX 索引可处理普通完整条目，但不会展开宏或核实书目信息。新增正文引用只会在本插件的段落替换提案中校验，不会拦截其他工具直接写文件。文献库对疑似裸键采取保守提示；科学术语也可能像引用键，需人工判断。
 
