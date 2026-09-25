@@ -272,8 +272,8 @@ export class PaperStore {
     )
     const citationStatus = files.length === 0 ? 'unbound'
       : missingKeys.length > 0 ? 'missing-keys'
-      : possibleBareKeys.length > 0 ? 'possible-legacy-keys'
-      : citations.length > 0 ? 'resolved' : 'no-citations'
+        : possibleBareKeys.length > 0 ? 'possible-legacy-keys'
+          : citations.length > 0 ? 'resolved' : 'no-citations'
     return { files, entries: entries.map(({ key, type, file, hash, fields }) => ({ key, type, file, hash, fields })),
       missingKeys, possibleBareKeys, canonicalCitationCount: citations.length, citationStatus }
   }
@@ -405,29 +405,41 @@ export class PaperStore {
   private async proposalFlags(document: PaperDocument, proposal: ProposalInput): Promise<Proposal['flags']> {
     const base = document.revisions.find(r => r.id === proposal.baseRevision)
     if (base === undefined) throw new Error('Unknown base revision; use paper_read first')
-    if (new Set(proposal.edits.map(e => e.blockId)).size !== proposal.edits.length) throw new Error('A proposal cannot replace one block twice')
+    const editKeys = proposal.edits.map(edit => `${edit.blockId}:${edit.operation ?? 'replace'}`)
+    if (new Set(editKeys).size !== editKeys.length) throw new Error('A proposal cannot apply the same operation to one block twice')
+    if (proposal.edits.some(edit => edit.operation) && proposal.baseRevision !== document.current.id) throw new Error('Insertions require the current reader revision; rebase the proposal before inserting')
     for (const annotationId of proposal.annotationIds) {
       const annotation = document.annotations.find(a => a.id === annotationId)
       if (annotation === undefined || annotation.anchor !== 'attached') throw new Error('Referenced annotation is missing or needs manual location')
     }
     const bibliography = await this.bibEntries(document.path)
     const keys = bibliography.files.length ? new Set(bibliography.entries.map(entry => entry.key)) : null
+    const insertionPositions = new Set<number>()
     for (const edit of proposal.edits) {
       const block = base.blocks.find(b => b.id === edit.blockId)
-      if (block === undefined || block.text !== edit.before || edit.before === edit.after) throw new Error('Replacement must match one unchanged base block and contain an actual change')
+      if (block === undefined || block.text !== edit.before) throw new Error('Edit must match one unchanged base block')
       if (document.current.blocks.find(b => b.id === edit.blockId)?.text !== edit.before) throw new Error('The proposed block has changed; reread it')
       if (document.baselines.some(b => b.blockId === edit.blockId && b.locked)) throw new Error('The author locked this block; ask them to unlock it')
       const after = parseRevision(edit.after)
-      if (after.blocks.length !== 1 || after.blocks[0]?.kind !== block.kind || after.blocks[0].text !== edit.after) throw new Error('Replace one complete Markdown block without changing its block type; use grouped edits for related blocks')
-      if (block.kind !== 'code' && block.kind !== 'html') assertNewCitations(edit.before, edit.after, keys)
+      if (edit.operation) {
+        if (after.blocks.length !== 1 || after.blocks[0]?.kind !== 'paragraph' || after.blocks[0].text !== edit.after) throw new Error('Insert exactly one complete Markdown paragraph; use separate edits for other blocks')
+        const position = edit.operation === 'insert-before' ? block.start : block.end
+        if (insertionPositions.has(position)) throw new Error('Two inserted paragraphs cannot share one source position')
+        insertionPositions.add(position)
+        assertNewCitations('', edit.after, keys)
+      } else {
+        if (edit.before === edit.after) throw new Error('Replacement must contain an actual change')
+        if (after.blocks.length !== 1 || after.blocks[0]?.kind !== block.kind || after.blocks[0].text !== edit.after) throw new Error('Replace one complete Markdown block without changing its block type; use grouped edits for related blocks')
+        if (block.kind !== 'code' && block.kind !== 'html') assertNewCitations(edit.before, edit.after, keys)
+      }
     }
     return checkChanges(proposal, base.blocks)
   }
 
   /**
-   * Submit validated block replacements without writing the manuscript.
+   * Submit validated replacements or paragraph insertions without writing the manuscript.
    * @param path - manuscript.
-   * @param input - exact base and replacements.
+   * @param input - exact base and edits.
    * @returns stored proposal id and checks.
    */
   propose(path: string, input: ProposalInput): Promise<PaperView> {
@@ -552,7 +564,8 @@ export class PaperStore {
           if (!proposal || proposal.status !== 'pending') throw new Error('Proposal is no longer pending')
           if (command.accept) {
             if (revisionId(disk) !== document.current.id) throw new Error('Source changed outside paper review; acceptance was refused')
-            const replacements = proposal.edits.map((edit) => {
+            if (proposal.edits.some(edit => edit.operation) && proposal.baseRevision !== document.current.id) throw new Error('Insertion anchor is stale; rebase this proposal before accepting it')
+            const changes = proposal.edits.map((edit) => {
               const block = document.current.blocks.find(b => b.id === edit.blockId)
               if (!block || block.text !== edit.before) throw new Error('This proposal overlaps an accepted or external edit. Ask for a new proposal.')
               if (document.baselines.some(b => b.blockId === edit.blockId && b.locked)) throw new Error('Unlock the reviewed block before accepting a change')
@@ -560,15 +573,32 @@ export class PaperStore {
             })
             const bibliography = await this.bibEntries(document.path)
             const keys = bibliography.files.length ? new Set(bibliography.entries.map(entry => entry.key)) : null
-            for (const { block, edit } of replacements) {
-              if (block.kind !== 'code' && block.kind !== 'html') assertNewCitations(edit.before, edit.after, keys)
+            for (const { block, edit } of changes) {
+              if (edit.operation || (block.kind !== 'code' && block.kind !== 'html')) assertNewCitations(edit.operation ? '' : edit.before, edit.after, keys)
             }
-            output = document.current.text
-            for (const { block, edit } of replacements.sort((a, b) => b.block.start - a.block.start)) {
-              output = output.slice(0, block.start) + edit.after + output.slice(block.end)
+            const sourceText = document.current.text
+            output = sourceText
+            const blocks = document.current.blocks
+            const newline = sourceText.includes('\r\n') ? '\r\n' : '\n'
+            const separator = newline + newline
+            const operations = changes.map(({ block, edit }) => {
+              if (!edit.operation) return { start: block.start, end: block.end, content: edit.after }
+              const index = blocks.findIndex(candidate => candidate.id === block.id)
+              const adjacent = edit.operation === 'insert-before' ? blocks[index - 1] : blocks[index + 1]
+              const gap = edit.operation === 'insert-before'
+                ? sourceText.slice(adjacent?.end ?? block.start, block.start)
+                : sourceText.slice(block.end, adjacent?.start ?? block.end)
+              const missingBreaks = adjacent ? newline.repeat(Math.max(0, 2 - (gap.match(/\r?\n/g)?.length ?? 0))) : ''
+              return edit.operation === 'insert-before'
+                ? { start: block.start, end: block.start, content: missingBreaks + edit.after + separator }
+                : { start: block.end, end: block.end, content: separator + edit.after + missingBreaks }
+            })
+            for (const operation of operations.sort((a, b) => b.start - a.start || b.end - a.end)) {
+              output = output.slice(0, operation.start) + operation.content + output.slice(operation.end)
             }
             if (Buffer.byteLength(output) > this.maxBytes) throw new Error('Accepted manuscript would exceed configured size limit')
-            document.current = parseRevision(output, document.current, new Map(proposal.edits.map(e => [e.blockId, e.after])))
+            const replacements = new Map(proposal.edits.filter(edit => !edit.operation).map(edit => [edit.blockId, edit.after]))
+            document.current = parseRevision(output, document.current, replacements)
             document.revisions.push(document.current)
             document.annotations = migrateAnnotations(document.annotations, document.current)
             document.highlights = migrateAnnotations(document.highlights, document.current)

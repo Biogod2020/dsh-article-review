@@ -69,8 +69,8 @@ export const WordDiff = memo(function WordDiff({ before, after, labels, markdown
 }): ReactNode {
   const [sourceOpen, setSourceOpen] = useState(false)
   const comparison = useMemo(() => before === after ? undefined : renderedChangePair(before, after), [before, after])
-  return <><div className={css.renderedPair}>
-    <section data-rendered-before><h5>{labels.before}</h5><RenderedDiffText text={before} opposite={after} side="before" labels={markdownLabels} comparison={comparison?.before ?? null} /></section>
+  return <><div className={`${css.renderedPair} ${before === '' ? css.insertedPair : ''}`}>
+    {before !== '' && <section data-rendered-before><h5>{labels.before}</h5><RenderedDiffText text={before} opposite={after} side="before" labels={markdownLabels} comparison={comparison?.before ?? null} /></section>}
     <section data-rendered-after><h5>{labels.after}</h5><RenderedDiffText text={after} opposite={before} side="after" labels={markdownLabels} comparison={comparison?.after ?? null} /></section>
   </div>
   <details className={css.sourceComparison} onToggle={(event) => { setSourceOpen(event.currentTarget.open) }}>
@@ -358,7 +358,8 @@ export function PaperPanel({
   const progressBlocks = useMemo(() => reviewableBlocks(doc?.current.blocks ?? []), [doc?.current.blocks])
   const notesFor = (blockId: string): Annotation[] => annotationsByBlock.get(blockId) ?? []
   const pending = doc?.proposals.filter(p => p.status === 'pending') ?? []
-  const conflict = (proposal: Proposal): boolean => view?.diskChanged === true || incoming !== undefined || proposal.edits.some(edit =>
+  const conflict = (proposal: Proposal): boolean => view?.diskChanged === true || incoming !== undefined
+    || (proposal.edits.some(edit => edit.operation) && proposal.baseRevision !== doc?.current.id) || proposal.edits.some(edit =>
     doc?.current.blocks.find(b => b.id === edit.blockId)?.text !== edit.before
     || doc.baselines.some(b => b.blockId === edit.blockId && b.locked))
   const reviewChanges = doc?.baselines.filter(base => doc.current.blocks.find(b => b.id === base.blockId)?.text !== base.text) ?? []
@@ -549,9 +550,9 @@ export function PaperPanel({
           <div className={css.proposalTitle}><strong>{proposal.id}</strong><span>{proposal.annotationIds.join(' · ')}</span><span>{t('modelLabel')} {t(proposal.meaning)}</span></div>
           <p>{proposal.reason}</p>
           {proposal.flags.length > 0 && <div className={css.flags}>{proposal.flags.map(flag => <span key={flag}>{t(flag)}</span>)}</div>}
-          {proposal.edits.map(edit => <div key={edit.blockId}>
-            <h4>{doc.current.blocks.find(b => b.id === edit.blockId)?.section}</h4>
-            <LazyWordDiff before={edit.before} after={edit.after} labels={diffLabels} markdownLabels={labels} />
+          {proposal.edits.map(edit => <div key={`${edit.blockId}:${edit.operation ?? 'replace'}`}>
+            <h4>{edit.operation ? t(edit.operation === 'insert-before' ? 'insertBefore' : 'insertAfter') : ''} {doc.current.blocks.find(b => b.id === edit.blockId)?.section}</h4>
+            <LazyWordDiff before={edit.operation ? '' : edit.before} after={edit.after} labels={diffLabels} markdownLabels={labels} />
           </div>)}
           {conflict(proposal) && <p className={css.warning}>{t('overlap')}</p>}
           <div className={css.decisions}><button disabled={busy || conflict(proposal)} onClick={() => { void run({ action: 'decide', path: doc.path, revision: doc.current.id, proposalId: proposal.id, accept: true }) }}><PaperIcon kind="check" size={15} />{t('accept')}</button>

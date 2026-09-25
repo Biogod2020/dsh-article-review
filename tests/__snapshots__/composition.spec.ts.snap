@@ -92,7 +92,7 @@ exports[`boots from a composition, keeps ordinary tools, and lets agents and ope
     },
   },
   {
-    "description": "Submit a manuscript change for author review. Does not write the manuscript. Copy exact block ids and before text from paper_read. Group dependent replacements in one proposal. Mechanical checks independently flag number, citation, figure, claim-word and Methods changes.",
+    "description": "Submit a manuscript change for author review without writing the source. Copy blockId and exact before text from paper_read. Omit operation to replace that block; set operation to insert-before or insert-after to add after as one new Markdown paragraph beside the anchor block. Group dependent edits. Insertions require the current baseRevision. Mechanical checks flag number, citation, figure, claim-word, Methods and insertion changes.",
     "name": "paper_propose",
     "parameters": {
       "properties": {
@@ -116,6 +116,14 @@ exports[`boots from a composition, keeps ordinary tools, and lets agents and ope
                 "type": "string",
               },
               "blockId": {
+                "type": "string",
+              },
+              "operation": {
+                "description": "Omit to replace the block. For insertion, before is the exact anchor block text and after is one new paragraph.",
+                "enum": [
+                  "insert-before",
+                  "insert-after",
+                ],
                 "type": "string",
               },
             },
@@ -157,7 +165,7 @@ exports[`boots from a composition, keeps ordinary tools, and lets agents and ope
     },
   },
   {
-    "description": "Revise an existing pending manuscript proposal in place; keep its id and do not write the manuscript. Use paper_check with proposalId to inspect it, and paper_read for the current revision and exact source. Supply only fields to change; if edits is supplied, it replaces the complete edit group. To rebase a stale proposal after a source import, provide baseRevision equal to the current reader revision and complete edits with current block ids and exact before text. The same source, annotation, lock and mechanical-risk checks as paper_propose run again. Settled proposals cannot be revised.",
+    "description": "Revise an existing pending manuscript proposal in place; keep its id and do not write the manuscript. Use paper_check with proposalId to inspect it, and paper_read for the current revision and exact source. Supply only fields to change; if edits is supplied, it replaces the complete edit group. Edits may replace a block or insert one paragraph before/after an exact anchor using operation. To rebase a stale proposal, provide baseRevision equal to the current reader revision and complete edits with current block ids and exact before text. The same source, annotation, lock and mechanical-risk checks as paper_propose run again. Settled proposals cannot be revised.",
     "name": "paper_revise",
     "parameters": {
       "properties": {
@@ -184,6 +192,14 @@ exports[`boots from a composition, keeps ordinary tools, and lets agents and ope
                 "type": "string",
               },
               "blockId": {
+                "type": "string",
+              },
+              "operation": {
+                "description": "Omit to replace the block. For insertion, before is the exact anchor block text and after is one new paragraph.",
+                "enum": [
+                  "insert-before",
+                  "insert-after",
+                ],
                 "type": "string",
               },
             },

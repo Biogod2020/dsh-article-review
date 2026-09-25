@@ -175,6 +175,18 @@ it('boots from a composition, keeps ordinary tools, and lets agents and operator
   }, signal: new AbortController().signal })
   expect(acceptedByAgent.isError).not.toBe(true)
   expect(await readFile(join(root, 'article.md'), 'utf8')).toContain('## Findings')
+  const insertionBase = z.object({ result: z.object({ value: ViewSchema }) }).parse(await (await rpc({ action: 'open', path: 'article.md' })).json()).result.value
+  const insertionAnchor = insertionBase.document.current.blocks[1]!
+  const inserted = await ctx.tools.execute({ agent, callId: ToolCallId('insert-proposal'), name: 'paper_propose', arguments: {
+    path: 'article.md', baseRevision: insertionBase.document.current.id, annotationIds: [], reason: 'Add context.', meaning: 'structure',
+    edits: [{ blockId: insertionAnchor.id, before: insertionAnchor.text, after: 'This result needs a separate explanation.', operation: 'insert-after' }],
+  }, signal: new AbortController().signal })
+  expect(inserted.isError).not.toBe(true)
+  expect(await readFile(join(root, 'article.md'), 'utf8')).not.toContain('separate explanation')
+  const insertionAccepted: unknown = await (await rpc({ action: 'decide', path: 'article.md',
+    revision: insertionBase.document.current.id, proposalId: 'P4', accept: true })).json()
+  expect(z.object({ result: z.object({ ok: z.boolean() }) }).parse(insertionAccepted).result.ok).toBe(true)
+  expect(await readFile(join(root, 'article.md'), 'utf8')).toContain('\n\nThis result needs a separate explanation.')
   const left = await (await control('paper-review/leave', {})).json() as { result: { ok: boolean } }
   expect(left.result.ok).toBe(true)
   expect(await readFile(join(root, '.paper-review', 'sessions.json'), 'utf8')).toBe('[]')

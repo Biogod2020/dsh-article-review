@@ -28,7 +28,7 @@ kind: "package-bundle"
 使用 DSH 的配置管理命令安装预构建的版本 tag：
 
 ```sh
-dsh plugin --profile web add 'github:Biogod2020/dsh-article-review#v0.1.7-alpha.2'
+dsh plugin --profile web add 'github:Biogod2020/dsh-article-review#v0.1.7-alpha.3'
 dsh web
 ```
 
@@ -77,7 +77,7 @@ dsh web
 
 1. 在同一段内选中文字后右键，可选择黄、绿、蓝三色高亮、下划线、批注、复制、专注阅读或 AI 上下文。行内格式和重复短语会保留实际选中的位置。高亮和批注不会修改正文。高亮列表支持移除与恢复。点击段落仍可使用原有操作按钮。
 2. 确认段落已审，或已审并锁定。这会保存人工审阅基线。锁定会阻止本插件为该段提交和接受修改。再次确认已审会保留锁定，只有**解锁**才会解除它。右侧的窄进度轨显示可审阅段落比例及状态，不改变正文宽度。展开后可按章节查看段落预览，点击即可跳转。绿色表示当前文字已审，灰色表示未审，橙色表示审后有修改。文末书目和来源注释不计入分母；接受修改后，重新审阅前进度可能回退。
-3. 打开**审阅变更**，阅读每组提案中 Markdown 渲染后的修改前后正文；变化的可见文字会局部着色。还要检查模型自报类别和独立词面提示。对比内容会在接近可见区域时载入；滚动到提案处即可检查。展开**查看 Markdown 源码差异**可核对精确的逐词变化及格式语法变化。你或智能体都能逐组接受或拒绝；`paper_decide` 仅应在你要求接受时使用。接受会修改文件，但不会把结果标为已审。如需改进待审提案，可点击**要求重做**或让智能体调用 `paper_revise`：它会保留原提案 ID、重新检查且不修改正文。已接受或已拒绝的提案不能再改。
+3. 打开**审阅变更**，阅读每组提案中 Markdown 渲染后的修改前后正文；变化的可见文字会局部着色。新段落会标明插在锚点段落之前或之后，显示为新增内容，而不是把锚点显示成整段改写。还要检查模型自报类别和独立词面提示。对比内容会在接近可见区域时载入；滚动到提案处即可检查。展开**查看 Markdown 源码差异**可核对精确的逐词变化及格式语法变化。你或智能体都能逐组接受或拒绝；`paper_decide` 仅应在你要求接受时使用。接受会修改文件，但不会把结果标为已审。如需改进待审提案，可点击**要求重做**或让智能体调用 `paper_revise`：它会保留原提案 ID、重新检查且不修改正文。已接受或已拒绝的提案不能再改。
 4. 检查**相对我最后审过的内容**，确认后再把修改后的段落标为已审。连续接受多轮修改，仍然相对于此前的人工基线比较。
 5. **检查更新**会刷新提案信息。会话轮次结束后也会检查。外部文件变化不会替换当前阅读内容，直到你选择**载入新版本**。
 6. 打开**版本对比**，任选两个已保存版本。**渲染后并排**只给变化的可见文字着色，不再填满整块；细边线提示变化的段落。外部改写的段落可能获得新 ID，因此此视图会在相邻的稳定段落之间匹配足够相似的段落，但只用于文字着色，不会迁移已保存的批注。**源码并排**和**源码行内差异**显示完整 Markdown 原文中的精确增删，包括仅有格式变化的内容。如果段落无法可靠配对或渲染后的文字无法可靠映射，界面仅保留边线而不在正文内着色。交换左右版本可反向比较。此页面不会恢复文件或更新人工审阅基线。窄面板中，左右正文会上下排列。
@@ -107,7 +107,7 @@ dsh web
 
 [宿主端](src/index.ts)在智能体原有工具之外增加稿件发现、审阅及 BibTeX 工具。经过认证的作者请求使用 Connection 的 `/api` 通道；模型工具从执行中的智能体取得会话标识。已启用会话及所选稿件路径保存在工作区私有审阅目录中，恢复会话时会先恢复这些状态。退出会隐藏活跃稿件工具，但保留审阅记录和普通工具。未启用的会话仍可使用 `paper_list` 与 `paper_open`。插件不会覆盖 DSH 已配置的权限，段落锁也不能阻止其他工具直接写文件。
 
-[存储](src/store.ts)串行处理操作，并通过系统级锁独占工作区；服务退出或崩溃后，系统会释放这把锁。旧版插件留下的 `owner.lock` 若记录的进程仍在运行，就会阻止启动；若进程已停止，新版插件会在持有系统级锁时继续，并在正常关闭时清理旧锁。无法验证的锁记录仍需人工检查。服务可能正在使用工作区时，不要删除 `owner.kernel.lock`。原位修改提案时会检查当前阅读版本、磁盘原文、批注、精确段落原文和锁定状态，只更新私有审阅状态；未提供的字段保持不变，提供 `edits` 时则替换整组段落修改。对已过期的待审提案，可提供新的基线版本及与当前段落原文完全匹配的整组修改，在原提案中重新对齐；ID 和待审状态不变。接受前会再次检查原文和锁定状态。随后保存恢复日志、原子替换原文、提交状态并删除日志。重启时，原文与操作前后任一哈希匹配即可处理被中断的接受；第三种哈希会拒绝后续操作，保留日志供人工协调。
+[存储](src/store.ts)串行处理操作，并通过系统级锁独占工作区；服务退出或崩溃后，系统会释放这把锁。旧版插件留下的 `owner.lock` 若记录的进程仍在运行，就会阻止启动；若进程已停止，新版插件会在持有系统级锁时继续，并在正常关闭时清理旧锁。无法验证的锁记录仍需人工检查。服务可能正在使用工作区时，不要删除 `owner.kernel.lock`。原位修改提案时会检查当前阅读版本、磁盘原文、批注、精确段落原文和锁定状态，只更新私有审阅状态；未提供的字段保持不变，提供 `edits` 时则替换整组修改。对已过期的待审提案，可提供新的基线版本及与当前段落原文完全匹配的整组修改，在原提案中重新对齐；ID 和待审状态不变。插入段落还要求基线为当前版本，因为插入位置取决于相邻区块。接受前会再次检查原文和锁定状态。随后保存恢复日志、原子替换原文、提交状态并删除日志。重启时，原文与操作前后任一哈希匹配即可处理被中断的接受；第三种哈希会拒绝后续操作，保留日志供人工协调。
 
 [Markdown 解析器](src/document.ts)保留原文偏移并分配持久段落 id。唯一且未变的段落可以跨插入操作保留身份；接受的替换显式保留身份。遇到不明确的外部重写，批注会脱离定位，不会猜测。[面板](src/client/panel.tsx)使用原生侧栏和输入框，不修改 DSH 核心包。不发布运行时不变量配套模块：存储验证持久化状态并拥有全部状态转换，没有需要协调的独立运行时缓存观测。
 
@@ -139,7 +139,7 @@ dsh web
 
 #### 模型看到什么
 
-打开稿件前，模型就能使用 `paper_list` 和 `paper_open`。启用审阅后，还会收到原生 `paper_read`、`paper_annotations`、`paper_propose`、`paper_revise`、`paper_check`、`paper_decide` 和六个 `paper_bib_*` schema；精确 schema 保存在[组合测试快照](tests/__snapshots__/composition.spec.ts.snap)中。读取结果包含精确段落 id、原文、版本和锁定状态。提案返回 id、状态、词面提示及 `manuscriptWritten: false`。检查结果说明待审替换是否仍匹配未锁定原文；提供提案 ID 后还会返回该提案的完整内容。`paper_revise` 保留提案 ID，不修改稿件。`paper_decide` 可在冲突检查后拒绝或接受待审提案。BibTeX 新增和替换只写已绑定的 `.bib` 文件，并返回 `metadataVerified: false`。模型仍保留 DSH 权限模式允许的普通工具。
+打开稿件前，模型就能使用 `paper_list` 和 `paper_open`。启用审阅后，还会收到原生 `paper_read`、`paper_annotations`、`paper_propose`、`paper_revise`、`paper_check`、`paper_decide` 和六个 `paper_bib_*` schema；精确 schema 保存在[组合测试快照](tests/__snapshots__/composition.spec.ts.snap)中。读取结果包含精确段落 id、原文、版本和锁定状态。编辑项省略 `operation` 时替换整个区块；设为 `insert-before` 或 `insert-after` 时，`before` 填锚点区块的精确原文，`after` 填一个新段落。提案返回 id、状态、词面提示及 `manuscriptWritten: false`。检查结果说明待审修改是否仍匹配未锁定原文；提供提案 ID 后还会返回该提案的完整内容。`paper_revise` 保留提案 ID，不修改稿件。`paper_decide` 可在冲突检查后拒绝或接受待审提案。BibTeX 新增和替换只写已绑定的 `.bib` 文件，并返回 `metadataVerified: false`。模型仍保留 DSH 权限模式允许的普通工具。
 
 #### Token 影响
 
@@ -158,7 +158,7 @@ dsh web
 ##### 英文编辑指令
 
 ```markdown
-Only change the selected blocks. Read with paper_read, then submit each independent change with paper_propose. For an existing pending proposal, inspect it with paper_check and revise it in place with paper_revise; do not create another proposal. Group dependent edits. Preserve numbers, citations and scientific claims unless explicitly instructed. Do not strengthen causality, generalizability, novelty, significance or superiority. If evidence is missing, report it. Never treat a mechanical check as scientific validation.
+Only change the selected blocks; if the author requests an added paragraph, insert one before or after a selected block. Read with paper_read, then submit each independent change with paper_propose. For an existing pending proposal, inspect it with paper_check and revise it in place with paper_revise; do not create another proposal. Group dependent edits. Preserve numbers, citations and scientific claims unless explicitly instructed. Do not strengthen causality, generalizability, novelty, significance or superiority. If evidence is missing, report it. Never treat a mechanical check as scientific validation.
 ```
 
 #### Token 影响
@@ -175,14 +175,14 @@ Only change the selected blocks. Read with paper_read, then submit each independ
 
 这个本地单作者 Markdown 原型存在以下限制。
 
-- 尚未实现 PDF、Word、LaTeX 原稿、带修订痕迹的文档导出、段落插入/删除/移动以及跨段落 Markdown 引用解析。提案替换同类完整 Markdown 块；相关替换可以分组。
+- 尚未实现 PDF、Word、LaTeX 原稿、带修订痕迹的文档导出、段落删除/移动以及跨段落 Markdown 引用解析。提案可以替换同类完整 Markdown 块，或在精确锚点旁插入一个新段落；相关修改可以分组。
 - 数字、引用、图表、方法和论断词检查只是覆盖不完整的词面信号，不是科学审计。真实提供商的修改质量和独立复核模型尚未验证；自动化测试中的模型响应来自脚本。
 - 选区限定在一个 Markdown 段落内。跨段选择会明确提示；可分别批注后一起提交。高亮需要支持 CSS Custom Highlight API 的浏览器。段落原文变化后，渲染选区会标为**需要重新定位**，即使引文仍出现在其他位置。尚未实现模糊匹配和手动重定位；请保留旧记录，在目标位置新建。
 - 锁定只约束本插件，不约束外部编辑器。不配合的外部写入可能在最终检查与重命名之间竞争。原子替换和恢复日志针对进程中断，不保证突然断电持久性或抵御恶意本地文件系统修改。
 - Finder 选择窗口打开在 macOS DSH 宿主上，不会在远程浏览器所在电脑上弹出。远程或无人值守的宿主应通过 `paper_open` 选择已知路径。普通写入工具可以绕过提案审阅；若必须由作者批准，请使用 DSH 权限模式并明确说明要求。
 - Git 发行包不会自动安装 `koffi`，因为这个原生依赖只用于 Windows 工作区锁。Windows 上的安装与运行尚未验收；在 Windows 打开稿件前，需先在同一个配置中安装 `koffi`。
 - 完整版本和批注持续保留，没有清理机制或恢复按钮。长历史可能占用磁盘并拖慢状态载入；阅读区与审阅对比会在接近可见区域时挂载，但版本对比仍会立即渲染。工作区锁允许一个服务器进程及多个浏览器窗口，不提供多作者同步。
-- BibTeX 索引可处理普通完整条目，但不会展开宏或核实书目信息。新增正文引用只会在本插件的段落替换提案中校验，不会拦截其他工具直接写文件。文献库对疑似裸键采取保守提示；科学术语也可能像引用键，需人工判断。
+- BibTeX 索引可处理普通完整条目，但不会展开宏或核实书目信息。新增正文引用会在本插件的替换和插入提案中校验，不会拦截其他工具直接写文件。文献库对疑似裸键采取保守提示；科学术语也可能像引用键，需人工判断。
 
 <a id="dev-note"></a>
 ### 开发备注

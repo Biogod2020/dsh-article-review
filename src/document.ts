@@ -62,7 +62,7 @@ export function migrateAnnotations<T extends Annotation | PaperHighlight>(annota
 
 /**
  * Detect lexical changes that merit review, without certifying scientific meaning.
- * @param proposal - raw replacements and author-declared meaning.
+ * @param proposal - raw edits and author-declared meaning.
  * @param blocks - source blocks for Methods context.
  * @returns independent mechanical risk labels.
  */
@@ -76,10 +76,11 @@ export function checkChanges(proposal: ProposalInput, blocks: PaperBlock[]): Pro
   ]
   for (const edit of proposal.edits) {
     for (const [flag, pattern] of patterns) {
-      if (JSON.stringify(edit.before.match(pattern) ?? []) !== JSON.stringify(edit.after.match(pattern) ?? [])) flags.add(flag)
+      const before = edit.operation ? '' : edit.before
+      if (JSON.stringify(before.match(pattern) ?? []) !== JSON.stringify(edit.after.match(pattern) ?? [])) flags.add(flag)
     }
     if (/method|方法/i.test(blocks.find(b => b.id === edit.blockId)?.section ?? '')) flags.add('methods')
-    if (proposal.meaning === 'structure') flags.add('structure')
+    if (proposal.meaning === 'structure' || edit.operation) flags.add('structure')
   }
   return [...flags]
 }

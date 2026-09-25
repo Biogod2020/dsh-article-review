@@ -197,6 +197,76 @@ describe('manuscript review workflow', () => {
     expect(await readFile(join(root, 'article.md'), 'utf8')).toBe(original)
   })
 
+  it('inserts a reviewable paragraph before or after an exact anchor only after acceptance', async () => {
+    const { root, store, view } = await setup()
+    const anchor = view.document.current.blocks[3]!
+    const inserted = 'A separate interpretation needs author review.'
+    const input: ProposalInput = { baseRevision: view.document.current.id, annotationIds: [],
+      reason: 'Add an interpretation paragraph.', meaning: 'structure',
+      edits: [{ blockId: anchor.id, before: anchor.text, after: inserted, operation: 'insert-before' }] }
+    const proposed = await store.propose('article.md', input)
+    expect(proposed.document.proposals[0]?.flags).toContain('structure')
+    expect(await readFile(join(root, 'article.md'), 'utf8')).toBe(original)
+    const accepted = await accept(store, 'P1')
+    expect(await readFile(join(root, 'article.md'), 'utf8')).toBe(original.replace(anchor.text, `${inserted}\n\n${anchor.text}`))
+    expect(accepted.document.current.blocks.find(block => block.id === anchor.id)?.text).toBe(anchor.text)
+    expect(accepted.document.current.blocks.find(block => block.text === inserted)?.kind).toBe('paragraph')
+    expect(accepted.document.baselines.some(base => base.text === inserted)).toBe(false)
+    const after: ProposalInput = { ...input, baseRevision: accepted.document.current.id,
+      edits: [{ blockId: anchor.id, before: anchor.text, after: 'A second added paragraph.', operation: 'insert-after' }] }
+    await store.propose('article.md', after)
+    const second = await accept(store, 'P2')
+    expect(second.document.current.blocks.map(block => block.text)).toContain('A second added paragraph.')
+    expect(second.document.current.blocks.find(block => block.id === anchor.id)?.text).toBe(anchor.text)
+  })
+
+  it('rejects malformed, locked, stale and unbound-citation insertions without changing source', async () => {
+    const { root, store, view } = await setup()
+    const anchor = view.document.current.blocks[3]!
+    const input: ProposalInput = { baseRevision: view.document.current.id, annotationIds: [], reason: 'Add context.', meaning: 'style',
+      edits: [{ blockId: anchor.id, before: anchor.text, after: 'New context.', operation: 'insert-after' }] }
+    await expect(store.propose('article.md', { ...input, edits: [{ ...input.edits[0]!, after: 'One.\n\nTwo.' }] })).rejects.toThrow('one complete Markdown paragraph')
+    await expect(store.propose('article.md', { ...input, edits: [{ ...input.edits[0]!, after: 'New citation [@missing].' }] })).rejects.toThrow()
+    await store.propose('article.md', input)
+    await store.command({ action: 'review', path: 'article.md', revision: view.document.current.id, blockIds: [anchor.id], locked: true })
+    await expect(accept(store, 'P1')).rejects.toThrow('Unlock')
+    await store.command({ action: 'unlock', path: 'article.md', blockId: anchor.id })
+    await writeFile(join(root, 'article.md'), original + '\nExternal paragraph.\n')
+    await expect(accept(store, 'P1')).rejects.toThrow('Source changed')
+    expect(await readFile(join(root, 'article.md'), 'utf8')).toBe(original + '\nExternal paragraph.\n')
+  })
+
+  it('combines an insertion with a replacement at the same anchor without swallowing either change', async () => {
+    const { root, store, view } = await setup('# Title\r\n\r\nFirst sentence.\r\n\r\nSecond sentence.\r\n')
+    const anchor = view.document.current.blocks[1]!
+    const input: ProposalInput = { baseRevision: view.document.current.id, annotationIds: [], reason: 'Clarify the introduction.', meaning: 'structure',
+      edits: [{ blockId: anchor.id, before: anchor.text, after: 'Revised first sentence.' },
+        { blockId: anchor.id, before: anchor.text, after: 'Added context.', operation: 'insert-before' }] }
+    await store.propose('article.md', input)
+    await accept(store, 'P1')
+    expect(await readFile(join(root, 'article.md'), 'utf8')).toBe('# Title\r\n\r\nAdded context.\r\n\r\nRevised first sentence.\r\n\r\nSecond sentence.\r\n')
+  })
+
+  it('revises a pending replacement into an insertion and requires rebasing after another acceptance', async () => {
+    const { root, store, view } = await setup()
+    const anchor = view.document.current.blocks[3]!
+    await store.propose('article.md', proposal(view, anchor.text, 'Evaluation used existing records.'))
+    const revised = await store.revise('article.md', { proposalId: 'P1', revision: view.document.current.id,
+      edits: [{ blockId: anchor.id, before: anchor.text, after: 'Additional context.', operation: 'insert-after' }] })
+    expect(revised.document.proposals[0]?.edits[0]?.operation).toBe('insert-after')
+    expect(await readFile(join(root, 'article.md'), 'utf8')).toBe(original)
+    const other = view.document.current.blocks[2]!
+    await store.propose('article.md', proposal(view, other.text, other.text.replace('higher', 'lower')))
+    await accept(store, 'P2')
+    await expect(accept(store, 'P1')).rejects.toThrow('stale')
+    const current = await store.read('article.md')
+    await store.revise('article.md', { proposalId: 'P1', revision: current.document.current.id,
+      baseRevision: current.document.current.id, edits: [{ blockId: anchor.id, before: anchor.text,
+        after: 'Additional context.', operation: 'insert-after' }] })
+    await accept(store, 'P1')
+    expect(await readFile(join(root, 'article.md'), 'utf8')).toContain('Additional context.')
+  })
+
   it('revises a pending proposal in place, recalculates flags, and persists the same id without writing source', async () => {
     const { root, store, view } = await setup()
     const block = view.document.current.blocks[2]!
