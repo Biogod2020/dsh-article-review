@@ -41,10 +41,14 @@ for (const [name, version] of Object.entries({
   '@deepseek-ai/dsh-native-command': '0.0.1-rc.1',
   '@deepseek-ai/schemastery': '^3.18.3',
 })) {
-  if (dependencies[name] !== 'workspace:^') throw new Error(`Unexpected source dependency: ${name}`)
+  if (dependencies[name] !== 'workspace:^' && dependencies[name] !== version) {
+    throw new Error(`Unexpected source dependency: ${name}`)
+  }
   dependencies[name] = version
 }
-if (dependencies.koffi !== '^3.1.0') throw new Error('Unexpected koffi source dependency')
+if (dependencies.koffi !== '^3.1.0' && !(dependencies.koffi === undefined && releaseManifest.peerDependencies?.koffi === '^3.1.0')) {
+  throw new Error('Unexpected koffi source dependency')
+}
 delete dependencies.koffi
 releaseManifest.dependencies = dependencies
 releaseManifest.peerDependencies = { '@deepseek-ai/cordis': '^4.0.3', koffi: '^3.1.0' }
