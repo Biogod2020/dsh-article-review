@@ -28,7 +28,7 @@ Read a Markdown manuscript beside the native conversation, collect annotations, 
 Install the prebuilt version tag with DSH's profile command:
 
 ```sh
-dsh plugin --profile web add 'github:Biogod2020/dsh-article-review#v0.1.7-alpha.4'
+dsh plugin --profile web add 'github:Biogod2020/dsh-article-review#v0.1.7-alpha.5'
 dsh web
 ```
 
@@ -139,7 +139,7 @@ The [review panel](src/client/panel.tsx) keeps proposal summaries, risk flags an
 
 #### What the model sees
 
-The model receives `paper_list` and `paper_open` before a manuscript opens. An enabled review session also receives native `paper_read`, `paper_annotations`, `paper_propose`, `paper_revise`, `paper_check`, `paper_decide` and six `paper_bib_*` schemas; the exact schemas are recorded in the [composition snapshot](tests/__snapshots__/composition.spec.ts.snap). Reads return exact block ids, source, revision and locks. In an edit, use `insert-before` or `insert-after` with the anchor block's exact `before` text and one new paragraph or Markdown heading in `after` to propose an insertion. For compatibility, an omitted `operation` also inserts when `after` consists of the exact unchanged anchor and one blank-separated new paragraph or heading before or after it; other omitted-operation edits replace one block. Proposals return their id, status, lexical flags and `manuscriptWritten: false`. Checks report whether pending edits still match unlocked source; passing a proposal ID also returns that proposal's full content. `paper_revise` keeps the proposal ID and manuscript untouched. `paper_decide` can reject or accept a pending proposal after conflict checks. BibTeX add/replace writes only a bound `.bib` file and reports `metadataVerified: false`. The model retains ordinary tools allowed by its DSH permission mode.
+The model receives `paper_list` and `paper_open` before a manuscript opens. An enabled review session also receives native `paper_read`, `paper_annotations`, `paper_propose`, `paper_revise`, `paper_check`, `paper_decide` and six `paper_bib_*` schemas; the exact schemas are recorded in the [composition snapshot](tests/__snapshots__/composition.spec.ts.snap). Reads return exact block ids, source, revision and locks. In an edit, use `insert-before` or `insert-after` with the anchor block's exact `before` text and one new paragraph or Markdown heading in `after` to propose an insertion. A heading and paragraph at one anchor can be grouped as two edits in reading order. For compatibility, an omitted `operation` also inserts when `after` consists of the exact unchanged anchor and one blank-separated new paragraph or heading before or after it; other omitted-operation edits replace one block. Proposals return their id, status, lexical flags and `manuscriptWritten: false`. Checks report whether pending edits still match unlocked source; passing a proposal ID also returns that proposal's full content. `paper_revise` keeps the proposal ID and manuscript untouched. `paper_decide` can reject or accept a pending proposal after conflict checks. BibTeX add/replace writes only a bound `.bib` file and reports `metadataVerified: false`. The model retains ordinary tools allowed by its DSH permission mode.
 
 #### Token effect
 
@@ -175,7 +175,7 @@ Submitted context appends to the conversation. Changed quotations, revisions, an
 
 This local single-author Markdown prototype has the following limits.
 
-- PDF, Word and LaTeX sources, tracked document export, paragraph deletion/movement and cross-block Markdown reference resolution are not implemented. Proposals replace complete blocks of the same Markdown type or insert one paragraph beside an exact anchor; related edits can be grouped.
+- PDF, Word and LaTeX sources, tracked document export, paragraph deletion/movement and cross-block Markdown reference resolution are not implemented. Proposals replace complete blocks of the same Markdown type or insert paragraphs and headings beside exact anchors; related edits can be grouped in reading order.
 - Mechanical numeric, citation, figure, Methods and claim-word checks are incomplete lexical signals, not a scientific audit. Real-provider quality and an independent reviewing model remain unverified; the automated model responses are scripted.
 - Selections stay within one Markdown block. Cross-block selections receive an explicit message; add separate notes and submit them together. Highlights require a browser with the CSS Custom Highlight API. A changed source block marks its rendered selections **Needs location**, even if the quoted words survive elsewhere. Automatic fuzzy matching and manual reanchoring are not implemented; preserve the old record and create a new one at the intended passage.
 - Locks apply to this plugin, not external editors. A noncooperating writer can race the final check and rename. Atomic replacement and the journal address process interruption, not guaranteed power-loss durability or hostile local filesystem mutation.

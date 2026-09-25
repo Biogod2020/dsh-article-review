@@ -28,7 +28,7 @@ kind: "package-bundle"
 使用 DSH 的配置管理命令安装预构建的版本 tag：
 
 ```sh
-dsh plugin --profile web add 'github:Biogod2020/dsh-article-review#v0.1.7-alpha.4'
+dsh plugin --profile web add 'github:Biogod2020/dsh-article-review#v0.1.7-alpha.5'
 dsh web
 ```
 
@@ -107,7 +107,7 @@ dsh web
 
 [宿主端](src/index.ts)在智能体原有工具之外增加稿件发现、审阅及 BibTeX 工具。经过认证的作者请求使用 Connection 的 `/api` 通道；模型工具从执行中的智能体取得会话标识。已启用会话及所选稿件路径保存在工作区私有审阅目录中，恢复会话时会先恢复这些状态。退出会隐藏活跃稿件工具，但保留审阅记录和普通工具。未启用的会话仍可使用 `paper_list` 与 `paper_open`。插件不会覆盖 DSH 已配置的权限，段落锁也不能阻止其他工具直接写文件。
 
-[存储](src/store.ts)串行处理操作，并通过系统级锁独占工作区；服务退出或崩溃后，系统会释放这把锁。旧版插件留下的 `owner.lock` 若记录的进程仍在运行，就会阻止启动；若进程已停止，新版插件会在持有系统级锁时继续，并在正常关闭时清理旧锁。无法验证的锁记录仍需人工检查。服务可能正在使用工作区时，不要删除 `owner.kernel.lock`。原位修改提案时会检查当前阅读版本、磁盘原文、批注、精确段落原文和锁定状态，只更新私有审阅状态；未提供的字段保持不变，提供 `edits` 时则替换整组修改。对已过期的待审提案，可提供新的基线版本及与当前段落原文完全匹配的整组修改，在原提案中重新对齐；ID 和待审状态不变。插入段落还要求基线为当前版本，因为插入位置取决于相邻区块。接受前会再次检查原文和锁定状态。随后保存恢复日志、原子替换原文、提交状态并删除日志。重启时，原文与操作前后任一哈希匹配即可处理被中断的接受；第三种哈希会拒绝后续操作，保留日志供人工协调。
+[存储](src/store.ts)串行处理操作，并通过系统级锁独占工作区；服务退出或崩溃后，系统会释放这把锁。旧版插件留下的 `owner.lock` 若记录的进程仍在运行，就会阻止启动；若进程已停止，新版插件会在持有系统级锁时继续，并在正常关闭时清理旧锁。无法验证的锁记录仍需人工检查。服务可能正在使用工作区时，不要删除 `owner.kernel.lock`。原位修改提案时会检查当前阅读版本、磁盘原文、批注、精确段落原文和锁定状态，只更新私有审阅状态；未提供的字段保持不变，提供 `edits` 时则替换整组修改。对已过期的待审提案，可提供新的基线版本及与当前段落原文完全匹配的整组修改，在原提案中重新对齐；ID 和待审状态不变。插入新区块还要求基线为当前版本，因为插入位置取决于相邻区块。接受前会再次检查原文和锁定状态。随后保存恢复日志、原子替换原文、提交状态并删除日志。重启时，原文与操作前后任一哈希匹配即可处理被中断的接受；第三种哈希会拒绝后续操作，保留日志供人工协调。
 
 [Markdown 解析器](src/document.ts)保留原文偏移并分配持久段落 id。唯一且未变的段落可以跨插入操作保留身份；接受的替换显式保留身份。遇到不明确的外部重写，批注会脱离定位，不会猜测。[面板](src/client/panel.tsx)使用原生侧栏和输入框，不修改 DSH 核心包。不发布运行时不变量配套模块：存储验证持久化状态并拥有全部状态转换，没有需要协调的独立运行时缓存观测。
 
@@ -139,7 +139,7 @@ dsh web
 
 #### 模型看到什么
 
-打开稿件前，模型就能使用 `paper_list` 和 `paper_open`。启用审阅后，还会收到原生 `paper_read`、`paper_annotations`、`paper_propose`、`paper_revise`、`paper_check`、`paper_decide` 和六个 `paper_bib_*` schema；精确 schema 保存在[组合测试快照](tests/__snapshots__/composition.spec.ts.snap)中。读取结果包含精确段落 id、原文、版本和锁定状态。新增段落或 Markdown 标题时，应设为 `insert-before` 或 `insert-after`，`before` 填锚点区块的精确原文，`after` 只填一个新区块。为兼容旧调用，省略 `operation` 但 `after` 是未改动的锚点原文加一个空行分隔的新段落或标题，也会按插入处理；其他省略 `operation` 的编辑仍是单区块替换。提案返回 id、状态、词面提示及 `manuscriptWritten: false`。检查结果说明待审修改是否仍匹配未锁定原文；提供提案 ID 后还会返回该提案的完整内容。`paper_revise` 保留提案 ID，不修改稿件。`paper_decide` 可在冲突检查后拒绝或接受待审提案。BibTeX 新增和替换只写已绑定的 `.bib` 文件，并返回 `metadataVerified: false`。模型仍保留 DSH 权限模式允许的普通工具。
+打开稿件前，模型就能使用 `paper_list` 和 `paper_open`。启用审阅后，还会收到原生 `paper_read`、`paper_annotations`、`paper_propose`、`paper_revise`、`paper_check`、`paper_decide` 和六个 `paper_bib_*` schema；精确 schema 保存在[组合测试快照](tests/__snapshots__/composition.spec.ts.snap)中。读取结果包含精确段落 id、原文、版本和锁定状态。新增段落或 Markdown 标题时，应设为 `insert-before` 或 `insert-after`，`before` 填锚点区块的精确原文，`after` 只填一个新区块。同一锚点处的标题和段落可以依阅读顺序写成两条编辑，合成一组提案。为兼容旧调用，省略 `operation` 但 `after` 是未改动的锚点原文加一个空行分隔的新段落或标题，也会按插入处理；其他省略 `operation` 的编辑仍是单区块替换。提案返回 id、状态、词面提示及 `manuscriptWritten: false`。检查结果说明待审修改是否仍匹配未锁定原文；提供提案 ID 后还会返回该提案的完整内容。`paper_revise` 保留提案 ID，不修改稿件。`paper_decide` 可在冲突检查后拒绝或接受待审提案。BibTeX 新增和替换只写已绑定的 `.bib` 文件，并返回 `metadataVerified: false`。模型仍保留 DSH 权限模式允许的普通工具。
 
 #### Token 影响
 
@@ -175,7 +175,7 @@ Only change the selected blocks; if the author requests an added paragraph, inse
 
 这个本地单作者 Markdown 原型存在以下限制。
 
-- 尚未实现 PDF、Word、LaTeX 原稿、带修订痕迹的文档导出、段落删除/移动以及跨段落 Markdown 引用解析。提案可以替换同类完整 Markdown 块，或在精确锚点旁插入一个新段落；相关修改可以分组。
+- 尚未实现 PDF、Word、LaTeX 原稿、带修订痕迹的文档导出、段落删除/移动以及跨段落 Markdown 引用解析。提案可以替换同类完整 Markdown 块，或在精确锚点旁插入新段落和标题；相关修改可以按阅读顺序分组。
 - 数字、引用、图表、方法和论断词检查只是覆盖不完整的词面信号，不是科学审计。真实提供商的修改质量和独立复核模型尚未验证；自动化测试中的模型响应来自脚本。
 - 选区限定在一个 Markdown 段落内。跨段选择会明确提示；可分别批注后一起提交。高亮需要支持 CSS Custom Highlight API 的浏览器。段落原文变化后，渲染选区会标为**需要重新定位**，即使引文仍出现在其他位置。尚未实现模糊匹配和手动重定位；请保留旧记录，在目标位置新建。
 - 锁定只约束本插件，不约束外部编辑器。不配合的外部写入可能在最终检查与重命名之间竞争。原子替换和恢复日志针对进程中断，不保证突然断电持久性或抵御恶意本地文件系统修改。

@@ -92,7 +92,7 @@ exports[`boots from a composition, keeps ordinary tools, and lets agents and ope
     },
   },
   {
-    "description": "Submit a manuscript change for author review without writing the source. Copy blockId and exact before text from paper_read. To add a paragraph or Markdown heading, use operation: insert-before/insert-after with only that new block in after. For compatibility, an omitted operation also inserts when after contains the exact unchanged before block, a blank line, and exactly one new paragraph or heading before or after it. Group dependent edits. Insertions require the current baseRevision. Mechanical checks flag number, citation, figure, claim-word, Methods and insertion changes.",
+    "description": "Submit a manuscript change for author review without writing the source. Copy blockId and exact before text from paper_read. To add a paragraph or Markdown heading, use operation: insert-before/insert-after with only that new block in after. For a heading plus paragraph at one position, supply two insertion edits at the same anchor in reading order, heading first. For compatibility, an omitted operation also inserts when after contains the exact unchanged before block, a blank line, and exactly one new paragraph or heading before or after it. Group dependent edits. Insertions require the current baseRevision. Mechanical checks flag number, citation, figure, claim-word, Methods and insertion changes.",
     "name": "paper_propose",
     "parameters": {
       "properties": {
@@ -165,7 +165,7 @@ exports[`boots from a composition, keeps ordinary tools, and lets agents and ope
     },
   },
   {
-    "description": "Revise an existing pending manuscript proposal in place; keep its id and do not write the manuscript. Use paper_check with proposalId to inspect it, and paper_read for the current revision and exact source. Supply only fields to change; if edits is supplied, it replaces the complete edit group. Edits may replace a block or insert one paragraph or Markdown heading before/after an exact anchor using operation. An omitted operation also inserts when after contains the exact unchanged before block and one blank-separated new paragraph or heading. To rebase a stale proposal, provide baseRevision equal to the current reader revision and complete edits with current block ids and exact before text. The same source, annotation, lock and mechanical-risk checks as paper_propose run again. Settled proposals cannot be revised.",
+    "description": "Revise an existing pending manuscript proposal in place; keep its id and do not write the manuscript. Use paper_check with proposalId to inspect it, and paper_read for the current revision and exact source. Supply only fields to change; if edits is supplied, it replaces the complete edit group. Edits may replace a block or insert one paragraph or Markdown heading before/after an exact anchor using operation. A heading plus paragraph at one anchor can be grouped as two insertion edits in reading order. An omitted operation also inserts when after contains the exact unchanged before block and one blank-separated new paragraph or heading. To rebase a stale proposal, provide baseRevision equal to the current reader revision and complete edits with current block ids and exact before text. The same source, annotation, lock and mechanical-risk checks as paper_propose run again. Settled proposals cannot be revised.",
     "name": "paper_revise",
     "parameters": {
       "properties": {

@@ -211,6 +211,21 @@ it('boots from a composition, keeps ordinary tools, and lets agents and operator
   expect(headingView.document.proposals.at(-1)?.edits[0]).toMatchObject({ operation: 'insert-before',
     after: '### Screening Reference Set' })
   expect(await readFile(join(root, 'article.md'), 'utf8')).not.toContain('### Screening Reference Set')
+  const grouped = await ctx.tools.execute({ agent, callId: ToolCallId('heading-and-paragraph'), name: 'paper_propose', arguments: {
+    path: 'article.md', baseRevision: naturalBase.document.current.id, annotationIds: [],
+    reason: 'Present the reference under a separate heading.', meaning: 'structure',
+    edits: [
+      { blockId: naturalAnchor.id, before: naturalAnchor.text,
+        after: '### Screening Reference Set', operation: 'insert-after' },
+      { blockId: naturalAnchor.id, before: naturalAnchor.text,
+        after: 'The frozen reference uses a separate study set.', operation: 'insert-after' },
+    ],
+  }, signal: new AbortController().signal })
+  expect(grouped.isError).not.toBe(true)
+  const groupedView = z.object({ result: z.object({ value: ViewSchema }) }).parse(await (await rpc({ action: 'open', path: 'article.md' })).json()).result.value
+  expect(groupedView.document.proposals.at(-1)?.edits.map(edit => edit.after)).toEqual([
+    '### Screening Reference Set', 'The frozen reference uses a separate study set.',
+  ])
   const left = await (await control('paper-review/leave', {})).json() as { result: { ok: boolean } }
   expect(left.result.ok).toBe(true)
   expect(await readFile(join(root, '.paper-review', 'sessions.json'), 'utf8')).toBe('[]')

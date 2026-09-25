@@ -267,6 +267,30 @@ describe('manuscript review workflow', () => {
     expect(await readFile(join(root, 'article.md'), 'utf8')).not.toContain(heading)
   })
 
+  it('keeps a heading and paragraph in one ordered proposal at the same anchor', async () => {
+    const source = '## Experimental Setup\n\nWe computed confidence intervals.\n\n## Results\n'
+    const { root, store, view } = await setup(source)
+    const anchor = view.document.current.blocks[1]!
+    const heading = '### Screening Reference Set'
+    const paragraph = 'Screening validation used a separate frozen reference.'
+    const edits: ProposalInput['edits'] = [
+      { blockId: anchor.id, before: anchor.text, after: heading, operation: 'insert-after' },
+      { blockId: anchor.id, before: anchor.text, after: paragraph, operation: 'insert-after' },
+    ]
+    const input: ProposalInput = { baseRevision: view.document.current.id, annotationIds: [],
+      reason: 'Introduce the screening reference subsection.', meaning: 'structure', edits }
+    await expect(store.propose('article.md', { ...input, edits: [edits[0]!, edits[0]!] }))
+      .rejects.toThrow('repeat an identical edit')
+    const proposed = await store.propose('article.md', input)
+    expect(proposed.document.proposals[0]?.edits).toEqual(edits)
+    expect(await readFile(join(root, 'article.md'), 'utf8')).toBe(source)
+    const accepted = await accept(store, 'P1')
+    expect(await readFile(join(root, 'article.md'), 'utf8')).toBe(source.replace(anchor.text,
+      `${anchor.text}\n\n${heading}\n\n${paragraph}`))
+    expect(accepted.document.current.blocks.find(block => block.id === anchor.id)?.text).toBe(anchor.text)
+    expect(accepted.document.current.blocks.find(block => block.text === paragraph)?.section).toBe('Screening Reference Set')
+  })
+
   it('recognizes a paragraph before an unchanged anchor but rejects altered or multiple blocks', async () => {
     const { root, store, view } = await setup()
     const anchor = view.document.current.blocks[3]!

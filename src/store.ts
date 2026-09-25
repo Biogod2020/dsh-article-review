@@ -425,8 +425,9 @@ export class PaperStore {
   private async proposalFlags(document: PaperDocument, proposal: ProposalInput): Promise<Proposal['flags']> {
     const base = document.revisions.find(r => r.id === proposal.baseRevision)
     if (base === undefined) throw new Error('Unknown base revision; use paper_read first')
-    const editKeys = proposal.edits.map(edit => `${edit.blockId}:${edit.operation ?? 'replace'}`)
-    if (new Set(editKeys).size !== editKeys.length) throw new Error('A proposal cannot apply the same operation to one block twice')
+    const editKeys = proposal.edits.map(edit => edit.operation
+      ? `${edit.blockId}:${edit.operation}:${edit.after}` : `${edit.blockId}:replace`)
+    if (new Set(editKeys).size !== editKeys.length) throw new Error('A proposal cannot repeat an identical edit or replace one block twice')
     if (proposal.edits.some(edit => edit.operation) && proposal.baseRevision !== document.current.id) throw new Error('Insertions require the current reader revision; rebase the proposal before inserting')
     for (const annotationId of proposal.annotationIds) {
       const annotation = document.annotations.find(a => a.id === annotationId)
@@ -434,7 +435,6 @@ export class PaperStore {
     }
     const bibliography = await this.bibEntries(document.path)
     const keys = bibliography.files.length ? new Set(bibliography.entries.map(entry => entry.key)) : null
-    const insertionPositions = new Set<number>()
     for (const edit of proposal.edits) {
       const block = base.blocks.find(b => b.id === edit.blockId)
       if (block === undefined || block.text !== edit.before) throw new Error('Edit must match one unchanged base block')
@@ -444,9 +444,6 @@ export class PaperStore {
       if (edit.operation) {
         if (after.blocks.length !== 1 || !['paragraph', 'heading'].includes(after.blocks[0]?.kind ?? '')
           || after.blocks[0]?.text !== edit.after) throw new Error('Insert exactly one complete Markdown paragraph or heading; use separate edits for other blocks')
-        const position = edit.operation === 'insert-before' ? block.start : block.end
-        if (insertionPositions.has(position)) throw new Error('Two inserted blocks cannot share one source position')
-        insertionPositions.add(position)
         assertNewCitations('', edit.after, keys)
       } else {
         if (edit.before === edit.after) throw new Error('Replacement must contain an actual change')
@@ -604,19 +601,19 @@ export class PaperStore {
             const blocks = document.current.blocks
             const newline = sourceText.includes('\r\n') ? '\r\n' : '\n'
             const separator = newline + newline
-            const operations = changes.map(({ block, edit }) => {
-              if (!edit.operation) return { start: block.start, end: block.end, content: edit.after }
-              const index = blocks.findIndex(candidate => candidate.id === block.id)
-              const adjacent = edit.operation === 'insert-before' ? blocks[index - 1] : blocks[index + 1]
+            const operations = changes.map(({ block, edit }, index) => {
+              if (!edit.operation) return { start: block.start, end: block.end, content: edit.after, index }
+              const anchorIndex = blocks.findIndex(candidate => candidate.id === block.id)
+              const adjacent = edit.operation === 'insert-before' ? blocks[anchorIndex - 1] : blocks[anchorIndex + 1]
               const gap = edit.operation === 'insert-before'
                 ? sourceText.slice(adjacent?.end ?? block.start, block.start)
                 : sourceText.slice(block.end, adjacent?.start ?? block.end)
               const missingBreaks = adjacent ? newline.repeat(Math.max(0, 2 - (gap.match(/\r?\n/g)?.length ?? 0))) : ''
               return edit.operation === 'insert-before'
-                ? { start: block.start, end: block.start, content: missingBreaks + edit.after + separator }
-                : { start: block.end, end: block.end, content: separator + edit.after + missingBreaks }
+                ? { start: block.start, end: block.start, content: missingBreaks + edit.after + separator, index }
+                : { start: block.end, end: block.end, content: separator + edit.after + missingBreaks, index }
             })
-            for (const operation of operations.sort((a, b) => b.start - a.start || b.end - a.end)) {
+            for (const operation of operations.sort((a, b) => b.start - a.start || b.end - a.end || b.index - a.index)) {
               output = output.slice(0, operation.start) + operation.content + output.slice(operation.end)
             }
             if (Buffer.byteLength(output) > this.maxBytes) throw new Error('Accepted manuscript would exceed configured size limit')
