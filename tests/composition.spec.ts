@@ -187,6 +187,30 @@ it('boots from a composition, keeps ordinary tools, and lets agents and operator
     revision: insertionBase.document.current.id, proposalId: 'P4', accept: true })).json()
   expect(z.object({ result: z.object({ ok: z.boolean() }) }).parse(insertionAccepted).result.ok).toBe(true)
   expect(await readFile(join(root, 'article.md'), 'utf8')).toContain('\n\nThis result needs a separate explanation.')
+  const naturalBase = z.object({ result: z.object({ value: ViewSchema }) }).parse(await (await rpc({ action: 'open', path: 'article.md' })).json()).result.value
+  const naturalAnchor = naturalBase.document.current.blocks[1]!
+  const natural = await ctx.tools.execute({ agent, callId: ToolCallId('natural-insert'), name: 'paper_propose', arguments: {
+    path: 'article.md', baseRevision: naturalBase.document.current.id, annotationIds: [],
+    reason: 'Keep this explanation separate.', meaning: 'evidence',
+    edits: [{ blockId: naturalAnchor.id, before: naturalAnchor.text,
+      after: `${naturalAnchor.text}\n\nThe frozen reference uses a separate study set.` }],
+  }, signal: new AbortController().signal })
+  expect(natural.isError).not.toBe(true)
+  const naturalView = z.object({ result: z.object({ value: ViewSchema }) }).parse(await (await rpc({ action: 'open', path: 'article.md' })).json()).result.value
+  expect(naturalView.document.proposals.at(-1)?.edits[0]).toMatchObject({ operation: 'insert-after',
+    after: 'The frozen reference uses a separate study set.' })
+  expect(await readFile(join(root, 'article.md'), 'utf8')).not.toContain('frozen reference')
+  const headingInsertion = await ctx.tools.execute({ agent, callId: ToolCallId('heading-insert'), name: 'paper_propose', arguments: {
+    path: 'article.md', baseRevision: naturalBase.document.current.id, annotationIds: [],
+    reason: 'Give the reference a subsection heading.', meaning: 'structure',
+    edits: [{ blockId: naturalAnchor.id, before: naturalAnchor.text,
+      after: '### Screening Reference Set', operation: 'insert-before' }],
+  }, signal: new AbortController().signal })
+  expect(headingInsertion.isError).not.toBe(true)
+  const headingView = z.object({ result: z.object({ value: ViewSchema }) }).parse(await (await rpc({ action: 'open', path: 'article.md' })).json()).result.value
+  expect(headingView.document.proposals.at(-1)?.edits[0]).toMatchObject({ operation: 'insert-before',
+    after: '### Screening Reference Set' })
+  expect(await readFile(join(root, 'article.md'), 'utf8')).not.toContain('### Screening Reference Set')
   const left = await (await control('paper-review/leave', {})).json() as { result: { ok: boolean } }
   expect(left.result.ok).toBe(true)
   expect(await readFile(join(root, '.paper-review', 'sessions.json'), 'utf8')).toBe('[]')

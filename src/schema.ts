@@ -23,7 +23,7 @@ export const HighlightSchema = z.object({
   renderedSource: text, offset: z.number().int().nonnegative(), color: z.enum(['yellow', 'green', 'blue', 'underline']),
   anchor: z.enum(['attached', 'needs-location']), removed: z.boolean(),
 })
-/** Replace a block, or insert one paragraph immediately before or after an exact anchor block. */
+/** Replace a block, or insert one paragraph or heading beside an exact anchor block. */
 export const EditSchema = z.object({
   blockId: id, before: text, after: text,
   operation: z.enum(['insert-before', 'insert-after']).optional(),

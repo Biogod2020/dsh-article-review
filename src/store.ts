@@ -14,6 +14,26 @@ import type { BibliographyView, PaperCommand, PaperDocument, PaperView, Proposal
 const JournalSchema = z.object({ before: z.string(), after: z.string(), next: DocumentSchema })
 const BibBindingsSchema = z.record(z.string(), z.array(z.string()))
 
+/** Retain the unchanged anchor when a model supplies it beside one new paragraph or heading as a replacement. */
+function normalizeBlockInsertions(proposal: ProposalInput): ProposalInput {
+  return { ...proposal, edits: proposal.edits.map((edit) => {
+    if (edit.operation) return edit
+    const blocks = parseRevision(edit.after).blocks
+    const first = blocks[0]
+    const second = blocks[1]
+    if (blocks.length !== 2 || !first || !second || first.start !== 0
+      || edit.after.slice(second.end).trim() !== ''
+      || !/^(?:[ \t]*\r?\n){2,}[ \t]*$/.test(edit.after.slice(first.end, second.start))) return edit
+    if (first.text === edit.before && (second.kind === 'paragraph' || second.kind === 'heading')) {
+      return { ...edit, operation: 'insert-after', after: second.text }
+    }
+    if (second.text === edit.before && (first.kind === 'paragraph' || first.kind === 'heading')) {
+      return { ...edit, operation: 'insert-before', after: first.text }
+    }
+    return edit
+  }) }
+}
+
 /** Atomic file replacement preserving source permissions. @param path - destination. @param text - bytes to publish. */
 async function atomicWrite(path: string, text: string): Promise<void> {
   const temporary = `${path}.${randomUUID()}.tmp`
@@ -422,14 +442,17 @@ export class PaperStore {
       if (document.baselines.some(b => b.blockId === edit.blockId && b.locked)) throw new Error('The author locked this block; ask them to unlock it')
       const after = parseRevision(edit.after)
       if (edit.operation) {
-        if (after.blocks.length !== 1 || after.blocks[0]?.kind !== 'paragraph' || after.blocks[0].text !== edit.after) throw new Error('Insert exactly one complete Markdown paragraph; use separate edits for other blocks')
+        if (after.blocks.length !== 1 || !['paragraph', 'heading'].includes(after.blocks[0]?.kind ?? '')
+          || after.blocks[0]?.text !== edit.after) throw new Error('Insert exactly one complete Markdown paragraph or heading; use separate edits for other blocks')
         const position = edit.operation === 'insert-before' ? block.start : block.end
-        if (insertionPositions.has(position)) throw new Error('Two inserted paragraphs cannot share one source position')
+        if (insertionPositions.has(position)) throw new Error('Two inserted blocks cannot share one source position')
         insertionPositions.add(position)
         assertNewCitations('', edit.after, keys)
       } else {
         if (edit.before === edit.after) throw new Error('Replacement must contain an actual change')
-        if (after.blocks.length !== 1 || after.blocks[0]?.kind !== block.kind || after.blocks[0].text !== edit.after) throw new Error('Replace one complete Markdown block without changing its block type; use grouped edits for related blocks')
+        if (after.blocks.length !== 1 || after.blocks[0]?.kind !== block.kind || after.blocks[0].text !== edit.after) {
+          throw new Error('Replacement must be one complete Markdown block without changing its block type. To add a paragraph or heading, keep the original block unchanged beside one new blank-separated block, or use operation: insert-before/insert-after with only the new block in after. Group edits if the original also changes.')
+        }
         if (block.kind !== 'code' && block.kind !== 'html') assertNewCitations(edit.before, edit.after, keys)
       }
     }
@@ -437,14 +460,14 @@ export class PaperStore {
   }
 
   /**
-   * Submit validated replacements or paragraph insertions without writing the manuscript.
+   * Submit validated replacements or paragraph/heading insertions without writing the manuscript.
    * @param path - manuscript.
    * @param input - exact base and edits.
    * @returns stored proposal id and checks.
    */
   propose(path: string, input: ProposalInput): Promise<PaperView> {
     return this.serial(async () => {
-      const proposal = ProposalInputSchema.parse(input)
+      const proposal = normalizeBlockInsertions(ProposalInputSchema.parse(input))
       const { document, key, disk } = await this.load(path)
       if (revisionId(disk) !== document.current.id) throw new Error('External changes await reader refresh; no proposal can be submitted against stale source')
       const flags = await this.proposalFlags(document, proposal)
@@ -472,13 +495,13 @@ export class PaperStore {
       if (revisionId(disk) !== document.current.id) throw new Error('External changes await reader refresh; no proposal can be revised against stale source')
       const previous = document.proposals.find(p => p.id === revision.proposalId)
       if (!previous || previous.status !== 'pending') throw new Error('Proposal is no longer pending')
-      const candidate = ProposalInputSchema.parse({
+      const candidate = normalizeBlockInsertions(ProposalInputSchema.parse({
         baseRevision: revision.baseRevision ?? previous.baseRevision,
         annotationIds: revision.annotationIds ?? previous.annotationIds,
         reason: revision.reason ?? previous.reason,
         meaning: revision.meaning ?? previous.meaning,
         edits: revision.edits ?? previous.edits,
-      })
+      }))
       if (candidate.baseRevision === previous.baseRevision && candidate.reason === previous.reason && candidate.meaning === previous.meaning
         && JSON.stringify(candidate.annotationIds) === JSON.stringify(previous.annotationIds)
         && JSON.stringify(candidate.edits) === JSON.stringify(previous.edits)) throw new Error('Proposal revision makes no changes')

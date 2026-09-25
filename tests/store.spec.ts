@@ -220,6 +220,79 @@ describe('manuscript review workflow', () => {
     expect(second.document.current.blocks.find(block => block.id === anchor.id)?.text).toBe(anchor.text)
   })
 
+  it('turns an unchanged block plus one blank-separated paragraph into a distinct insertion proposal', async () => {
+    const source = '## Experimental Setup\n\nWe computed intervals across the 40 sites.\n'
+    const { root, store, view } = await setup(source)
+    const anchor = view.document.current.blocks[1]!
+    const added = 'The screening reference labels were frozen separately.'
+    const input: ProposalInput = { baseRevision: view.document.current.id, annotationIds: [],
+      reason: 'Add a standalone screening paragraph.', meaning: 'evidence',
+      edits: [{ blockId: anchor.id, before: anchor.text, after: `${anchor.text}\n\n${added}` }] }
+    const proposed = await store.propose('article.md', input)
+    expect(proposed.document.proposals[0]?.edits).toEqual([{ blockId: anchor.id, before: anchor.text,
+      after: added, operation: 'insert-after' }])
+    expect(proposed.document.proposals[0]?.flags).toContain('structure')
+    expect(await readFile(join(root, 'article.md'), 'utf8')).toBe(source)
+    const accepted = await accept(store, 'P1')
+    expect(accepted.document.current.blocks.find(block => block.id === anchor.id)?.text).toBe(anchor.text)
+    expect(accepted.document.current.blocks.find(block => block.text === added)?.kind).toBe('paragraph')
+    expect(await readFile(join(root, 'article.md'), 'utf8')).toBe(`## Experimental Setup\n\n${anchor.text}\n\n${added}\n`)
+  })
+
+  it('inserts a standalone Markdown heading before a paragraph through the same author-review gate', async () => {
+    const source = '## Experimental Setup\n\n### Evaluation Metrics\n\nWe computed confidence intervals.\n\nScreening validation used a frozen reference.\n\n## Results\n'
+    const { root, store, view } = await setup(source)
+    const anchor = view.document.current.blocks[3]!
+    const heading = '### Screening Reference Set'
+    const proposed = await store.propose('article.md', { baseRevision: view.document.current.id, annotationIds: [],
+      reason: 'Give the reference construction its own subsection.', meaning: 'structure',
+      edits: [{ blockId: anchor.id, before: anchor.text, after: heading, operation: 'insert-before' }] })
+    expect(proposed.document.proposals[0]?.flags).toContain('structure')
+    expect(await readFile(join(root, 'article.md'), 'utf8')).toBe(source)
+    const accepted = await accept(store, 'P1')
+    expect(await readFile(join(root, 'article.md'), 'utf8')).toBe(source.replace(anchor.text, `${heading}\n\n${anchor.text}`))
+    expect(accepted.document.current.blocks.find(block => block.text === heading)?.kind).toBe('heading')
+    expect(accepted.document.current.blocks.find(block => block.id === anchor.id)?.section).toBe('Screening Reference Set')
+    expect(accepted.document.baselines.some(base => base.text === heading)).toBe(false)
+  })
+
+  it('recognizes an unchanged anchor plus a blank-separated heading as an insertion', async () => {
+    const { root, store, view } = await setup('## Experimental Setup\n\nScreening validation used a frozen reference.\n')
+    const anchor = view.document.current.blocks[1]!
+    const heading = '### Screening Reference Set'
+    const proposed = await store.propose('article.md', { baseRevision: view.document.current.id, annotationIds: [],
+      reason: 'Introduce a subsection.', meaning: 'structure',
+      edits: [{ blockId: anchor.id, before: anchor.text, after: `${heading}\n\n${anchor.text}` }] })
+    expect(proposed.document.proposals[0]?.edits[0]).toMatchObject({ operation: 'insert-before', after: heading })
+    expect(await readFile(join(root, 'article.md'), 'utf8')).not.toContain(heading)
+  })
+
+  it('recognizes a paragraph before an unchanged anchor but rejects altered or multiple blocks', async () => {
+    const { root, store, view } = await setup()
+    const anchor = view.document.current.blocks[3]!
+    const input = proposal(view, anchor.text, `Opening context.\n\n${anchor.text}`)
+    const proposed = await store.propose('article.md', input)
+    expect(proposed.document.proposals[0]?.edits[0]).toMatchObject({ operation: 'insert-before', after: 'Opening context.' })
+    await expect(store.propose('article.md', proposal(view, anchor.text,
+      'A changed evaluation sentence.\n\nAnother paragraph.'))).rejects.toThrow('Group edits if the original also changes')
+    await expect(store.propose('article.md', proposal(view, anchor.text,
+      `${anchor.text}\n\nFirst addition.\n\nSecond addition.`))).rejects.toThrow('one complete Markdown block')
+    expect(await readFile(join(root, 'article.md'), 'utf8')).toBe(original)
+  })
+
+  it('revises a pending proposal into a separate paragraph without creating another proposal', async () => {
+    const { root, store, view } = await setup()
+    const anchor = view.document.current.blocks[3]!
+    await store.propose('article.md', proposal(view, anchor.text, 'A revised evaluation sentence.'))
+    const revised = await store.revise('article.md', { proposalId: 'P1', revision: view.document.current.id,
+      edits: [{ blockId: anchor.id, before: anchor.text,
+        after: `${anchor.text}\n\nThe reference labels were frozen separately.` }] })
+    expect(revised.document.proposals).toHaveLength(1)
+    expect(revised.document.proposals[0]?.edits[0]).toMatchObject({ operation: 'insert-after',
+      after: 'The reference labels were frozen separately.' })
+    expect(await readFile(join(root, 'article.md'), 'utf8')).toBe(original)
+  })
+
   it('rejects malformed, locked, stale and unbound-citation insertions without changing source', async () => {
     const { root, store, view } = await setup()
     const anchor = view.document.current.blocks[3]!

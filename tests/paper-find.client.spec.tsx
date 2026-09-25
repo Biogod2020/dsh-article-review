@@ -87,3 +87,31 @@ it('switches from change review to manuscript read when finding', async () => {
   expect(await screen.findByRole('searchbox', { name: en.find })).toBeTruthy()
   expect(document.querySelector('[data-block="one"]')).toBeTruthy()
 })
+
+it('jumps the manuscript viewport to the selected match, including a later match in the same block', async () => {
+  class TestHighlight { priority = 0 }
+  vi.stubGlobal('Highlight', TestHighlight)
+  vi.stubGlobal('CSS', { escape: (value: string) => value, highlights: new Map() })
+  vi.spyOn(HTMLElement.prototype, 'getClientRects').mockImplementation(() => ({ length: 1 }) as DOMRectList)
+  const createRange = document.createRange.bind(document)
+  vi.spyOn(document, 'createRange').mockImplementation(() => {
+    const range = createRange()
+    range.getBoundingClientRect = () => ({
+      top: range.startContainer.textContent?.includes('and paired') ? 580 : 240, height: 18,
+    }) as DOMRect
+    return range
+  })
+  render(<Harness />)
+  const viewport = document.querySelector<HTMLElement>('[data-scroll]')!
+  const scrollTo = vi.fn()
+  viewport.scrollTo = scrollTo
+  vi.spyOn(viewport, 'getBoundingClientRect').mockReturnValue({ top: 100, height: 400 } as DOMRect)
+  viewport.scrollTop = 0
+  document.querySelector<HTMLElement>('[data-panel]')!.focus()
+  fireEvent.keyDown(document, { key: 'f', metaKey: true })
+  const input = await screen.findByRole('searchbox', { name: en.find })
+  fireEvent.change(input, { target: { value: 'paired' } })
+  await waitFor(() => { expect(scrollTo).toHaveBeenCalledWith({ top: 20, behavior: 'instant' }) })
+  fireEvent.keyDown(input, { key: 'Enter' })
+  await waitFor(() => { expect(scrollTo).toHaveBeenCalledWith({ top: 360, behavior: 'instant' }) })
+})

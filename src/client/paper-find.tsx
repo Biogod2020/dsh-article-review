@@ -11,6 +11,18 @@ type SearchableBlock = { id: string; text: string }
 type FindHit = { blockId: string; occurrence: number }
 const MAX_HITS = 2000
 
+/** Scroll the manuscript's own viewport directly; host-page smooth scrolling can delay or override find navigation. */
+function scrollMatch(viewport: HTMLElement, target: Element | Range): void {
+  const rect = target.getBoundingClientRect()
+  const view = viewport.getBoundingClientRect()
+  if (!rect.height || !view.height) {
+    if (target instanceof Element && typeof target.scrollIntoView === 'function') target.scrollIntoView({ block: 'center' })
+    return
+  }
+  const top = Math.max(0, viewport.scrollTop + rect.top - view.top - Math.min(view.height / 3, 120))
+  viewport.scrollTo({ top, behavior: 'instant' as ScrollBehavior })
+}
+
 /** Build a rendered-text index once per manuscript revision, excluding hidden source notes.
  * @param blocks - reader-visible manuscript blocks.
  * @param bibliography - citation labels shown in the reader.
@@ -90,8 +102,13 @@ export function PaperFind({ panel, content, blocks, bibliography, mode, onRead, 
   useEffect(() => {
     if (!open || mode !== 'read' || !current) return
     pendingScroll.current = true
-    const block = content.current?.querySelector<HTMLElement>(`[data-block="${CSS.escape(current.blockId)}"]`)
-    if (block && typeof block.scrollIntoView === 'function') block.scrollIntoView({ block: 'center' })
+    const frame = requestAnimationFrame(() => {
+      if (!pendingScroll.current) return
+      const viewport = content.current
+      const block = viewport?.querySelector<HTMLElement>(`[data-block="${CSS.escape(current.blockId)}"]`)
+      if (viewport && block) scrollMatch(viewport, block)
+    })
+    return () => { cancelAnimationFrame(frame) }
   }, [active, content, current, mode, open])
 
   useEffect(() => {
@@ -124,10 +141,7 @@ export function PaperFind({ panel, content, blocks, bibliography, mode, onRead, 
         highlight.priority = 2
         CSS.highlights.set(activeName, highlight)
         if (pendingScroll.current) {
-          const rect = selected[0] && typeof selected[0].getBoundingClientRect === 'function'
-            ? selected[0].getBoundingClientRect() : undefined
-          const view = viewport.getBoundingClientRect()
-          if (rect && rect.height && view.height) viewport.scrollTop += rect.top - view.top - Math.min(view.height / 3, 120)
+          if (selected[0] && typeof selected[0].getBoundingClientRect === 'function') scrollMatch(viewport, selected[0])
           pendingScroll.current = false
         }
       }
