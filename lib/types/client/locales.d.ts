@@ -34,6 +34,12 @@ export declare const zh: {
     readonly showToolbar: "展开工具栏";
     readonly hideToolbar: "收起工具栏";
     readonly sourceNote: "稿件来源说明";
+    readonly find: "在稿件中查找";
+    readonly findHint: "查找文字";
+    readonly findNone: "无结果";
+    readonly findPrevious: "上一处";
+    readonly findNext: "下一处";
+    readonly findClose: "关闭查找";
     readonly empty: "打开 Markdown 稿件后，此会话进入论文模式。可以随时退出，批注和已审记录仍会保留。";
     readonly intro: "在同一段内选中文字，再右键高亮或批注；批注可一起交给左侧会话。";
     readonly figureList: "图窗";

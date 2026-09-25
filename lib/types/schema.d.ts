@@ -35,8 +35,8 @@ export declare const AnnotationSchema: z.ZodObject<{
     renderedSource: z.ZodOptional<z.ZodString>;
     offset: z.ZodOptional<z.ZodNumber>;
     status: z.ZodEnum<{
-        open: "open";
         resolved: "resolved";
+        open: "open";
     }>;
     anchor: z.ZodEnum<{
         attached: "attached";
@@ -77,9 +77,9 @@ export declare const ProposalInputSchema: z.ZodObject<{
     annotationIds: z.ZodArray<z.ZodString>;
     reason: z.ZodString;
     meaning: z.ZodEnum<{
+        claim: "claim";
         style: "style";
         structure: "structure";
-        claim: "claim";
         evidence: "evidence";
     }>;
     edits: z.ZodArray<z.ZodObject<{
@@ -93,9 +93,9 @@ export declare const ProposalRevisionInputSchema: z.ZodObject<{
     annotationIds: z.ZodOptional<z.ZodArray<z.ZodString>>;
     reason: z.ZodOptional<z.ZodString>;
     meaning: z.ZodOptional<z.ZodEnum<{
+        claim: "claim";
         style: "style";
         structure: "structure";
-        claim: "claim";
         evidence: "evidence";
     }>>;
     edits: z.ZodOptional<z.ZodArray<z.ZodObject<{
@@ -113,9 +113,9 @@ export declare const ProposalSchema: z.ZodObject<{
     annotationIds: z.ZodArray<z.ZodString>;
     reason: z.ZodString;
     meaning: z.ZodEnum<{
+        claim: "claim";
         style: "style";
         structure: "structure";
-        claim: "claim";
         evidence: "evidence";
     }>;
     edits: z.ZodArray<z.ZodObject<{
@@ -188,8 +188,8 @@ export declare const DocumentSchema: z.ZodObject<{
         renderedSource: z.ZodOptional<z.ZodString>;
         offset: z.ZodOptional<z.ZodNumber>;
         status: z.ZodEnum<{
-            open: "open";
             resolved: "resolved";
+            open: "open";
         }>;
         anchor: z.ZodEnum<{
             attached: "attached";
@@ -201,9 +201,9 @@ export declare const DocumentSchema: z.ZodObject<{
         annotationIds: z.ZodArray<z.ZodString>;
         reason: z.ZodString;
         meaning: z.ZodEnum<{
+            claim: "claim";
             style: "style";
             structure: "structure";
-            claim: "claim";
             evidence: "evidence";
         }>;
         edits: z.ZodArray<z.ZodObject<{
@@ -370,8 +370,8 @@ export declare const ViewSchema: z.ZodObject<{
             renderedSource: z.ZodOptional<z.ZodString>;
             offset: z.ZodOptional<z.ZodNumber>;
             status: z.ZodEnum<{
-                open: "open";
                 resolved: "resolved";
+                open: "open";
             }>;
             anchor: z.ZodEnum<{
                 attached: "attached";
@@ -383,9 +383,9 @@ export declare const ViewSchema: z.ZodObject<{
             annotationIds: z.ZodArray<z.ZodString>;
             reason: z.ZodString;
             meaning: z.ZodEnum<{
+                claim: "claim";
                 style: "style";
                 structure: "structure";
-                claim: "claim";
                 evidence: "evidence";
             }>;
             edits: z.ZodArray<z.ZodObject<{
@@ -472,10 +472,10 @@ export declare const BibliographyViewSchema: z.ZodObject<{
     possibleBareKeys: z.ZodArray<z.ZodString>;
     canonicalCitationCount: z.ZodNumber;
     citationStatus: z.ZodEnum<{
-        resolved: "resolved";
         unbound: "unbound";
         "missing-keys": "missing-keys";
         "possible-legacy-keys": "possible-legacy-keys";
+        resolved: "resolved";
         "no-citations": "no-citations";
     }>;
 }, z.core.$strip>;
@@ -524,8 +524,8 @@ export declare const ViewResponseSchema: z.ZodObject<{
                     renderedSource: z.ZodOptional<z.ZodString>;
                     offset: z.ZodOptional<z.ZodNumber>;
                     status: z.ZodEnum<{
-                        open: "open";
                         resolved: "resolved";
+                        open: "open";
                     }>;
                     anchor: z.ZodEnum<{
                         attached: "attached";
@@ -537,9 +537,9 @@ export declare const ViewResponseSchema: z.ZodObject<{
                     annotationIds: z.ZodArray<z.ZodString>;
                     reason: z.ZodString;
                     meaning: z.ZodEnum<{
+                        claim: "claim";
                         style: "style";
                         structure: "structure";
-                        claim: "claim";
                         evidence: "evidence";
                     }>;
                     edits: z.ZodArray<z.ZodObject<{

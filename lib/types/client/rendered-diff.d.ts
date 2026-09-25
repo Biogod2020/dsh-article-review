@@ -19,6 +19,11 @@ type Labels = {
     };
     footnotes: string;
 };
+/** Return plain text only when the block has a predictable rendered text order.
+ * @param source - one Markdown block.
+ * @returns displayed text, or undefined when its text order is ambiguous.
+ */
+export declare function renderedPlainText(source: string): string | undefined;
 /** Parse each source once and locate changed visible words on both sides; return nothing when Markdown text order is ambiguous. */
 export declare function renderedChangePair(before: string, after: string): RenderedChangePair | undefined;
 /** Locate changed visible words on one side of a rendered block. */
