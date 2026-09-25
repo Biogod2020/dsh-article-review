@@ -1,0 +1,6 @@
+- insert:
+    - id: paper-review
+      name: '@deepseek-ai/dsh-experimental-paper-review'
+      config:
+        workspaceRoot: !!js process.env.DSH_PAPER_REVIEW_ROOT
+        maxBytes: 1000000

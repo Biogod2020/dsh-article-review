@@ -1,0 +1,166 @@
+/** Manuscript-scoped find without changing React-owned Markdown or persisted highlights. */
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import type { ReactNode, RefObject } from 'react'
+import type { BibliographyView, PaperBlock } from '../schema.ts'
+import { displayCitations } from './citation-display.ts'
+import { rangesForChangedSpans, renderedPlainText } from './rendered-diff.tsx'
+import type { PaperReviewKey } from './locales.ts'
+import css from './panel.module.css'
+
+type SearchableBlock = { id: string; text: string }
+type FindHit = { blockId: string; occurrence: number }
+const MAX_HITS = 2000
+
+/** Build a rendered-text index once per manuscript revision, excluding hidden source notes.
+ * @param blocks - reader-visible manuscript blocks.
+ * @param bibliography - citation labels shown in the reader.
+ * @returns searchable text in reading order.
+ */
+export function searchableBlocks(blocks: PaperBlock[], bibliography?: BibliographyView): SearchableBlock[] {
+  return blocks.filter(block => !(block.kind === 'html' && /^\s*<!--/.test(block.text))).map((block) => {
+    const displayed = block.kind === 'code' || block.kind === 'html'
+      ? block.text : displayCitations(block.text, bibliography?.entries ?? [])
+    return { id: block.id, text: renderedPlainText(displayed) ?? displayed }
+  })
+}
+
+/** Locate literal, case-insensitive occurrences without parsing the document on every keystroke.
+ * @param blocks - prepared reader text.
+ * @param query - operator's search text.
+ * @returns bounded matches in reading order.
+ */
+export function findPaperHits(blocks: SearchableBlock[], query: string): FindHit[] {
+  const needle = query.trim().toLocaleLowerCase()
+  if (!needle) return []
+  const hits: FindHit[] = []
+  for (const block of blocks) {
+    const text = block.text.toLocaleLowerCase()
+    let occurrence = 0
+    for (let at = text.indexOf(needle); at >= 0; at = text.indexOf(needle, at + needle.length)) {
+      hits.push({ blockId: block.id, occurrence: occurrence++ })
+      if (hits.length >= MAX_HITS) return hits
+    }
+  }
+  return hits
+}
+
+/** Search the fixed manuscript and paint only mounted matches with CSS Highlights.
+ * @param props - manuscript, panel focus scope, viewport and localized controls.
+ * @returns a temporary search bar when opened from this pane.
+ */
+export function PaperFind({ panel, content, blocks, bibliography, mode, onRead, t }: {
+  panel: RefObject<HTMLElement>
+  content: RefObject<HTMLElement>
+  blocks: PaperBlock[]
+  bibliography?: BibliographyView | undefined
+  mode: string
+  onRead: () => void
+  t: (key: PaperReviewKey) => string
+}): ReactNode {
+  const input = useRef<HTMLInputElement>(null)
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const [active, setActive] = useState(0)
+  const name = `paper-find-${useId().replace(/[^a-zA-Z0-9]/g, '')}`
+  const indexed = useMemo(() => open ? searchableBlocks(blocks, bibliography) : [], [blocks, bibliography, open])
+  const hits = useMemo(() => findPaperHits(indexed, query), [indexed, query])
+  const current = hits[Math.min(active, hits.length - 1)]
+  const pendingScroll = useRef(false)
+
+  useEffect(() => {
+    let pointerInside = false
+    const pointer = (event: PointerEvent): void => { pointerInside = Boolean(panel.current?.contains(event.target as Node)) }
+    const key = (event: KeyboardEvent): void => {
+      if (event.key.toLowerCase() !== 'f' || !(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return
+      const root = panel.current
+      const focused = document.activeElement
+      if (!root || root.getClientRects().length === 0 || !(root.contains(focused) || (focused === document.body && pointerInside))) return
+      if (focused instanceof HTMLElement && focused !== input.current
+        && (focused.matches('input, textarea, select, [contenteditable="true"]') || focused.closest('[contenteditable="true"]'))) return
+      event.preventDefault(); event.stopPropagation()
+      if (mode !== 'read') onRead()
+      setOpen(true)
+      requestAnimationFrame(() => { input.current?.focus(); input.current?.select() })
+    }
+    window.addEventListener('pointerdown', pointer, true)
+    document.addEventListener('keydown', key, true)
+    return () => { window.removeEventListener('pointerdown', pointer, true); document.removeEventListener('keydown', key, true) }
+  }, [panel, mode, onRead])
+
+  useEffect(() => {
+    if (!open || mode !== 'read' || !current) return
+    pendingScroll.current = true
+    const block = content.current?.querySelector<HTMLElement>(`[data-block="${CSS.escape(current.blockId)}"]`)
+    if (block && typeof block.scrollIntoView === 'function') block.scrollIntoView({ block: 'center' })
+  }, [active, content, current, mode, open])
+
+  useEffect(() => {
+    const viewport = content.current
+    if (!open || mode !== 'read' || !query.trim() || !viewport || typeof Highlight === 'undefined') return
+    const allName = `${name}-all`, activeName = `${name}-active`
+    const byBlock = new Map<string, number[]>()
+    hits.forEach((hit, index) => byBlock.set(hit.blockId, [...(byBlock.get(hit.blockId) ?? []), index]))
+    let frame = 0
+    const paint = (): void => {
+      CSS.highlights.delete(allName); CSS.highlights.delete(activeName)
+      const all: Range[] = [], selected: Range[] = []
+      const needle = query.trim().toLocaleLowerCase()
+      for (const [blockId, indexes] of byBlock) {
+        const root = viewport.querySelector<HTMLElement>(`[data-block="${CSS.escape(blockId)}"] [data-reader-text]`)
+        if (!root || root.querySelector('[data-reader-placeholder]')) continue
+        const text = root.textContent.toLocaleLowerCase()
+        const spans: { offset: number; length: number }[] = []
+        for (let at = text.indexOf(needle); at >= 0 && spans.length < indexes.length;
+          at = text.indexOf(needle, at + needle.length)) spans.push({ offset: at, length: needle.length })
+        const ranges = rangesForChangedSpans(root, spans)
+        ranges.forEach((range, occurrence) => {
+          all.push(range)
+          if (indexes[occurrence] === active) selected.push(range)
+        })
+      }
+      if (all.length) CSS.highlights.set(allName, new Highlight(...all))
+      if (selected.length) {
+        const highlight = new Highlight(...selected)
+        highlight.priority = 2
+        CSS.highlights.set(activeName, highlight)
+        if (pendingScroll.current) {
+          const rect = selected[0] && typeof selected[0].getBoundingClientRect === 'function'
+            ? selected[0].getBoundingClientRect() : undefined
+          const view = viewport.getBoundingClientRect()
+          if (rect && rect.height && view.height) viewport.scrollTop += rect.top - view.top - Math.min(view.height / 3, 120)
+          pendingScroll.current = false
+        }
+      }
+    }
+    const schedule = (): void => { if (!frame) frame = requestAnimationFrame(() => { frame = 0; paint() }) }
+    const observer = new MutationObserver(schedule)
+    observer.observe(viewport, { childList: true, subtree: true })
+    paint()
+    return () => {
+      observer.disconnect()
+      if (frame) cancelAnimationFrame(frame)
+      CSS.highlights.delete(allName); CSS.highlights.delete(activeName)
+    }
+  }, [active, content, hits, mode, name, open, query])
+
+  if (!open || mode !== 'read') return null
+  const move = (step: number): void => { if (hits.length) setActive(index => (index + step + hits.length) % hits.length) }
+  const close = (): void => { setOpen(false); panel.current?.focus() }
+  const highlightCSS = [
+    `::highlight(${name}-all){background:var(--paper-find-bg);color:var(--paper-find-text)}`,
+    `::highlight(${name}-active){background:var(--paper-find-active-bg);color:var(--paper-find-active-text)}`,
+  ].join('')
+  return <div className={css.findAnchor}><style>{highlightCSS}</style><div className={css.findBar} role="search" aria-label={t('find')}>
+    <input ref={input} type="search" aria-label={t('find')} placeholder={t('findHint')} value={query}
+      onChange={(event) => { setQuery(event.target.value); setActive(0) }}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') { event.preventDefault(); move(event.shiftKey ? -1 : 1) }
+        if (event.key === 'Escape') { event.preventDefault(); close() }
+      }} />
+    <span className={css.findCount} role="status">{query.trim() ? hits.length
+      ? `${Math.min(active, hits.length - 1) + 1}/${hits.length}${hits.length === MAX_HITS ? '+' : ''}` : t('findNone') : ''}</span>
+    <button type="button" aria-label={t('findPrevious')} title={t('findPrevious')} disabled={!hits.length} onClick={() => { move(-1) }}>↑</button>
+    <button type="button" aria-label={t('findNext')} title={t('findNext')} disabled={!hits.length} onClick={() => { move(1) }}>↓</button>
+    <button type="button" aria-label={t('findClose')} title={t('findClose')} onClick={close}>×</button>
+  </div></div>
+}

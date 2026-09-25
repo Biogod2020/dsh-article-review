@@ -1,0 +1,479 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`boots from a composition, keeps ordinary tools, and lets agents and operators manage proposals 1`] = `
+[
+  {
+    "description": "List Markdown manuscripts and folders in the conversation workspace. Use this to find a manuscript before paper_open; it does not open a Finder dialog.",
+    "name": "paper_list",
+    "parameters": {
+      "properties": {
+        "path": {
+          "description": "Workspace-relative directory; omit for the workspace root.",
+          "type": "string",
+        },
+      },
+      "type": "object",
+    },
+  },
+  {
+    "description": "Open a workspace-relative Markdown manuscript in this conversation. Use paper_list to find it. This enables Paper review tools without removing ordinary agent tools.",
+    "name": "paper_open",
+    "parameters": {
+      "properties": {
+        "path": {
+          "description": "Workspace-relative Markdown manuscript path, for example article.md.",
+          "type": "string",
+        },
+      },
+      "required": [
+        "path",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "description": "Read manuscript blocks and their exact ids and revision. Optionally read one block plus its neighbors. Preserve scientific claims; never strengthen causality, generalizability, novelty, significance or superiority without explicit author instruction.",
+    "name": "paper_read",
+    "parameters": {
+      "properties": {
+        "blockId": {
+          "description": "Optional exact block id returned by paper_read.",
+          "type": "string",
+        },
+        "path": {
+          "description": "Workspace-relative Markdown manuscript path, for example article.md.",
+          "type": "string",
+        },
+      },
+      "required": [
+        "path",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "description": "Read author annotations and their exact quotations. Detached annotations require the author to locate them again.",
+    "name": "paper_annotations",
+    "parameters": {
+      "properties": {
+        "blockId": {
+          "description": "Optional exact block id returned by paper_read.",
+          "type": "string",
+        },
+        "path": {
+          "description": "Workspace-relative Markdown manuscript path, for example article.md.",
+          "type": "string",
+        },
+      },
+      "required": [
+        "path",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "description": "Check pending proposals against current text, author locks and external source changes. Pass proposalId to read one pending proposal in full before revising it. Mechanical flags are review hints, not scientific verification.",
+    "name": "paper_check",
+    "parameters": {
+      "properties": {
+        "path": {
+          "description": "Workspace-relative Markdown manuscript path, for example article.md.",
+          "type": "string",
+        },
+        "proposalId": {
+          "description": "Optional pending proposal id whose full content should be returned.",
+          "type": "string",
+        },
+      },
+      "required": [
+        "path",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "description": "Submit a manuscript change for author review. Does not write the manuscript. Copy exact block ids and before text from paper_read. Group dependent replacements in one proposal. Mechanical checks independently flag number, citation, figure, claim-word and Methods changes.",
+    "name": "paper_propose",
+    "parameters": {
+      "properties": {
+        "annotationIds": {
+          "items": {
+            "type": "string",
+          },
+          "type": "array",
+        },
+        "baseRevision": {
+          "type": "string",
+        },
+        "edits": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "after": {
+                "type": "string",
+              },
+              "before": {
+                "type": "string",
+              },
+              "blockId": {
+                "type": "string",
+              },
+            },
+            "required": [
+              "blockId",
+              "before",
+              "after",
+            ],
+            "type": "object",
+          },
+          "type": "array",
+        },
+        "meaning": {
+          "enum": [
+            "style",
+            "structure",
+            "claim",
+            "evidence",
+          ],
+          "type": "string",
+        },
+        "path": {
+          "description": "Workspace-relative Markdown manuscript path, for example article.md.",
+          "type": "string",
+        },
+        "reason": {
+          "type": "string",
+        },
+      },
+      "required": [
+        "path",
+        "baseRevision",
+        "annotationIds",
+        "reason",
+        "meaning",
+        "edits",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "description": "Revise an existing pending manuscript proposal in place; keep its id and do not write the manuscript. Use paper_check with proposalId to inspect it, and paper_read for the current revision and exact source. Supply only fields to change; if edits is supplied, it replaces the complete edit group. To rebase a stale proposal after a source import, provide baseRevision equal to the current reader revision and complete edits with current block ids and exact before text. The same source, annotation, lock and mechanical-risk checks as paper_propose run again. Settled proposals cannot be revised.",
+    "name": "paper_revise",
+    "parameters": {
+      "properties": {
+        "annotationIds": {
+          "description": "Optional full replacement list of attached annotation ids.",
+          "items": {
+            "type": "string",
+          },
+          "type": "array",
+        },
+        "baseRevision": {
+          "description": "Optional new source revision for rebasing a stale proposal; pair with complete current-source edits.",
+          "type": "string",
+        },
+        "edits": {
+          "description": "Optional full replacement edit group; omit to keep all existing edits.",
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "after": {
+                "type": "string",
+              },
+              "before": {
+                "type": "string",
+              },
+              "blockId": {
+                "type": "string",
+              },
+            },
+            "required": [
+              "blockId",
+              "before",
+              "after",
+            ],
+            "type": "object",
+          },
+          "type": "array",
+        },
+        "meaning": {
+          "description": "Optional revised author-facing change category.",
+          "enum": [
+            "style",
+            "structure",
+            "claim",
+            "evidence",
+          ],
+          "type": "string",
+        },
+        "path": {
+          "description": "Workspace-relative Markdown manuscript path, for example article.md.",
+          "type": "string",
+        },
+        "proposalId": {
+          "description": "Id of the pending proposal to revise.",
+          "type": "string",
+        },
+        "reason": {
+          "description": "Optional revised reason for the whole proposal.",
+          "type": "string",
+        },
+        "revision": {
+          "description": "Current manuscript revision returned by paper_read or paper_check.",
+          "type": "string",
+        },
+      },
+      "required": [
+        "path",
+        "proposalId",
+        "revision",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "description": "Accept or reject one pending proposal. Accept writes the manuscript after revision, source and lock checks; reject changes only review metadata. Accept only when the user requests it. Use paper_check first and never claim this is scientific verification.",
+    "name": "paper_decide",
+    "parameters": {
+      "properties": {
+        "decision": {
+          "enum": [
+            "accept",
+            "reject",
+          ],
+          "type": "string",
+        },
+        "path": {
+          "description": "Workspace-relative Markdown manuscript path, for example article.md.",
+          "type": "string",
+        },
+        "proposalId": {
+          "type": "string",
+        },
+        "revision": {
+          "type": "string",
+        },
+      },
+      "required": [
+        "path",
+        "revision",
+        "proposalId",
+        "decision",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "description": "List workspace folders and .bib files one directory at a time. Read-only; use this to locate authoritative BibTeX files before binding them to the open manuscript.",
+    "name": "paper_bib_find",
+    "parameters": {
+      "properties": {
+        "path": {
+          "description": "Workspace-relative directory; omit for the workspace root.",
+          "type": "string",
+        },
+      },
+      "type": "object",
+    },
+  },
+  {
+    "description": "Bind the manuscript to explicit workspace-relative .bib files. These files are the sole citation-key authority. Replaces the previous binding list, writes only private binding metadata, and never edits the manuscript or bibliography.",
+    "name": "paper_bib_bind",
+    "parameters": {
+      "properties": {
+        "files": {
+          "description": "Complete list of existing workspace-relative .bib paths.",
+          "items": {
+            "type": "string",
+          },
+          "type": "array",
+        },
+        "path": {
+          "description": "Workspace-relative Markdown manuscript path, for example article.md.",
+          "type": "string",
+        },
+      },
+      "required": [
+        "path",
+        "files",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "description": "Read bound authoritative BibTeX sources and citation diagnostics. Report citationStatus and canonicalCitationCount: missingKeys=[] alone does not mean citations are valid when possibleBareKeys lists legacy text or no canonical citations exist. Bibliographic metadata is not independently verified.",
+    "name": "paper_bib_list",
+    "parameters": {
+      "properties": {
+        "path": {
+          "description": "Workspace-relative Markdown manuscript path, for example article.md.",
+          "type": "string",
+        },
+      },
+      "required": [
+        "path",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "description": "Read one exact BibTeX entry including its raw source and hash before replacing it. No scholarly source verification is implied.",
+    "name": "paper_bib_get",
+    "parameters": {
+      "properties": {
+        "key": {
+          "type": "string",
+        },
+        "path": {
+          "description": "Workspace-relative Markdown manuscript path, for example article.md.",
+          "type": "string",
+        },
+      },
+      "required": [
+        "path",
+        "key",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "description": "Add one complete BibTeX entry to a bound .bib file without a manuscript proposal. Author/title/year syntax is checked, but DOI, metadata and relevance must be verified against the publication. This writes the .bib file, never the manuscript.",
+    "name": "paper_bib_add",
+    "parameters": {
+      "properties": {
+        "file": {
+          "description": "Bound workspace-relative .bib file.",
+          "type": "string",
+        },
+        "path": {
+          "description": "Workspace-relative Markdown manuscript path, for example article.md.",
+          "type": "string",
+        },
+        "raw": {
+          "description": "One complete BibTeX entry with author, title and year.",
+          "type": "string",
+        },
+      },
+      "required": [
+        "path",
+        "file",
+        "raw",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "description": "Replace one exact entry in its bound .bib file using the hash returned by paper_bib_get; preserve the key. This writes the .bib file, not a manuscript proposal. Verify bibliographic facts against the publication.",
+    "name": "paper_bib_replace",
+    "parameters": {
+      "properties": {
+        "expectedHash": {
+          "type": "string",
+        },
+        "key": {
+          "type": "string",
+        },
+        "path": {
+          "description": "Workspace-relative Markdown manuscript path, for example article.md.",
+          "type": "string",
+        },
+        "raw": {
+          "type": "string",
+        },
+      },
+      "required": [
+        "path",
+        "key",
+        "expectedHash",
+        "raw",
+      ],
+      "type": "object",
+    },
+  },
+]
+`;
+
+exports[`boots from a composition, keeps ordinary tools, and lets agents and operators manage proposals 2`] = `
+[
+  [
+    "paper_annotations",
+    "paper_bib_add",
+    "paper_bib_bind",
+    "paper_bib_find",
+    "paper_bib_get",
+    "paper_bib_list",
+    "paper_bib_replace",
+    "paper_check",
+    "paper_decide",
+    "paper_list",
+    "paper_open",
+    "paper_propose",
+    "paper_read",
+    "paper_revise",
+  ],
+  [
+    "paper_annotations",
+    "paper_bib_add",
+    "paper_bib_bind",
+    "paper_bib_find",
+    "paper_bib_get",
+    "paper_bib_list",
+    "paper_bib_replace",
+    "paper_check",
+    "paper_decide",
+    "paper_list",
+    "paper_open",
+    "paper_propose",
+    "paper_read",
+    "paper_revise",
+  ],
+  [
+    "paper_annotations",
+    "paper_bib_add",
+    "paper_bib_bind",
+    "paper_bib_find",
+    "paper_bib_get",
+    "paper_bib_list",
+    "paper_bib_replace",
+    "paper_check",
+    "paper_decide",
+    "paper_list",
+    "paper_open",
+    "paper_propose",
+    "paper_read",
+    "paper_revise",
+  ],
+  [
+    "paper_annotations",
+    "paper_bib_add",
+    "paper_bib_bind",
+    "paper_bib_find",
+    "paper_bib_get",
+    "paper_bib_list",
+    "paper_bib_replace",
+    "paper_check",
+    "paper_decide",
+    "paper_list",
+    "paper_open",
+    "paper_propose",
+    "paper_read",
+    "paper_revise",
+  ],
+  [
+    "paper_annotations",
+    "paper_bib_add",
+    "paper_bib_bind",
+    "paper_bib_find",
+    "paper_bib_get",
+    "paper_bib_list",
+    "paper_bib_replace",
+    "paper_check",
+    "paper_decide",
+    "paper_list",
+    "paper_open",
+    "paper_propose",
+    "paper_read",
+    "paper_revise",
+  ],
+]
+`;

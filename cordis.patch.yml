@@ -1,0 +1,3 @@
+- insert:
+    - id: paper-review
+      name: '@deepseek-ai/dsh-experimental-paper-review'

@@ -1,0 +1,3 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`renders legacy tables in proposal comparisons while leaving prose and fenced code unchanged > legacy em-dash table 1`] = `"<table><thead><tr><th>Class</th><th>F1</th></tr></thead><tbody><tr><td>A</td><td>0.920</td></tr></tbody></table>"`;

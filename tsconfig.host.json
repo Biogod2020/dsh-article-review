@@ -1,0 +1,13 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": { "rootDir": "src", "outDir": "lib/types", "tsBuildInfoFile": "lib/host.tsbuildinfo" },
+  "include": ["src/*.ts"],
+  "references": [
+    { "path": "../../../native/system/packages/entry" },
+    { "path": "../../../vendor/cordis" }, { "path": "../../../vendor/schemastery" },
+    { "path": "../../client/connection/tsconfig.host.json" }, { "path": "../../core/tools" },
+    { "path": "../../core/agent" }, { "path": "../../util/brand" }, { "path": "../../core/session" }, { "path": "../../llm/llm" },
+    { "path": "../../session/session-persistence" },
+    { "path": "../../util/native-command" }
+  ]
+}
