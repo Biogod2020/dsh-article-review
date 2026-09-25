@@ -31,6 +31,8 @@ async function copyDeclarations(directory) {
 
 await copyArtifact('lib/index.js')
 await copyArtifact('lib/client.js')
+const clientPath = join(target, 'lib/client.js')
+await writeFile(clientPath, (await readFile(clientPath, 'utf8')).replace(/[ \t]+$/gm, ''))
 if (await copyDeclarations('lib/types') === 0) throw new Error('Build the declaration files before preparing a release')
 
 const dependencies = { ...releaseManifest.dependencies }

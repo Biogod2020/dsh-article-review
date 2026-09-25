@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Read a Markdown manuscript beside the native conversation, collect annotations, and request localized revisions. A floating progress rail jumps to sections and paragraphs without narrowing the page. Bind `.bib` files as the citation-key authority and inspect their index outside the reading body. The agent can open manuscripts, manage bibliography entries, and create or revise pending manuscript proposals. Paper mode retains ordinary tools; a file-write-enabled agent can still edit outside the review workflow. This repository currently publishes the plugin source, not a standalone Git-installable build.
+Read a Markdown manuscript beside the native conversation, collect annotations, and request localized revisions. A floating progress rail jumps to sections and paragraphs without narrowing the page. Bind `.bib` files as the citation-key authority and inspect their index outside the reading body. The agent can open manuscripts, manage bibliography entries, and create or revise pending manuscript proposals. Paper mode retains ordinary tools; a file-write-enabled agent can still edit outside the review workflow. Install a pinned, prebuilt Git tag into a Web profile.
 
 ## Table of Contents
 
@@ -25,7 +25,14 @@ Read a Markdown manuscript beside the native conversation, collect annotations, 
 <a id="use-this-package"></a>
 ## Use this package
 
-This source release builds inside a compatible [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) checkout at `packages/experimental/paper-review`. Its build configuration and `workspace:^` dependencies rely on that checkout; this tag has **not** been verified for `dsh plugin add github:Biogod2020/dsh-article-review` or npm installation. To develop or use it locally, build the compatible DSH checkout first, then run `dsh plugin --profile web add /absolute/path/to/deepseek-harness/packages/experimental/paper-review`. The native installer persists the local package and activates its [bundle patch](cordis.patch.yml) after the Web layer. Open DSH normally and reload the browser. No separate launcher or model configuration is required. Keep the checkout at its installed path: the local installation links to its built files.
+Install the prebuilt version tag with DSH's profile command:
+
+```sh
+dsh plugin --profile web add 'github:Biogod2020/dsh-article-review#v0.1.7-alpha.2'
+dsh web
+```
+
+The installer adds this package's [bundle patch](cordis.patch.yml) after the Web layer. Restart an already running Web profile after installation; no separate launcher or model configuration is needed. This independent add-on was smoke-tested with DSH `0.1.6-alpha.2` on macOS. The `main` branch contains development source with `workspace:^` dependencies and is not a direct Git install target; pin a release tag. For local development, build a compatible [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) checkout containing this package, then run `dsh plugin --profile web add /absolute/path/to/deepseek-harness/packages/experimental/paper-review` and keep that checkout in place.
 
 ### Configuration
 
@@ -149,6 +156,7 @@ This local single-author Markdown prototype has the following limits.
 - Selections stay within one Markdown block. Cross-block selections receive an explicit message; add separate notes and submit them together. Highlights require a browser with the CSS Custom Highlight API. A changed source block marks its rendered selections **Needs location**, even if the quoted words survive elsewhere. Automatic fuzzy matching and manual reanchoring are not implemented; preserve the old record and create a new one at the intended passage.
 - Locks apply to this plugin, not external editors. A noncooperating writer can race the final check and rename. Atomic replacement and the journal address process interruption, not guaranteed power-loss durability or hostile local filesystem mutation.
 - The Finder chooser opens on the macOS DSH host, not on a remote browser's computer. Remote and unattended host deployments should select a known workspace path with `paper_open`. Ordinary write tools can bypass proposal review, so use DSH's permission mode and explicit instructions when author approval is required.
+- The Git release does not install `koffi` automatically because this native dependency is used only for Windows workspace locking. Windows installation and operation are not yet verified; Windows requires `koffi` in the same profile before the plugin can open a manuscript.
 - Full revisions and annotations are retained without pruning or a restore button. Large histories can consume disk and slow state loading; the reader and review comparisons mount near the viewport, but version comparison remains eager. The workspace lock permits one server process, with multiple browser windows; it is not multi-author synchronization.
 - BibTeX indexing accepts ordinary complete entries but does not expand macros or validate bibliographic truth. New in-text citations are checked in proposed block replacements, not in unrelated direct file writes. The references tab flags possible bare keys conservatively; a scientific term can resemble a key and needs human judgment.
 
