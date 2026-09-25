@@ -34,6 +34,30 @@ dsh web
 
 安装器会把本包的[组合包配置](cordis.patch.yml)加入 Web 层之后。若 Web 配置正在运行，安装后需要重启；无需额外启动器或模型配置。这个独立维护的插件已在 macOS 上使用 DSH `0.1.6-alpha.2` 完成启动检查。`main` 分支是带有 `workspace:^` 依赖的开发源码，不能直接作为 Git 安装目标；请固定版本 tag。本地开发时，先在包含此包的兼容 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 工作区构建，再运行 `dsh plugin --profile web add /absolute/path/to/deepseek-harness/packages/experimental/paper-review`，并保留该工作区。
 
+### 运行截图
+
+以下画面截自实际运行的 Web 插件，使用虚构稿件和脚本生成的智能体输出。文字、数字、批注与修改均为合成示例，不含个人稿件或私有工作区路径。
+
+选中文字后右键，即可打开高亮、批注和辅助阅读操作。
+
+![虚构稿件的选区操作菜单](docs/screenshots/select-text.png)
+
+在选中的文字上保存批注，不会直接改动 Markdown 原文。
+
+![已保存的批注与高亮段落](docs/screenshots/annotate.png)
+
+展开浮动审阅进度轨，查看各段状态并跳转到相应章节。
+
+![审阅进度与段落导航](docs/screenshots/review-progress.png)
+
+接受提案或要求重做前，先看逐词变化和 Markdown 源码差异。
+
+![渲染后的提案与源码差异](docs/screenshots/review-proposal.png)
+
+用渲染后页面比较两个历史版本，变化只在对应的词上着色。
+
+![虚构稿件两个版本的渲染对比](docs/screenshots/compare-versions.png)
+
 ### 配置
 
 默认稿件目录是当前会话的本地工作区。已保存会话可以在服务器重启后重新打开稿件，无需先向模型发送消息。可在配置中覆盖 `paper-review` 项。随附的[审阅配置层](review.overlay.yml)仍可通过显式 `DSH_PAPER_REVIEW_ROOT` 用于隔离开发；原生安装不需要它。

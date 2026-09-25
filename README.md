@@ -34,6 +34,30 @@ dsh web
 
 The installer adds this package's [bundle patch](cordis.patch.yml) after the Web layer. Restart an already running Web profile after installation; no separate launcher or model configuration is needed. This independent add-on was smoke-tested with DSH `0.1.6-alpha.2` on macOS. The `main` branch contains development source with `workspace:^` dependencies and is not a direct Git install target; pin a release tag. For local development, build a compatible [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) checkout containing this package, then run `dsh plugin --profile web add /absolute/path/to/deepseek-harness/packages/experimental/paper-review` and keep that checkout in place.
 
+### Screenshots
+
+These captures show the running Web plugin with a fictional manuscript and scripted agent output. The text, counts, notes and edits are synthetic; no personal manuscript or private workspace path is shown.
+
+Select words and right-click to open highlight, annotation and reading actions.
+
+![Selection actions on a fictional manuscript](docs/screenshots/select-text.png)
+
+Save an annotation on the selected phrase without editing the Markdown source.
+
+![Saved annotation and highlighted passage](docs/screenshots/annotate.png)
+
+Expand the floating review progress rail to see paragraph status and jump to a section.
+
+![Review progress and paragraph navigator](docs/screenshots/review-progress.png)
+
+Inspect a proposal's changed words and Markdown source diff before accepting or requesting another revision.
+
+![Rendered proposal and source diff](docs/screenshots/review-proposal.png)
+
+Compare saved versions as rendered pages with changes colored at the word level.
+
+![Rendered comparison of two fictional versions](docs/screenshots/compare-versions.png)
+
 ### Configuration
 
 The default manuscript directory is the current conversation's local workspace. Stored conversations can reopen manuscripts after a server restart without sending a model message. Optional profile overrides target the `paper-review` row. The [review overlay](review.overlay.yml) remains available for isolated development with an explicit `DSH_PAPER_REVIEW_ROOT`; it is not needed for native installation.
