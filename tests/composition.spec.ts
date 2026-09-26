@@ -22,6 +22,7 @@ import * as Connection from '@deepseek-ai/dsh-client-connection'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import * as PaperReview from '../src/index.ts'
 import { ViewSchema } from '../src/schema.ts'
+import { revisionId } from '../src/document.ts'
 
 let root = ''
 let ctx: Context | undefined
@@ -101,7 +102,7 @@ it('boots from a composition, keeps ordinary tools, and lets agents and operator
     }),
     textResponse('Proposal P1 is ready for author review; the manuscript has not been changed.'),
   ])
-  ctx.llm.registerAdapter(['mock'], adapter)
+  const adapterHandle = ctx.llm.registerAdapter(['mock'], adapter)
   agent.followup(createUserMessage({ content: [{ type: 'text', text: 'Please compress the Results wording; preserve the number and scope. Propose changes for review.' }], source: { kind: 'user' } }))
   await vi.waitFor(() =>{  expect(agent.session.snapshotEvents().some(event => event.type === 'turn/end')).toBe(true) }, { timeout: 10_000 })
   const transcript = agent.session.snapshotEvents()
@@ -247,6 +248,101 @@ it('boots from a composition, keeps ordinary tools, and lets agents and operator
   expect(revisedView.document.proposals.at(-1)?.id).toBe(listProposal.id)
   expect(revisedView.document.proposals.at(-1)?.edits[0]?.after).toContain('indirect imaging or morphology')
   expect(await readFile(join(root, 'article.md'), 'utf8')).not.toContain('**Class A**')
+  const figureSource = '# Results\n\n> **Figure [fig:results]** (`old.pdf`): An unchanged caption.\n'
+  await writeFile(join(root, 'figure.md'), figureSource)
+  await writeFile(join(root, 'old.pdf'), 'old figure bytes')
+  await writeFile(join(root, 'new.pdf'), 'new figure bytes')
+  await ctx.tools.execute({ agent, callId: ToolCallId('open-figure-paper'), name: 'paper_open',
+    arguments: { path: 'figure.md' }, signal: new AbortController().signal })
+  const figureView = z.object({ result: z.object({ value: ViewSchema }) }).parse(await (await rpc({ action: 'open', path: 'figure.md' })).json()).result.value
+  const figureBlock = figureView.document.current.blocks[1]
+  if (!figureBlock) throw new Error('Figure block missing')
+  const figureList = await ctx.tools.execute({ agent, callId: ToolCallId('list-figures'), name: 'paper_figure_list', arguments: { path: 'figure.md' }, signal: new AbortController().signal })
+  expect(figureList.isError).not.toBe(true)
+  expect(JSON.stringify(figureList)).toContain('old.pdf')
+  const figureProposal = await ctx.tools.execute({ agent, callId: ToolCallId('replace-figure'), name: 'paper_figure_replace', arguments: {
+    path: 'figure.md', revision: figureView.document.current.id, blockId: figureBlock.id, figure: 'old.pdf', replacement: 'new.pdf', reason: 'Updated artwork.',
+  }, signal: new AbortController().signal })
+  expect(figureProposal.isError).not.toBe(true)
+  expect(JSON.stringify(figureProposal)).toContain('originalFilesWritten')
+  expect(await readFile(join(root, 'figure.md'), 'utf8')).toBe(figureSource)
+  const operatorFigure = await fetch(`${origin}/api/paper-review/replace-figure`, { method: 'POST',
+    headers: { 'content-type': 'application/json', origin, cookie }, body: JSON.stringify({ type: 'client-request', rpcId: 'replace-figure', method: 'paper-review/replace-figure',
+      payload: { sessionId: agent.id, path: 'figure.md', revision: figureView.document.current.id, blockId: figureBlock.id,
+        figure: 'old.pdf', replacement: 'new.pdf', reason: 'Updated artwork after author feedback.', proposalId: 'P1' } }) })
+  const figureResponse: unknown = await operatorFigure.json()
+  const figurePending = z.object({ result: z.object({ ok: z.literal(true), value: ViewSchema }) }).parse(figureResponse).result.value
+  expect(figurePending.document.proposals).toHaveLength(1)
+  expect(figurePending.document.proposals[0]?.figureChanges).toHaveLength(1)
+  await rpc({ action: 'decide', path: 'figure.md', revision: figureView.document.current.id, proposalId: 'P1', accept: true })
+  expect(await readFile(join(root, 'figure.md'), 'utf8')).toContain('figures/review-assets/')
+  expect(await readFile(join(root, 'old.pdf'), 'utf8')).toBe('old figure bytes')
+  const table = '| Comparison | $\\Delta$ |\n| --- | --- |\n| QC | [-3.6, 9.9] |'
+  const deletionSource = `# Findings\n\nKeep this context.\n\n${table}\n\nOld table caption.\n`
+  await writeFile(join(root, 'deletion.md'), deletionSource)
+  const deletionView = z.object({ result: z.object({ value: ViewSchema }) }).parse(await (await rpc({ action: 'open', path: 'deletion.md' })).json()).result.value
+  const tableBlock = deletionView.document.current.blocks.find(item => item.text === table)!
+  const captionBlock = deletionView.document.current.blocks.find(item => item.text === 'Old table caption.')!
+  const turnsBeforeDeletion = agent.session.snapshotEvents().filter(event => event.type === 'turn/end').length
+  const deletionAdapter = new MockAdapter([
+    toolCallResponse('delete-read', 'paper_read', { path: 'deletion.md', blockId: tableBlock.id }),
+    toolCallResponse('delete-caption', 'paper_propose', { path: 'deletion.md', baseRevision: deletionView.document.current.id,
+      annotationIds: [], reason: 'Revise the caption.', meaning: 'structure', edits: [{ blockId: captionBlock.id, before: captionBlock.text, after: 'New table caption.' }] }),
+    toolCallResponse('delete-table', 'paper_delete', { path: 'deletion.md', baseRevision: deletionView.document.current.id, blockId: tableBlock.id,
+      beforeHash: revisionId(table), proposalId: 'P1', reason: 'Remove the redundant table.' }),
+    toolCallResponse('delete-check', 'paper_check', { path: 'deletion.md', proposalId: 'P1' }),
+    textResponse('Table deletion and caption revision are pending in P1; source unchanged.'),
+  ])
+  adapterHandle()
+  ctx.llm.registerAdapter(['mock'], deletionAdapter)
+  agent.followup(createUserMessage({ content: [{ type: 'text', text: 'Propose deleting the redundant table together with its caption revision; do not accept it.' }], source: { kind: 'user' } }))
+  await vi.waitFor(() => { expect(agent.session.snapshotEvents().filter(event => event.type === 'turn/end').length).toBeGreaterThan(turnsBeforeDeletion) }, { timeout: 10_000 })
+  const deletionResults = agent.session.snapshotEvents().filter(event => event.type === 'tool/result').slice(-4)
+  expect(deletionResults).toHaveLength(4)
+  expect(deletionResults.every(event => !event.data.message.isError)).toBe(true)
+  expect(JSON.stringify(deletionResults)).toContain('beforeHash')
+  expect(JSON.stringify(deletionResults)).toContain('manuscriptWritten')
+  const pendingDeletion = z.object({ result: z.object({ value: ViewSchema }) }).parse(await (await rpc({ action: 'open', path: 'deletion.md' })).json()).result.value
+  expect(pendingDeletion.document.proposals).toHaveLength(1)
+  expect(pendingDeletion.document.proposals[0]?.edits).toEqual([
+    { blockId: captionBlock.id, before: captionBlock.text, after: 'New table caption.' }, { blockId: tableBlock.id, before: table, after: '' },
+  ])
+  expect(await readFile(join(root, 'deletion.md'), 'utf8')).toBe(deletionSource)
+  await rpc({ action: 'decide', path: 'deletion.md', revision: deletionView.document.current.id, proposalId: 'P1', accept: true })
+  expect(await readFile(join(root, 'deletion.md'), 'utf8')).not.toContain(table)
+  expect(await readFile(join(root, 'deletion.md'), 'utf8')).toContain('New table caption.')
+  const independentSource = '# Independent changes\n\nAn unchanged anchor.\n\nAnother paragraph.\n'
+  await writeFile(join(root, 'independent.md'), independentSource)
+  const independentView = z.object({ result: z.object({ value: ViewSchema }) })
+    .parse(await (await rpc({ action: 'open', path: 'independent.md' })).json()).result.value
+  const unchanged = independentView.document.current.blocks[1]!
+  const neighbor = independentView.document.current.blocks[2]!
+  for (const [index, edit] of [
+    { blockId: unchanged.id, before: unchanged.text, after: 'Added context.', operation: 'insert-after' },
+    { blockId: neighbor.id, before: neighbor.text, after: 'Revised neighboring paragraph.' },
+  ].entries()) {
+    const result = await ctx.tools.execute({ agent, callId: ToolCallId(`independent-${index}`), name: 'paper_propose', arguments: {
+      path: 'independent.md', baseRevision: independentView.document.current.id, annotationIds: [], reason: 'Independent changes.',
+      meaning: 'structure', edits: [edit],
+    }, signal: new AbortController().signal })
+    expect(result.isError).not.toBe(true)
+  }
+  const advanced = z.object({ result: z.object({ ok: z.literal(true), value: ViewSchema }) }).parse(await (await rpc({ action: 'decide',
+    path: 'independent.md', revision: independentView.document.current.id, proposalId: 'P2', accept: true })).json()).result.value
+  const checked = await ctx.tools.execute({ agent, callId: ToolCallId('independent-check'), name: 'paper_check',
+    arguments: { path: 'independent.md', proposalId: 'P1' }, signal: new AbortController().signal })
+  expect(checked.isError).not.toBe(true)
+  const checkText = checked.content.find(item => item.type === 'text')
+  if (checkText?.type !== 'text') throw new Error('Proposal check did not return text')
+  const applicability = z.object({ proposals: z.array(z.object({ id: z.string(), applicable: z.boolean() })) })
+    .parse(JSON.parse(checkText.text)).proposals
+  expect(applicability).toEqual([{ id: 'P1', applicable: true }])
+  expect(applicability).toMatchSnapshot('insertion after unrelated acceptance')
+  const decided = z.object({ result: z.object({ ok: z.literal(true), value: ViewSchema }) }).parse(await (await rpc({ action: 'decide',
+    path: 'independent.md', revision: advanced.document.current.id, proposalId: 'P1', accept: true })).json()).result.value
+  expect(decided.document.proposals.map(item => item.status)).toEqual(['accepted', 'accepted'])
+  expect(await readFile(join(root, 'independent.md'), 'utf8')).toBe(
+    '# Independent changes\n\nAn unchanged anchor.\n\nAdded context.\n\nRevised neighboring paragraph.\n')
   const left = await (await control('paper-review/leave', {})).json() as { result: { ok: boolean } }
   expect(left.result.ok).toBe(true)
   expect(await readFile(join(root, '.paper-review', 'sessions.json'), 'utf8')).toBe('[]')

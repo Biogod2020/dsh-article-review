@@ -1,0 +1,12 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`opens from a click anywhere on the minimap and progressively discloses paragraphs > collapsed sections in the manuscript outline 1`] = `
+{
+  "actions": [
+    "Expand all",
+    "Collapse all",
+  ],
+  "outline": "▾Paper0/82Opening context.▸Methods0/4▸Results0/2",
+  "toggle": "Open review outline",
+}
+`;

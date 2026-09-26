@@ -4,24 +4,14 @@ import type { ReactNode, RefObject } from 'react'
 import type { BibliographyView, PaperBlock } from '../schema.ts'
 import { displayCitations } from './citation-display.ts'
 import { rangesForChangedSpans, renderedPlainText } from './rendered-diff.tsx'
+import { scrollPaperTarget } from './reader-scroll.ts'
 import type { PaperReviewKey } from './locales.ts'
 import css from './panel.module.css'
 
-type SearchableBlock = { id: string; text: string }
+/** Rendered searchable text, with an optional always-mounted lazy-content target. */
+export type SearchableBlock = { id: string; text: string; targetId?: string }
 type FindHit = { blockId: string; occurrence: number }
 const MAX_HITS = 2000
-
-/** Scroll the manuscript's own viewport directly; host-page smooth scrolling can delay or override find navigation. */
-function scrollMatch(viewport: HTMLElement, target: Element | Range): void {
-  const rect = target.getBoundingClientRect()
-  const view = viewport.getBoundingClientRect()
-  if (!rect.height || !view.height) {
-    if (target instanceof Element && typeof target.scrollIntoView === 'function') target.scrollIntoView({ block: 'center' })
-    return
-  }
-  const top = Math.max(0, viewport.scrollTop + rect.top - view.top - Math.min(view.height / 3, 120))
-  viewport.scrollTo({ top, behavior: 'instant' as ScrollBehavior })
-}
 
 /** Build a rendered-text index once per manuscript revision, excluding hidden source notes.
  * @param blocks - reader-visible manuscript blocks.
@@ -60,13 +50,19 @@ export function findPaperHits(blocks: SearchableBlock[], query: string): FindHit
  * @param props - manuscript, panel focus scope, viewport and localized controls.
  * @returns a temporary search bar when opened from this pane.
  */
-export function PaperFind({ panel, content, blocks, bibliography, mode, onRead, t }: {
+export function PaperFind({ panel, content, blocks, bibliography, mode, onRead, onNavigate, entries, onTarget, t }: {
   panel: RefObject<HTMLElement>
   content: RefObject<HTMLElement>
   blocks: PaperBlock[]
   bibliography?: BibliographyView | undefined
   mode: string
   onRead: () => void
+  /** Release a pending reader-position correction before search takes over scrolling. */
+  onNavigate?: (() => void) | undefined
+  /** Current view's text; supplied entries keep search in that view instead of opening Read. */
+  entries?: SearchableBlock[] | (() => SearchableBlock[]) | undefined
+  /** Reveal a paginated entry before its DOM is present. */
+  onTarget?: ((id: string) => void) | undefined
   t: (key: PaperReviewKey) => string
 }): ReactNode {
   const input = useRef<HTMLInputElement>(null)
@@ -74,7 +70,8 @@ export function PaperFind({ panel, content, blocks, bibliography, mode, onRead, 
   const [query, setQuery] = useState('')
   const [active, setActive] = useState(0)
   const name = `paper-find-${useId().replace(/[^a-zA-Z0-9]/g, '')}`
-  const indexed = useMemo(() => open ? searchableBlocks(blocks, bibliography) : [], [blocks, bibliography, open])
+  const indexed = useMemo(() => open ? typeof entries === 'function' ? entries()
+    : entries ?? searchableBlocks(blocks, bibliography) : [], [blocks, bibliography, entries, open])
   const hits = useMemo(() => findPaperHits(indexed, query), [indexed, query])
   const current = hits[Math.min(active, hits.length - 1)]
   const pendingScroll = useRef(false)
@@ -90,30 +87,35 @@ export function PaperFind({ panel, content, blocks, bibliography, mode, onRead, 
       if (focused instanceof HTMLElement && focused !== input.current
         && (focused.matches('input, textarea, select, [contenteditable="true"]') || focused.closest('[contenteditable="true"]'))) return
       event.preventDefault(); event.stopPropagation()
-      if (mode !== 'read') onRead()
+      if (!entries && mode !== 'read') onRead()
       setOpen(true)
       requestAnimationFrame(() => { input.current?.focus(); input.current?.select() })
     }
     window.addEventListener('pointerdown', pointer, true)
     document.addEventListener('keydown', key, true)
     return () => { window.removeEventListener('pointerdown', pointer, true); document.removeEventListener('keydown', key, true) }
-  }, [panel, mode, onRead])
+  }, [panel, mode, onRead, entries])
+
+  useEffect(() => { setActive(0) }, [mode])
 
   useEffect(() => {
-    if (!open || mode !== 'read' || !current) return
+    if (!open || (!entries && mode !== 'read') || !current) return
     pendingScroll.current = true
+    onTarget?.(current.blockId)
     const frame = requestAnimationFrame(() => {
       if (!pendingScroll.current) return
+      onNavigate?.()
       const viewport = content.current
-      const block = viewport?.querySelector<HTMLElement>(`[data-block="${CSS.escape(current.blockId)}"]`)
-      if (viewport && block) scrollMatch(viewport, block)
+      const targetId = indexed.find(entry => entry.id === current.blockId)?.targetId ?? current.blockId
+      const block = viewport?.querySelector<HTMLElement>(`[data-find-id="${CSS.escape(targetId)}"], [data-block="${CSS.escape(targetId)}"]`)
+      if (viewport && block) scrollPaperTarget(viewport, block)
     })
     return () => { cancelAnimationFrame(frame) }
-  }, [active, content, current, mode, open])
+  }, [active, content, current, indexed, mode, open, onNavigate, onTarget, entries])
 
   useEffect(() => {
     const viewport = content.current
-    if (!open || mode !== 'read' || !query.trim() || !viewport || typeof Highlight === 'undefined') return
+    if (!open || (!entries && mode !== 'read') || !query.trim() || !viewport || typeof Highlight === 'undefined') return
     const allName = `${name}-all`, activeName = `${name}-active`
     const byBlock = new Map<string, number[]>()
     hits.forEach((hit, index) => byBlock.set(hit.blockId, [...(byBlock.get(hit.blockId) ?? []), index]))
@@ -123,8 +125,9 @@ export function PaperFind({ panel, content, blocks, bibliography, mode, onRead, 
       const all: Range[] = [], selected: Range[] = []
       const needle = query.trim().toLocaleLowerCase()
       for (const [blockId, indexes] of byBlock) {
-        const root = viewport.querySelector<HTMLElement>(`[data-block="${CSS.escape(blockId)}"] [data-reader-text]`)
-        if (!root || root.querySelector('[data-reader-placeholder]')) continue
+        const target = viewport.querySelector<HTMLElement>(`[data-find-id="${CSS.escape(blockId)}"], [data-block="${CSS.escape(blockId)}"]`)
+        const root = target?.querySelector<HTMLElement>('[data-rendered-diff], [data-reader-text], [data-find-text]') ?? target
+        if (!root || root.querySelector('[data-reader-placeholder], [data-diff-placeholder]')) continue
         const text = root.textContent.toLocaleLowerCase()
         const spans: { offset: number; length: number }[] = []
         for (let at = text.indexOf(needle); at >= 0 && spans.length < indexes.length;
@@ -141,7 +144,8 @@ export function PaperFind({ panel, content, blocks, bibliography, mode, onRead, 
         highlight.priority = 2
         CSS.highlights.set(activeName, highlight)
         if (pendingScroll.current) {
-          if (selected[0] && typeof selected[0].getBoundingClientRect === 'function') scrollMatch(viewport, selected[0])
+          onNavigate?.()
+          if (selected[0] && typeof selected[0].getBoundingClientRect === 'function') scrollPaperTarget(viewport, selected[0])
           pendingScroll.current = false
         }
       }
@@ -155,9 +159,9 @@ export function PaperFind({ panel, content, blocks, bibliography, mode, onRead, 
       if (frame) cancelAnimationFrame(frame)
       CSS.highlights.delete(allName); CSS.highlights.delete(activeName)
     }
-  }, [active, content, hits, mode, name, open, query])
+  }, [active, content, hits, mode, name, open, query, onNavigate, entries])
 
-  if (!open || mode !== 'read') return null
+  if (!open || (!entries && mode !== 'read')) return null
   const move = (step: number): void => { if (hits.length) setActive(index => (index + step + hits.length) % hits.length) }
   const close = (): void => { setOpen(false); panel.current?.focus() }
   const highlightCSS = [
@@ -175,6 +179,7 @@ export function PaperFind({ panel, content, blocks, bibliography, mode, onRead, 
       ? `${Math.min(active, hits.length - 1) + 1}/${hits.length}${hits.length === MAX_HITS ? '+' : ''}` : t('findNone') : ''}</span>
     <button type="button" aria-label={t('findPrevious')} title={t('findPrevious')} disabled={!hits.length} onClick={() => { move(-1) }}>↑</button>
     <button type="button" aria-label={t('findNext')} title={t('findNext')} disabled={!hits.length} onClick={() => { move(1) }}>↓</button>
+    {entries && mode !== 'read' && <button type="button" title={t('findInArticle')} aria-label={t('findInArticle')} onClick={onRead}>¶</button>}
     <button type="button" aria-label={t('findClose')} title={t('findClose')} onClick={close}>×</button>
   </div></div>
 }

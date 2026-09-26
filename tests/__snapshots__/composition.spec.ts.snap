@@ -1,5 +1,14 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
+exports[`boots from a composition, keeps ordinary tools, and lets agents and operators manage proposals > insertion after unrelated acceptance 1`] = `
+[
+  {
+    "applicable": true,
+    "id": "P1",
+  },
+]
+`;
+
 exports[`boots from a composition, keeps ordinary tools, and lets agents and operators manage proposals 1`] = `
 [
   {
@@ -32,7 +41,7 @@ exports[`boots from a composition, keeps ordinary tools, and lets agents and ope
     },
   },
   {
-    "description": "Read manuscript blocks and their exact ids and revision. Optionally read one block plus its neighbors. Preserve scientific claims; never strengthen causality, generalizability, novelty, significance or superiority without explicit author instruction.",
+    "description": "Read manuscript blocks and their exact ids and revision. Optionally read one block plus its neighbors; a selected block also returns beforeHash for paper_delete, so LaTeX or table Markdown need not be retyped. Preserve scientific claims; never strengthen causality, generalizability, novelty, significance or superiority without explicit author instruction.",
     "name": "paper_read",
     "parameters": {
       "properties": {
@@ -92,7 +101,68 @@ exports[`boots from a composition, keeps ordinary tools, and lets agents and ope
     },
   },
   {
-    "description": "Submit a manuscript change for author review without writing the source. Copy blockId and exact before text from paper_read. With operation: insert-before/insert-after, after may contain any complete Markdown fragment, including lists, tables, headings, quotes, code and multiple blocks. Without operation, after replaces the selected block; an empty string proposes deletion. For compatibility, an unchanged before block followed or preceded by blank-separated new blocks is treated as insertion. Group dependent edits. Insertions require the current baseRevision. Version, locks and bound citation keys are checked; lexical flags are review hints, not scientific approval.",
+    "description": "List the exact local figures referenced by the current manuscript, with block ids, authored paths, workspace files and retained hashes. Read-only; missing files are not replaced by guessed versions.",
+    "name": "paper_figure_list",
+    "parameters": {
+      "properties": {
+        "path": {
+          "description": "Workspace-relative Markdown manuscript path, for example article.md.",
+          "type": "string",
+        },
+      },
+      "required": [
+        "path",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "description": "Propose replacing one referenced figure with an existing workspace PDF or image. Use paper_figure_list and paper_read for the current revision, blockId and authored figure path. Retains content-hashed copies of both files and changes only the figure destination, not caption prose. The manuscript and original files stay unchanged until paper_decide accepts. Supply proposalId to revise a pending proposal in place. Inspect old/new previews and caption/panel consistency before accepting; never overwrite the old image in place.",
+    "name": "paper_figure_replace",
+    "parameters": {
+      "properties": {
+        "blockId": {
+          "description": "Exact figure block id.",
+          "type": "string",
+        },
+        "figure": {
+          "description": "Authored figure destination returned by paper_figure_list.",
+          "type": "string",
+        },
+        "path": {
+          "description": "Workspace-relative Markdown manuscript path, for example article.md.",
+          "type": "string",
+        },
+        "proposalId": {
+          "description": "Pending proposal to revise instead of creating another.",
+          "type": "string",
+        },
+        "reason": {
+          "description": "Why the figure should be replaced; mention panel/caption changes requiring separate review.",
+          "type": "string",
+        },
+        "replacement": {
+          "description": "Existing workspace-relative replacement file; it may be outside the manuscript figure directory.",
+          "type": "string",
+        },
+        "revision": {
+          "description": "Current manuscript revision.",
+          "type": "string",
+        },
+      },
+      "required": [
+        "path",
+        "revision",
+        "blockId",
+        "figure",
+        "replacement",
+        "reason",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "description": "Submit a manuscript change for author review without writing the source. Copy blockId and exact before text from paper_read. With operation: insert-before/insert-after, after may contain any complete Markdown fragment, including lists, tables, headings, quotes, code and multiple blocks. Without operation, after replaces the selected block; an empty string proposes deletion. For compatibility, an unchanged before block followed or preceded by blank-separated new blocks is treated as insertion. Group dependent edits. Unchanged anchors remain valid after unrelated revisions; reread changed or missing anchors. Version, locks and bound citation keys are checked; lexical flags are review hints, not scientific approval.",
     "name": "paper_propose",
     "parameters": {
       "properties": {
@@ -243,6 +313,43 @@ exports[`boots from a composition, keeps ordinary tools, and lets agents and ope
         "path",
         "proposalId",
         "revision",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "description": "Propose deleting one complete Markdown block without retyping its source (useful for tables or LaTeX). First call paper_read with blockId and copy its revision and beforeHash. Supply proposalId to append deletion to an existing pending group while preserving all its other edits. A block already edited by that group must instead be changed with paper_revise. This only creates or revises a pending proposal; only author-requested paper_decide acceptance writes the manuscript. To delete part of a paragraph, use paper_propose/paper_revise with the complete exact before and the remaining after text.",
+    "name": "paper_delete",
+    "parameters": {
+      "properties": {
+        "baseRevision": {
+          "type": "string",
+        },
+        "beforeHash": {
+          "description": "Exact beforeHash returned by paper_read with this blockId.",
+          "type": "string",
+        },
+        "blockId": {
+          "type": "string",
+        },
+        "path": {
+          "description": "Workspace-relative Markdown manuscript path, for example article.md.",
+          "type": "string",
+        },
+        "proposalId": {
+          "description": "Optional pending group to append to, without replacing its existing edits.",
+          "type": "string",
+        },
+        "reason": {
+          "type": "string",
+        },
+      },
+      "required": [
+        "path",
+        "baseRevision",
+        "blockId",
+        "beforeHash",
+        "reason",
       ],
       "type": "object",
     },
@@ -421,6 +528,9 @@ exports[`boots from a composition, keeps ordinary tools, and lets agents and ope
     "paper_bib_replace",
     "paper_check",
     "paper_decide",
+    "paper_delete",
+    "paper_figure_list",
+    "paper_figure_replace",
     "paper_list",
     "paper_open",
     "paper_propose",
@@ -437,6 +547,9 @@ exports[`boots from a composition, keeps ordinary tools, and lets agents and ope
     "paper_bib_replace",
     "paper_check",
     "paper_decide",
+    "paper_delete",
+    "paper_figure_list",
+    "paper_figure_replace",
     "paper_list",
     "paper_open",
     "paper_propose",
@@ -453,6 +566,9 @@ exports[`boots from a composition, keeps ordinary tools, and lets agents and ope
     "paper_bib_replace",
     "paper_check",
     "paper_decide",
+    "paper_delete",
+    "paper_figure_list",
+    "paper_figure_replace",
     "paper_list",
     "paper_open",
     "paper_propose",
@@ -469,6 +585,9 @@ exports[`boots from a composition, keeps ordinary tools, and lets agents and ope
     "paper_bib_replace",
     "paper_check",
     "paper_decide",
+    "paper_delete",
+    "paper_figure_list",
+    "paper_figure_replace",
     "paper_list",
     "paper_open",
     "paper_propose",
@@ -485,6 +604,9 @@ exports[`boots from a composition, keeps ordinary tools, and lets agents and ope
     "paper_bib_replace",
     "paper_check",
     "paper_decide",
+    "paper_delete",
+    "paper_figure_list",
+    "paper_figure_replace",
     "paper_list",
     "paper_open",
     "paper_propose",

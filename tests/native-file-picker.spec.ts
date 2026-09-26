@@ -1,8 +1,17 @@
 /** Finder command behavior without opening a real system dialog. */
 import { expect, it, vi } from 'vitest'
-import { pickNativeBibliography, pickNativeManuscript } from '../src/native-file-picker.ts'
+import { pickNativeBibliography, pickNativeFigure, pickNativeManuscript } from '../src/native-file-picker.ts'
 
 const signal = new AbortController().signal
+
+it('chooses a PDF or image in Finder and reports cancellation', async () => {
+  const run = vi.fn(async () => ({ stdout: '/Users/example/project/updated.pdf\n', stderr: '' }))
+  expect(await pickNativeFigure('/Users/example/project', signal, run, 'darwin')).toBe('/Users/example/project/updated.pdf')
+  expect(run).toHaveBeenCalledWith('osascript', ['-e', expect.stringContaining('Choose replacement figure'), '/Users/example/project'], signal)
+  const canceled = vi.fn(async () => { throw Object.assign(new Error('canceled'), { code: 1, stderr: 'User canceled. (-128)' }) })
+  expect(await pickNativeFigure('/tmp', signal, canceled, 'darwin')).toBeNull()
+  await expect(pickNativeFigure('/tmp', signal, run, 'linux')).rejects.toThrow('requires macOS')
+})
 
 it('passes a workspace to Finder and returns the selected path', async () => {
   const run = vi.fn(async () => ({ stdout: '/Users/example/project/draft.md\n', stderr: '' }))

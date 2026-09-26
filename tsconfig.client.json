@@ -1,7 +1,7 @@
 {
   "extends": "../../../tsconfig.base.client.json",
   "compilerOptions": { "rootDir": "src", "outDir": "lib/types", "tsBuildInfoFile": "lib/client.tsbuildinfo" },
-  "include": ["src/client", "src/schema.ts", "src/review-blocks.ts"],
+  "include": ["src/client", "src/schema.ts", "src/figures.ts", "src/review-blocks.ts"],
   "references": [
     { "path": "../../../vendor/cordis" }, { "path": "../../client/connection/tsconfig.client.json" },
     { "path": "../../client/locale/tsconfig.client.json" }, { "path": "../../client/ui-renderer" },

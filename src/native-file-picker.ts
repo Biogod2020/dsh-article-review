@@ -9,6 +9,38 @@ const BIB_SCRIPT = `on run argv
   set selectedFile to choose file with prompt "Choose authoritative BibTeX file" of type {"bib"} default location (POSIX file (item 1 of argv))
   return POSIX path of selectedFile
 end run`
+const FIGURE_SCRIPT = `on run argv
+  set initialLocation to POSIX file (item 1 of argv)
+  tell application "Finder"
+    activate
+    set selectedFile to choose file with prompt "Choose replacement figure" of type {"pdf", "png", "jpg", "jpeg", "webp", "gif", "svg"} default location initialLocation
+  end tell
+  return POSIX path of selectedFile
+end run`
+
+/**
+ * Choose a replacement PDF or image on the macOS host; the caller validates workspace access.
+ * @param workspaceRoot - initial Finder directory.
+ * @param signal - request lifetime.
+ * @param run - native command adapter.
+ * @param platform - host platform.
+ * @returns absolute selected path, or null when canceled.
+ */
+export async function pickNativeFigure(workspaceRoot: string, signal: AbortSignal,
+  run: NativeCommandRunner = runNativeCommand, platform: NodeJS.Platform = process.platform): Promise<string | null> {
+  if (platform !== 'darwin') throw new Error('Native figure selection requires macOS on the DSH host')
+  try {
+    const { stdout } = await run('osascript', ['-e', FIGURE_SCRIPT, workspaceRoot], signal)
+    const path = stdout.replace(/[\r\n]+$/, '')
+    if (!path) throw new Error('Finder returned no figure path')
+    return path
+  } catch (error) {
+    if (!signal.aborted && typeof error === 'object' && error !== null
+      && 'code' in error && error.code === 1 && 'stderr' in error
+      && typeof error.stderr === 'string' && /(?:User canceled|-128)/i.test(error.stderr)) return null
+    throw new Error('Finder could not open the figure file chooser', { cause: error })
+  }
+}
 
 /**
  * Show the host's Finder file chooser when an operator is at its display.

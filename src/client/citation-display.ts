@@ -1,27 +1,22 @@
 /** Reader-only labels for canonical citations; BibTeX remains the source of metadata. */
 import type { BibliographyView } from '../schema.ts'
+import { plainBibText } from './bib-display.ts'
+import { en } from './locales.ts'
 
 type BibEntry = BibliographyView['entries'][number]
-
-const symbols: Record<string, string> = { aa: 'å', AA: 'Å', ae: 'æ', AE: 'Æ', oe: 'œ', OE: 'Œ', o: 'ø', O: 'Ø', ss: 'ß' }
-const accents: Record<string, string> = { "'": '\u0301', '`': '\u0300', '^': '\u0302', '"': '\u0308', '~': '\u0303', v: '\u030c', c: '\u0327', u: '\u0306', '=': '\u0304', '.': '\u0307' }
-
-function plainName(value: string): string {
-  return value.replace(/\{\\(aa|AA|ae|AE|oe|OE|ss|[oO])\}/g, (_match, name: string) => symbols[name] ?? name)
-    .replace(/\{\\(['`^"~vcu=.])\s*([A-Za-z])\}/g, (_match, accent: string, letter: string) => `${letter}${accents[accent] ?? ''}`.normalize('NFC'))
-    .replace(/[{}]/g, '')
-}
 
 function authorLabel(author: string | undefined): string | undefined {
   if (!author) return undefined
   const authors = author.split(/\s+and\s+/i)
   const family = (person: string): string => {
-    const name = plainName(person.trim())
-    return name.includes(',') ? name.split(',')[0]!.trim() : name.split(/\s+/).at(-1) ?? name
+    const name = plainBibText(person.trim())
+    return name.includes(',') ? name.slice(0, name.indexOf(',')).trim() : name.split(/\s+/).at(-1) ?? name
   }
-  if (authors.length === 1) return family(authors[0]!)
-  if (authors.length === 2) return `${family(authors[0]!)} & ${family(authors[1]!)}`
-  return `${family(authors[0]!)} et al.`
+  const [first = '', second = ''] = authors
+  if (authors.length === 1) return family(first)
+  if (authors.length === 2) return `${family(first)} & ${family(second)}`
+  // Manuscript citations follow the author's English ICLR style, not the UI language.
+  return `${family(first)} ${en.citationEtAl}`
 }
 
 function citationLabel(entry: BibEntry): string | undefined {
@@ -41,10 +36,10 @@ export function displayCitations(source: string, entries: readonly BibEntry[]): 
   if (entries.length === 0 || !source.includes('[@')) return source
   const byKey = new Map(entries.map(entry => [entry.key, entry]))
   const replace = (text: string): string => text.replace(/\[(@[^\]]+)\]/g, (original, content: string) => {
-    const keys = content.split(';').map(item => /^\s*@([A-Za-z0-9:_-]+)\s*$/.exec(item)?.[1])
+    const keys = content.split(';').map(item => /^\s*@([A-Za-z][A-Za-z0-9_:./-]*)\s*$/.exec(item)?.[1])
     if (keys.some(key => key === undefined)) return original
-    const labels = keys.map(key => {
-      const entry = byKey.get(key!)
+    const labels = keys.map((key) => {
+      const entry = key ? byKey.get(key) : undefined
       return entry && citationLabel(entry)
     })
     return labels.every(label => label !== undefined) ? `(${labels.join('; ')})` : original

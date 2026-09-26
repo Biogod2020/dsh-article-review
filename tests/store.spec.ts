@@ -34,6 +34,63 @@ afterEach(async () => {
 })
 
 describe('manuscript review workflow', () => {
+  it('appends hash-checked LaTeX table deletion while preserving an existing proposal group', async () => {
+    const table = '| Contrast | $\\Delta$ |\n| --- | --- |\n| Workflow | [-3.6, 9.9] |'
+    const text = `# Results\n\nKeep this paragraph.\n\n${table}\n\nOld caption.\n`
+    const { root, store, view } = await setup(text)
+    const block = view.document.current.blocks.find(item => item.text === table)!
+    await store.propose('article.md', proposal(view, 'Old caption.', 'New caption.'))
+    const input = { baseRevision: view.document.current.id, blockId: block.id, beforeHash: revisionId(table), reason: 'Remove the duplicate table.', proposalId: 'P1' }
+    await expect(store.proposeDeletion('article.md', { ...input, beforeHash: '0'.repeat(64) })).rejects.toThrow('hash does not match')
+    const pending = await store.proposeDeletion('article.md', input)
+    expect(pending.document.proposals).toHaveLength(1)
+    expect(pending.document.proposals[0]?.edits).toEqual([
+      { blockId: view.document.current.blocks.find(item => item.text === 'Old caption.')!.id, before: 'Old caption.', after: 'New caption.' },
+      { blockId: block.id, before: table, after: '' },
+    ])
+    expect(await readFile(join(root, 'article.md'), 'utf8')).toBe(text)
+    await expect(store.proposeDeletion('article.md', input)).rejects.toThrow('already edits the block')
+    await accept(store, 'P1')
+    const accepted = await readFile(join(root, 'article.md'), 'utf8')
+    expect(accepted).not.toContain(table)
+    expect(accepted).toContain('Keep this paragraph.')
+    expect(accepted).toContain('New caption.')
+  })
+
+  it('keeps deletion revision, source and author lock checks', async () => {
+    const { root, store, view } = await setup('Delete this paragraph.\n')
+    const block = view.document.current.blocks[0]!
+    const input = { baseRevision: view.document.current.id, blockId: block.id, beforeHash: revisionId(block.text), reason: 'Remove duplication.' }
+    await store.command({ action: 'review', path: 'article.md', revision: view.document.current.id, blockIds: [block.id], locked: true })
+    await expect(store.proposeDeletion('article.md', input)).rejects.toThrow(/lock/i)
+    await expect(store.proposeDeletion('article.md', { ...input, baseRevision: 'obsolete' })).rejects.toThrow(/revision|version/i)
+    await writeFile(join(root, 'article.md'), 'External change.\n')
+    await expect(store.proposeDeletion('article.md', input)).rejects.toThrow('External changes')
+    expect((await store.read('article.md')).document.proposals).toHaveLength(0)
+  })
+
+  it('archives, restores and manually relinks orphaned baselines without editing source', async () => {
+    const { root, store, view } = await setup('Old reviewed paragraph.\n\nKeep this context.\n')
+    const old = view.document.current.blocks[0]!
+    await store.command({ action: 'review', path: 'article.md', revision: view.document.current.id, blockIds: [old.id], locked: true })
+    await expect(store.command({ action: 'archive-baseline', path: 'article.md', revision: view.document.current.id, blockId: old.id })).rejects.toThrow('Only a missing paragraph')
+    const text = 'New replacement text.\n\nKeep this context.\n'
+    await writeFile(join(root, 'article.md'), text)
+    const refreshed = await store.command({ action: 'refresh', path: 'article.md', revision: view.document.current.id })
+    const revision = refreshed.document.current.id
+    const archived = await store.command({ action: 'archive-baseline', path: 'article.md', revision, blockId: old.id })
+    const record = archived.document.baselines[0]!
+    expect(record).toMatchObject({ text: old.text, locked: true, revision: view.document.current.id })
+    expect(record.archivedAt).toBeTruthy()
+    await store.command({ action: 'restore-baseline', path: 'article.md', revision, blockId: old.id, archivedAt: record.archivedAt! })
+    const target = refreshed.document.current.blocks[0]!
+    const relinked = await store.command({ action: 'relink-baseline', path: 'article.md', revision, blockId: old.id, targetBlockId: target.id })
+    expect(relinked.document.baselines.filter(item => !item.archivedAt))
+      .toEqual([expect.objectContaining({ blockId: target.id, text: old.text, locked: true })])
+    expect(relinked.document.baselines.filter(item => item.archivedAt)).toHaveLength(1)
+    expect(await readFile(join(root, 'article.md'), 'utf8')).toBe(text)
+    await expect(store.propose('article.md', proposal(relinked, target.text, 'Another version.'))).rejects.toThrow(/lock/i)
+  })
   it('distinguishes unbound, missing, and resolved canonical citations', async () => {
     const { root, store } = await setup('# Study\n\nSee [@smith].\n')
     expect((await store.bibliography('article.md')).citationStatus).toBe('unbound')
@@ -389,7 +446,7 @@ describe('manuscript review workflow', () => {
     expect(await readFile(join(root, 'article.md'), 'utf8')).toBe('# Title\r\n\r\nAdded context.\r\n\r\nRevised first sentence.\r\n\r\nSecond sentence.\r\n')
   })
 
-  it('revises a pending replacement into an insertion and requires rebasing after another acceptance', async () => {
+  it('accepts a pending insertion after an unrelated acceptance without rebasing unchanged anchors', async () => {
     const { root, store, view } = await setup()
     const anchor = view.document.current.blocks[3]!
     await store.propose('article.md', proposal(view, anchor.text, 'Evaluation used existing records.'))
@@ -400,13 +457,39 @@ describe('manuscript review workflow', () => {
     const other = view.document.current.blocks[2]!
     await store.propose('article.md', proposal(view, other.text, other.text.replace('higher', 'lower')))
     await accept(store, 'P2')
-    await expect(accept(store, 'P1')).rejects.toThrow('stale')
-    const current = await store.read('article.md')
-    await store.revise('article.md', { proposalId: 'P1', revision: current.document.current.id,
-      baseRevision: current.document.current.id, edits: [{ blockId: anchor.id, before: anchor.text,
-        after: 'Additional context.', operation: 'insert-after' }] })
     await accept(store, 'P1')
-    expect(await readFile(join(root, 'article.md'), 'utf8')).toContain('Additional context.')
+    expect(await readFile(join(root, 'article.md'), 'utf8')).toBe(original.replace('higher', 'lower')
+      .replace(anchor.text, `${anchor.text}\n\nAdditional context.`))
+    expect((await store.read('article.md')).document.proposals[0]?.baseRevision).toBe(view.document.current.id)
+  })
+
+  it.each(['insert-before', 'insert-after'] as const)('accepts %s from a known older revision when its exact anchor survives', async (operation) => {
+    const { root, store, view } = await setup()
+    const anchor = view.document.current.blocks[3]!
+    const other = view.document.current.blocks[2]!
+    await store.propose('article.md', proposal(view, other.text, other.text.replace('higher', 'lower')))
+    await accept(store, 'P1')
+    const input: ProposalInput = { baseRevision: view.document.current.id, annotationIds: [], reason: 'Add context.', meaning: 'structure',
+      edits: [{ blockId: anchor.id, before: anchor.text, after: 'Added context.', operation }] }
+    await store.propose('article.md', input)
+    await accept(store, 'P2')
+    const addition = operation === 'insert-before' ? `Added context.\n\n${anchor.text}` : `${anchor.text}\n\nAdded context.`
+    expect(await readFile(join(root, 'article.md'), 'utf8')).toBe(original.replace('higher', 'lower').replace(anchor.text, addition))
+  })
+
+  it.each(['replace', 'delete'] as const)('refuses an old insertion when its anchor was accepted as %s', async (change) => {
+    const { root, store, view } = await setup()
+    const anchor = view.document.current.blocks[3]!
+    const input: ProposalInput = { baseRevision: view.document.current.id, annotationIds: [], reason: 'Add context.', meaning: 'structure',
+      edits: [{ blockId: anchor.id, before: anchor.text, after: 'Added context.', operation: 'insert-after' }] }
+    await store.propose('article.md', input)
+    await store.propose('article.md', proposal(view, anchor.text, change === 'delete' ? '' : 'A prospective evaluation.'))
+    await accept(store, 'P2')
+    const source = await readFile(join(root, 'article.md'), 'utf8')
+    await expect(accept(store, 'P1')).rejects.toThrow('overlaps')
+    await expect(store.propose('article.md', input)).rejects.toThrow('block has changed')
+    expect(await readFile(join(root, 'article.md'), 'utf8')).toBe(source)
+    expect((await store.read('article.md')).document.proposals[0]?.status).toBe('pending')
   })
 
   it('revises a pending proposal in place, recalculates flags, and persists the same id without writing source', async () => {
@@ -439,7 +522,7 @@ describe('manuscript review workflow', () => {
     const newBlock = current.document.current.blocks.find(block => block.text === 'The evaluation used retrospective records.')!
     await expect(store.revise('article.md', { proposalId: 'P1', revision: current.document.current.id,
       baseRevision: current.document.current.id, edits: [{ blockId: oldBlock.id, before: oldBlock.text,
-        after: 'The evaluation was retrospective and source-grounded.' }] })).rejects.toThrow('unchanged base block')
+        after: 'The evaluation was retrospective and source-grounded.' }] })).rejects.toThrow('not found in the base revision')
     const revised = await store.revise('article.md', { proposalId: 'P1', revision: current.document.current.id,
       baseRevision: current.document.current.id, edits: [{ blockId: newBlock.id, before: newBlock.text,
         after: 'The evaluation used retrospective, source-grounded records.' }] })

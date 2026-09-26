@@ -10,10 +10,11 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { CommandSchema, ProposalInputSchema, ProposalRevisionInputSchema } from './schema.ts'
+import { CommandSchema, FigureReplacementSchema, ProposalInputSchema, ProposalRevisionInputSchema } from './schema.ts'
 import type { Proposal } from './schema.ts'
 import { PaperStore, reviewSessions } from './store.ts'
-import { pickNativeBibliography, pickNativeManuscript } from './native-file-picker.ts'
+import { revisionId } from './document.ts'
+import { pickNativeBibliography, pickNativeFigure, pickNativeManuscript } from './native-file-picker.ts'
 
 /** Cordis plugin identity. */
 export const name = 'paper-review'
@@ -25,21 +26,27 @@ export interface Config {
   workspaceRoot?: string
   /** Maximum UTF-8 bytes in one manuscript. */
   maxBytes: number
+  /** Maximum bytes retained for one replacement figure. */
+  maxFigureBytes?: number
 }
 /** Loader validation; workspace selection is explicit. */
 export const Config: ConfigSchema<Config> = ConfigSchema.object({
   workspaceRoot: ConfigSchema.string(), maxBytes: ConfigSchema.natural().min(1).max(2_000_000).default(1_000_000),
+  maxFigureBytes: ConfigSchema.natural().min(1).default(67_108_864),
 })
 
 /** Manuscript tools visible after a document opens; ordinary tools remain available. */
-export const PAPER_TOOLS = ['paper_read', 'paper_annotations', 'paper_propose', 'paper_revise', 'paper_check', 'paper_decide',
-  'paper_bib_find', 'paper_bib_bind', 'paper_bib_list', 'paper_bib_get', 'paper_bib_add', 'paper_bib_replace'] as const
+export const PAPER_TOOLS = ['paper_read', 'paper_annotations', 'paper_propose', 'paper_revise', 'paper_delete', 'paper_check', 'paper_decide',
+  'paper_bib_find', 'paper_bib_bind', 'paper_bib_list', 'paper_bib_get', 'paper_bib_add', 'paper_bib_replace',
+  'paper_figure_list', 'paper_figure_replace'] as const
 /** Manuscript discovery tools are available before a document opens. */
 export const PAPER_DISCOVERY_TOOLS = ['paper_list', 'paper_open'] as const
 
 /** Omit absent operation fields from model-visible JSON while retaining legacy replacement records. */
 function modelProposal(proposal: Proposal) {
-  return { ...proposal, edits: proposal.edits.map(({ operation, ...edit }) => operation ? { ...edit, operation } : edit) }
+  const { figureChanges, ...rest } = proposal
+  return { ...rest, ...(figureChanges ? { figureChanges } : {}),
+    edits: proposal.edits.map(({ operation, ...edit }) => operation ? { ...edit, operation } : edit) }
 }
 
 /**
@@ -62,7 +69,10 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     const root = await realpath(await rootFor(sessionId))
     let pending = stores.get(root)
     if (!pending) {
-      pending = (async () => { const store = new PaperStore(root, config.maxBytes); await store.start(); return store })()
+      pending = (async () => {
+        const store = new PaperStore(root, config.maxBytes, config.maxFigureBytes)
+        await store.start(); return store
+      })()
       stores.set(root, pending)
       void pending.catch(() => { if (stores.get(root) === pending) stores.delete(root) })
     }
@@ -124,7 +134,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     ctx.effect(() => ctx.tools.register(defineTool({
       name: toolName,
       description: toolName === 'paper_read'
-        ? 'Read manuscript blocks and their exact ids and revision. Optionally read one block plus its neighbors. Preserve scientific claims; never strengthen causality, generalizability, novelty, significance or superiority without explicit author instruction.'
+        ? 'Read manuscript blocks and their exact ids and revision. Optionally read one block plus its neighbors; a selected block also returns beforeHash for paper_delete, so LaTeX or table Markdown need not be retyped. Preserve scientific claims; never strengthen causality, generalizability, novelty, significance or superiority without explicit author instruction.'
         : toolName === 'paper_annotations' ? 'Read author annotations and their exact quotations. Detached annotations require the author to locate them again.'
           : 'Check pending proposals against current text, author locks and external source changes. Pass proposalId to read one pending proposal in full before revising it. Mechanical flags are review hints, not scientific verification.',
       parameters: toolName === 'paper_check'
@@ -145,25 +155,52 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
             ...(selected ? { proposal: modelProposal(selected) } : {}),
             proposals: document.proposals.filter(p => p.status === 'pending').map(p => ({
               id: p.id, flags: p.flags, authorDeclaredMeaning: p.meaning,
-              applicable: !diskChanged && (!p.edits.some(e => e.operation) || p.baseRevision === document.current.id) && p.edits.every(e =>
+              applicable: !diskChanged && p.edits.every(e =>
                 document.current.blocks.some(b => b.id === e.blockId && b.text === e.before)
-                && !document.baselines.some(b => b.blockId === e.blockId && b.locked)),
+                && !document.baselines.some(b => !b.archivedAt && b.blockId === e.blockId && b.locked)),
             })),
           }
         }
         const index = args.blockId === undefined ? -1 : document.current.blocks.findIndex(b => b.id === args.blockId)
         if (args.blockId !== undefined && index === -1) throw new Error('Block no longer exists; reread the manuscript')
+        const selectedBlock = document.current.blocks[index]
         return { path: document.path, revision: document.current.id, diskChanged,
           blocks: index === -1 ? document.current.blocks : document.current.blocks.slice(Math.max(0, index - 1), index + 2),
-          lockedBlockIds: document.baselines.filter(b => b.locked).map(b => b.blockId),
+          ...(selectedBlock ? { beforeHash: revisionId(selectedBlock.text) } : {}),
+          lockedBlockIds: document.baselines.filter(b => !b.archivedAt && b.locked).map(b => b.blockId),
         }
       },
       presentCall: () => ({ card: 'generic', kind: 'read', title: toolName }),
     })))
   }
   ctx.effect(() => ctx.tools.register(defineTool({
+    name: 'paper_figure_list', description: 'List the exact local figures referenced by the current manuscript, with block ids, authored paths, workspace files and retained hashes. Read-only; missing files are not replaced by guessed versions.',
+    parameters: { path: pathParameter }, output,
+    async execute(args, exec) { exec.signal.throwIfAborted(); return (await modelStore(exec.agent)).listFigures(args.path) },
+    presentCall: () => ({ card: 'generic', kind: 'read', title: 'List manuscript figures' }),
+  })))
+  ctx.effect(() => ctx.tools.register(defineTool({
+    name: 'paper_figure_replace', description: 'Propose replacing one referenced figure with an existing workspace PDF or image. Use paper_figure_list and paper_read for the current revision, blockId and authored figure path. Retains content-hashed copies of both files and changes only the figure destination, not caption prose. The manuscript and original files stay unchanged until paper_decide accepts. Supply proposalId to revise a pending proposal in place. Inspect old/new previews and caption/panel consistency before accepting; never overwrite the old image in place.',
+    parameters: { path: pathParameter,
+      revision: { type: 'string', required: true, description: 'Current manuscript revision.' },
+      blockId: { type: 'string', required: true, description: 'Exact figure block id.' },
+      figure: { type: 'string', required: true, description: 'Authored figure destination returned by paper_figure_list.' },
+      replacement: { type: 'string', required: true, description: 'Existing workspace-relative replacement file; it may be outside the manuscript figure directory.' },
+      reason: { type: 'string', required: true, description: 'Why the figure should be replaced; mention panel/caption changes requiring separate review.' },
+      proposalId: { type: 'string', description: 'Pending proposal to revise instead of creating another.' },
+    }, output,
+    async execute(args, exec) {
+      exec.signal.throwIfAborted()
+      const view = await (await modelStore(exec.agent)).replaceFigure(args.path, FigureReplacementSchema.parse(args))
+      const proposal = view.document.proposals.find(candidate => candidate.id === args.proposalId) ?? view.document.proposals.at(-1)
+      if (!proposal) throw new Error('Figure replacement produced no proposal')
+      return { proposal: modelProposal(proposal), manuscriptWritten: false, originalFilesWritten: false }
+    },
+    presentCall: () => ({ card: 'generic', kind: 'other', title: 'Propose figure replacement' }),
+  })))
+  ctx.effect(() => ctx.tools.register(defineTool({
     name: 'paper_propose',
-    description: 'Submit a manuscript change for author review without writing the source. Copy blockId and exact before text from paper_read. With operation: insert-before/insert-after, after may contain any complete Markdown fragment, including lists, tables, headings, quotes, code and multiple blocks. Without operation, after replaces the selected block; an empty string proposes deletion. For compatibility, an unchanged before block followed or preceded by blank-separated new blocks is treated as insertion. Group dependent edits. Insertions require the current baseRevision. Version, locks and bound citation keys are checked; lexical flags are review hints, not scientific approval.',
+    description: 'Submit a manuscript change for author review without writing the source. Copy blockId and exact before text from paper_read. With operation: insert-before/insert-after, after may contain any complete Markdown fragment, including lists, tables, headings, quotes, code and multiple blocks. Without operation, after replaces the selected block; an empty string proposes deletion. For compatibility, an unchanged before block followed or preceded by blank-separated new blocks is treated as insertion. Group dependent edits. Unchanged anchors remain valid after unrelated revisions; reread changed or missing anchors. Version, locks and bound citation keys are checked; lexical flags are review hints, not scientific approval.',
     parameters: {
       path: pathParameter, baseRevision: { type: 'string', required: true },
       annotationIds: { type: 'array', items: { type: 'string' }, required: true },
@@ -212,6 +249,22 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       return { proposal: modelProposal(proposal), manuscriptWritten: false }
     },
     presentCall: () => ({ card: 'generic', kind: 'other', title: 'Revise manuscript proposal' }),
+  })))
+
+  ctx.effect(() => ctx.tools.register(defineTool({
+    name: 'paper_delete',
+    description: 'Propose deleting one complete Markdown block without retyping its source (useful for tables or LaTeX). First call paper_read with blockId and copy its revision and beforeHash. Supply proposalId to append deletion to an existing pending group while preserving all its other edits. A block already edited by that group must instead be changed with paper_revise. This only creates or revises a pending proposal; only author-requested paper_decide acceptance writes the manuscript. To delete part of a paragraph, use paper_propose/paper_revise with the complete exact before and the remaining after text.',
+    parameters: { path: pathParameter, baseRevision: { type: 'string', required: true },
+      blockId: { type: 'string', required: true }, beforeHash: { type: 'string', required: true, description: 'Exact beforeHash returned by paper_read with this blockId.' },
+      reason: { type: 'string', required: true }, proposalId: { type: 'string', description: 'Optional pending group to append to, without replacing its existing edits.' } }, output,
+    async execute(args, exec) {
+      exec.signal.throwIfAborted()
+      const view = await (await modelStore(exec.agent)).proposeDeletion(args.path, args)
+      const proposal = args.proposalId ? view.document.proposals.find(item => item.id === args.proposalId) : view.document.proposals.at(-1)
+      if (!proposal) throw new Error('Deletion proposal was not retained')
+      return { proposal: modelProposal(proposal), manuscriptWritten: false }
+    },
+    presentCall: () => ({ card: 'generic', kind: 'other', title: 'Propose block deletion' }),
   })))
 
   ctx.effect(() => ctx.tools.register(defineTool({
@@ -306,7 +359,8 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   // Exact Fetch contributions share Connection's authenticated, size-limited /api carrier.
   // They coexist with the native session RPC interceptor without replacing it.
   const methods = ['paper-review/command', 'paper-review/list-files', 'paper-review/pick-file', 'paper-review/current', 'paper-review/figure-path', 'paper-review/figure-thumbnail', 'paper-review/leave',
-    'paper-review/bibliography', 'paper-review/bind-bibliography', 'paper-review/pick-bibliography'] as const
+    'paper-review/bibliography', 'paper-review/bind-bibliography', 'paper-review/pick-bibliography',
+    'paper-review/list-figures', 'paper-review/pick-figure', 'paper-review/replace-figure'] as const
   const envelope = z.object({ type: z.literal('client-request'), rpcId: z.string(), method: z.enum(methods), payload: z.unknown() })
   for (const method of methods) ctx.effect(() => ctx.connection.fetch.register({
     path: `/api/${method}`, methods: ['POST'], requestBody: 'buffered',
@@ -321,8 +375,24 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
         const sessionId = SessionId(payload.sessionId)
         const store = await storeFor(sessionId)
         if (parsed.data.method === 'paper-review/list-files') {
-          const listing = z.object({ path: z.string() }).parse(parsed.data.payload)
-          result = { ok: true, value: await store.listFiles(listing.path) }
+          const listing = z.object({ path: z.string(), extension: z.enum(['md', 'bib', 'figure']).default('md') }).parse(parsed.data.payload)
+          result = { ok: true, value: await store.listFiles(listing.path, listing.extension) }
+        } else if (parsed.data.method === 'paper-review/list-figures') {
+          const input = z.object({ path: z.string() }).parse(parsed.data.payload)
+          result = { ok: true, value: await store.listFigures(input.path) }
+        } else if (parsed.data.method === 'paper-review/replace-figure') {
+          const input = FigureReplacementSchema.extend({ path: z.string() }).parse(parsed.data.payload)
+          if (!enabled.has(sessionId)) throw new Error('Open a manuscript before replacing a figure')
+          result = { ok: true, value: await store.replaceFigure(input.path, input) }
+        } else if (parsed.data.method === 'paper-review/pick-figure') {
+          const root = await realpath(await rootFor(sessionId))
+          const selected = await pickNativeFigure(root, request.signal)
+          if (selected === null) result = { ok: true, value: { path: null } }
+          else {
+            const path = relative(root, selected).split(sep).join('/')
+            await store.figurePath(path)
+            result = { ok: true, value: { path } }
+          }
         } else if (parsed.data.method === 'paper-review/current') {
           result = { ok: true, value: { path: await store.selectedPath(sessionId) } }
         } else if (parsed.data.method === 'paper-review/bibliography') {

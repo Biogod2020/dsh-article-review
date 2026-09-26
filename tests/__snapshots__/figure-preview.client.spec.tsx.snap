@@ -1,0 +1,3 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`loads a thumbnail, opens its exact workspace file, and can collapse it 1`] = `"▾ Figure preview · Figure 2Replace figureFigure 2package/figures/a.pdfClick to enlarge · collapsible"`;

@@ -1,0 +1,55 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`keeps insert-after acceptance enabled after an unrelated revision > non-overlapping insertion 1`] = `
+{
+  "acceptEnabled": true,
+  "operation": "insert-after",
+  "sourceUnchanged": true,
+}
+`;
+
+exports[`keeps insert-before acceptance enabled after an unrelated revision > non-overlapping insertion 1`] = `
+{
+  "acceptEnabled": true,
+  "operation": "insert-before",
+  "sourceUnchanged": true,
+}
+`;
+
+exports[`locates insert-after at its exact anchor and returns to the same proposal > proposal insert-after location 1`] = `"P7Model-declared category: StructureA bounded revision.Paper › Methods › ScreeningPosition 4/5 · 80%Insert after this block ·An exact source anchor.View in manuscriptAfterNew content.View Markdown source diffAccept this groupRejectRequest revision"`;
+
+exports[`locates insert-before at its exact anchor and returns to the same proposal > proposal insert-before location 1`] = `"P7Model-declared category: StructureA bounded revision.Paper › Methods › ScreeningPosition 4/5 · 80%Insert before this block ·An exact source anchor.View in manuscriptAfterNew content.View Markdown source diffAccept this groupRejectRequest revision"`;
+
+exports[`locates undefined at its exact anchor and returns to the same proposal > proposal replace location 1`] = `"P7Model-declared category: StructureA bounded revision.Paper › Methods › ScreeningPosition 4/5 · 80%Change this block ·An exact source anchor.View in manuscriptBeforeAn exact source anchor.AfterNew content.View Markdown source diffAccept this groupRejectRequest revision"`;
+
+exports[`restores Read after visiting Compare versions without using the last clicked paragraph > returning to Read 1`] = `
+{
+  "returnedTo": "An exact source anchor.",
+  "scrollTop": 735,
+  "sourceWrites": 0,
+}
+`;
+
+exports[`restores Read after visiting History without using the last clicked paragraph > returning to Read 1`] = `
+{
+  "returnedTo": "An exact source anchor.",
+  "scrollTop": 735,
+  "sourceWrites": 0,
+}
+`;
+
+exports[`restores Read after visiting References without using the last clicked paragraph > returning to Read 1`] = `
+{
+  "returnedTo": "An exact source anchor.",
+  "scrollTop": 735,
+  "sourceWrites": 0,
+}
+`;
+
+exports[`restores Read after visiting Review changes without using the last clicked paragraph > returning to Read 1`] = `
+{
+  "returnedTo": "An exact source anchor.",
+  "scrollTop": 735,
+  "sourceWrites": 0,
+}
+`;

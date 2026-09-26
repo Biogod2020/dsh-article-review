@@ -1,28 +1,41 @@
 /** Version-pinned reader, annotation batches, proposal decisions and cumulative human-review diffs. */
-import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { diffWordsWithSpace } from 'diff'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import { fileAddressFor } from '@deepseek-ai/dsh-util-workspace-path'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
-import type { Annotation, BibliographyView, FileListing, PaperCommand, PaperBlock, PaperView, Proposal } from '../schema.ts'
+import type { Annotation, BibliographyView, FigureReplacement, FileListing, PaperCommand, PaperBlock, PaperView, Proposal } from '../schema.ts'
 import { reviewContext } from './context.ts'
 import { attachContext } from './composer.ts'
 import { ReaderText } from './reader-text.tsx'
-import { RenderedDiffText, renderedChangePair } from './rendered-diff.tsx'
+import { RenderedDiffText, renderedChangePair, renderedPlainText } from './rendered-diff.tsx'
 import { SelectionMenu } from './selection-menu.tsx'
-import { authoredFigureBase, collectFigures, figureFilePath } from './figures.ts'
+import { authoredFigureBase, collectFigures, figureFilePath, pinnedFigure } from './figures.ts'
 import type { PaperFigure } from './figures.ts'
 import { FigureGallery } from './figure-gallery.tsx'
+import { FigurePreview } from './figure-preview.tsx'
 import { readingBlocks, reviewableBlocks } from '../review-blocks.ts'
 import { ReviewProgress } from './review-progress.tsx'
-import { PaperFind } from './paper-find.tsx'
+import { blockPreview, reviewNavigation } from './review-navigation.ts'
+import { capturePaperPosition, restorePaperPosition, revealPaperTarget } from './reader-scroll.ts'
+import type { PaperScrollPosition } from './reader-scroll.ts'
+import { PaperFind, searchableBlocks } from './paper-find.tsx'
+import type { SearchableBlock } from './paper-find.tsx'
 import { PaperIcon } from './icons.tsx'
-import { Versions } from './versions.tsx'
+import { Versions, resolveVersionSelection } from './versions.tsx'
+import { References } from './references.tsx'
+import { referenceEntryText } from './bib-display.ts'
+import { readWorkbenchState, writeWorkbenchState, readAnnotationDrafts, writeAnnotationDrafts } from './workbench-state.ts'
+import type { PanelMode, WorkbenchState, AnnotationDrafts, AnnotationDraft } from './workbench-state.ts'
 import type { TextAnchor } from './selection.ts'
 import type { PaperReviewKey } from './locales.ts'
 import css from './panel.module.css'
+
+function preference(key: string): string | null {
+  try { return localStorage.getItem(key) } catch { return null }
+}
 
 /** Operator actions carried over the authenticated DSH connection. */
 export interface PaperPanelActions {
@@ -45,6 +58,12 @@ export interface PaperPanelActions {
   bindBibliography: (path: string, files: string[], signal: AbortSignal, sessionId: string) => Promise<BibliographyView>
   /** Choose a workspace `.bib` file through Finder on a macOS DSH host. */
   pickBibliography: (signal: AbortSignal, sessionId: string) => Promise<string | null>
+  /** Choose a replacement figure using Finder on the macOS host. */
+  pickFigure: (signal: AbortSignal, sessionId: string) => Promise<string | null>
+  /** Browse folders and figure files on hosts without Finder. */
+  listFigureFiles: (path: string, signal: AbortSignal, sessionId: string) => Promise<FileListing>
+  /** Retain old/new figure bytes and create a pending reference change, without writing Markdown. */
+  replaceFigure: (path: string, input: FigureReplacement, signal: AbortSignal, sessionId: string) => Promise<PaperView>
   /** @param path - workspace-relative figure. @returns canonical path for native preview. */
   figurePath: (path: string, signal: AbortSignal, sessionId: string) => Promise<string>
   /** @param path - workspace-relative PDF. @returns bounded first-page PNG when a renderer is available. */
@@ -61,17 +80,20 @@ export interface PaperPanelActions {
 export type PaperPanelProps = PropsRuntime<'sidebar.right.pane.tab'> & PropsLocale<'paperReview'> & PaperPanelActions
 
 /** Word-level changes with unchanged surrounding text. @param props - before and after source. @returns accessible diff. */
-export const WordDiff = memo(function WordDiff({ before, after, labels, markdownLabels }: {
+export const WordDiff = memo(function WordDiff({ before, after, labels, markdownLabels, findId }: {
   before: string
   after: string
-  labels: { compare: string; before: string; after: string }
+  labels: { compare: string; before: string; after: string; deleted?: string }
+  findId?: string | undefined
   markdownLabels: { code: { copyLabel: string; copiedLabel: string }; footnotes: string }
 }): ReactNode {
   const [sourceOpen, setSourceOpen] = useState(false)
   const comparison = useMemo(() => before === after ? undefined : renderedChangePair(before, after), [before, after])
   return <><div className={`${css.renderedPair} ${before === '' ? css.insertedPair : ''}`}>
-    {before !== '' && <section data-rendered-before><h5>{labels.before}</h5><RenderedDiffText text={before} opposite={after} side="before" labels={markdownLabels} comparison={comparison?.before ?? null} /></section>}
-    <section data-rendered-after><h5>{labels.after}</h5><RenderedDiffText text={after} opposite={before} side="after" labels={markdownLabels} comparison={comparison?.after ?? null} /></section>
+    {before !== '' && <section data-rendered-before data-find-id={findId ? `${findId}:before` : undefined}><h5>{labels.before}</h5><div data-find-text><RenderedDiffText text={before} opposite={after} side="before" labels={markdownLabels} comparison={comparison?.before ?? null} /></div></section>}
+    <section data-rendered-after data-find-id={findId ? `${findId}:after` : undefined}><h5>{labels.after}</h5><div data-find-text>{after === '' && labels.deleted
+      ? <p className={css.warning}>{labels.deleted}</p>
+      : <RenderedDiffText text={after} opposite={before} side="after" labels={markdownLabels} comparison={comparison?.after ?? null} />}</div></section>
   </div>
   <details className={css.sourceComparison} onToggle={(event) => { setSourceOpen(event.currentTarget.open) }}>
     <summary>{labels.compare}</summary>
@@ -82,7 +104,7 @@ export const WordDiff = memo(function WordDiff({ before, after, labels, markdown
 })
 
 /** Defer Markdown parsing until a comparison approaches the review viewport. */
-function LazyWordDiff({ before, after, labels, markdownLabels }: Parameters<typeof WordDiff>[0]): ReactNode {
+function LazyWordDiff({ before, after, labels, markdownLabels, findId }: Parameters<typeof WordDiff>[0]): ReactNode {
   const root = useRef<HTMLDivElement>(null)
   const [visible, setVisible] = useState(() => typeof IntersectionObserver === 'undefined')
   useEffect(() => {
@@ -94,9 +116,9 @@ function LazyWordDiff({ before, after, labels, markdownLabels }: Parameters<type
     return () => { observer.disconnect() }
   }, [visible])
   const estimatedHeight = Math.max(150, Math.ceil(Math.max(before.length, after.length) / 50) * 28 + 90)
-  return <div ref={root} data-lazy-diff>{visible
-    ? <WordDiff before={before} after={after} labels={labels} markdownLabels={markdownLabels} />
-    : <div className={css.diffPlaceholder} aria-hidden="true" style={{ minHeight: estimatedHeight }} />}</div>
+  return <div ref={root} data-lazy-diff data-find-id={findId}>{visible
+    ? <WordDiff before={before} after={after} labels={labels} markdownLabels={markdownLabels} findId={findId} />
+    : <div className={css.diffPlaceholder} data-diff-placeholder aria-hidden="true" style={{ minHeight: estimatedHeight }} />}</div>
 }
 
 /**
@@ -106,22 +128,34 @@ function LazyWordDiff({ before, after, labels, markdownLabels }: Parameters<type
  */
 export function PaperPanel({
   useTabInfo, useSession, useInput, sessionId, inputActions, t, command, listFiles,
-  pickFile, currentFile, bibliography, bindBibliography, pickBibliography, figurePath, figureThumbnail, figurePage, figureBytes, leave,
+  pickFile, currentFile, bibliography, bindBibliography, pickBibliography, pickFigure, listFigureFiles, replaceFigure,
+  figurePath, figureThumbnail, figurePage, figureBytes, leave,
 }: PaperPanelProps): ReactNode {
   const tab = useTabInfo().tab
   const running = useSession(s => s.running)
   const input = useInput(s => s)
   const wasRunning = useRef(running)
   const preferenceKey = `paper-review:path:${sessionId}`
-  const [path, setPath] = useState(() => localStorage.getItem(preferenceKey) ?? 'article.md')
+  const [path, setPath] = useState(() => preference(preferenceKey) ?? 'article.md')
   const [view, setView] = useState<PaperView>()
   const [incoming, setIncoming] = useState<PaperView>()
-  const [mode, setMode] = useState<'read' | 'changes' | 'versions' | 'history' | 'references'>('read')
+  const [workbench, setWorkbench] = useState(() => readWorkbenchState(sessionId, path))
+  const workbenchRef = useRef(workbench)
+  const [mode, setMode] = useState<PanelMode>(workbench.mode)
+  const [drafts, setDrafts] = useState<AnnotationDrafts>({})
+  const draftsRef = useRef(drafts)
+  const [showDrafts, setShowDrafts] = useState(false)
+  const [storageFailed, setStorageFailed] = useState(false)
+  const [focusedReference, setFocusedReference] = useState<string>()
+  const [recoveringBaseline, setRecoveringBaseline] = useState<string>()
+  const [baselineTarget, setBaselineTarget] = useState('')
   const [bib, setBib] = useState<BibliographyView>()
   const [bibPath, setBibPath] = useState('')
   const [bibBusy, setBibBusy] = useState(false)
   const [bibError, setBibError] = useState('')
   const [selectedId, setSelectedId] = useState('')
+  const selectedRef = useRef(selectedId)
+  selectedRef.current = selectedId
   const [quote, setQuote] = useState('')
   const [anchor, setAnchor] = useState<TextAnchor>()
   const [menu, setMenu] = useState<{ x: number; y: number; block: PaperBlock; anchor: TextAnchor }>()
@@ -133,16 +167,26 @@ export function PaperPanel({
   const [selectedNotes, setSelectedNotes] = useState<string[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [failedRequest, setFailedRequest] = useState<{ request: PaperCommand; adopt: boolean; uncertain: boolean }>()
   const [notice, setNotice] = useState('')
   const [source, setSource] = useState(false)
   const [listing, setListing] = useState<FileListing>()
   const [pickerOpen, setPickerOpen] = useState(false)
   const [controlsOpen, setControlsOpen] = useState(false)
-  const [headerCollapsed, setHeaderCollapsed] = useState(() => localStorage.getItem('paper-review:toolbar-collapsed') === 'true')
+  const [headerCollapsed, setHeaderCollapsed] = useState(() => preference('paper-review:toolbar-collapsed') === 'true')
   const [previewFigure, setPreviewFigure] = useState<PaperFigure>()
+  const [figureReplacement, setFigureReplacement] = useState<{ figure: PaperFigure; path: string; reason: string }>()
+  const [figureListing, setFigureListing] = useState<FileListing>()
+  const [figureBusy, setFigureBusy] = useState(false)
+  const figureDialog = useRef<HTMLDialogElement>(null)
+  const baselineDialog = useRef<HTMLDialogElement>(null)
+  const figurePickController = useRef<AbortController>()
+  const [locatedEdit, setLocatedEdit] = useState<{ blockId: string; proposalId?: string; operation?: 'insert-before' | 'insert-after' }>()
   const [pickerBusy, setPickerBusy] = useState(false)
   const [pickerError, setPickerError] = useState('')
   const content = useRef<HTMLDivElement>(null)
+  const scrollPositions = useRef(new Map<string, PaperScrollPosition>())
+  const releaseNavigation = useRef<() => void>(() => {})
   const panel = useRef<HTMLElement>(null)
   const picker = useRef<HTMLDivElement>(null)
   const controlsId = useId()
@@ -152,8 +196,33 @@ export function PaperPanel({
   const generation = useRef(0)
   const pickerGeneration = useRef(0)
   const doc = view?.document
+  const saveWorkbench = (patch: Partial<WorkbenchState> = {}, renderState = true): void => {
+    const target = current.current?.document.path
+    if (!target) return
+    const positions = Object.fromEntries([...scrollPositions.current].filter(([key]) => key.startsWith(`${target}\0`))
+      .map(([key, value]) => [key.slice(target.length + 1), value]))
+    const next = { ...workbenchRef.current, positions, ...patch }
+    workbenchRef.current = next
+    if (renderState) setWorkbench(next)
+    if (!writeWorkbenchState(sessionId, target, next)) setStorageFailed(true)
+  }
+  const rememberPosition = (): void => {
+    const target = current.current?.document.path, viewport = content.current
+    if (target && viewport) scrollPositions.current.set(`${target}\0${mode}`,
+      mode === 'read' ? capturePaperPosition(viewport) : { top: viewport.scrollTop })
+  }
+  const saveDraft = (blockId: string, draft?: AnnotationDraft): void => {
+    if (!doc) return
+    const next = Object.fromEntries(Object.entries(draftsRef.current).filter(([id]) => id !== blockId))
+    if (draft?.comment) next[blockId] = draft
+    draftsRef.current = next; setDrafts(next)
+    if (!writeAnnotationDrafts(sessionId, doc.path, next)) setStorageFailed(true)
+  }
   const figures = useMemo(() => collectFigures(doc?.current.blocks ?? []), [doc?.current.blocks])
   const figureBase = useMemo(() => authoredFigureBase(doc?.current.text ?? ''), [doc?.current.text])
+  const figureMedia = useMemo(() => ({ thumbnail: figureThumbnail, bytes: figureBytes, signal: tab.signal, sessionId }),
+    [figureThumbnail, figureBytes, tab.signal, sessionId])
+  const galleryFigures = useMemo(() => doc ? figures.map(figure => pinnedFigure(doc.current, figure)) : [], [doc?.current, figures])
   const figuresByBlock = useMemo(() => {
     const grouped = new Map<string, PaperFigure[]>()
     for (const figure of figures) grouped.set(figure.blockId, [...(grouped.get(figure.blockId) ?? []), figure])
@@ -162,16 +231,88 @@ export function PaperPanel({
   const copyLabel = t('copy'), copiedLabel = t('copied'), footnotes = t('footnotes')
   const labels = useMemo(() => ({ code: { copyLabel, copiedLabel }, footnotes }), [copyLabel, copiedLabel, footnotes])
   const compareLabel = t('compare'), originalLabel = t('original'), revisedLabel = t('revised')
-  const diffLabels = useMemo(() => ({ compare: compareLabel, before: originalLabel, after: revisedLabel }),
-    [compareLabel, originalLabel, revisedLabel])
+  const deletedLabel = t('deleteBlock')
+  const diffLabels = useMemo(() => ({ compare: compareLabel, before: originalLabel, after: revisedLabel, deleted: deletedLabel }),
+    [compareLabel, originalLabel, revisedLabel, deletedLabel])
+  const cancelNavigation = useCallback(() => { releaseNavigation.current() }, [])
+
+  const changeMode = (next: PanelMode, keepLocation = false): void => {
+    if (next === mode) return
+    rememberPosition()
+    saveWorkbench({ mode: next }, false)
+    releaseNavigation.current()
+    if (!keepLocation) setLocatedEdit(undefined)
+    setMode(next)
+  }
+
+  useLayoutEffect(() => {
+    if (!doc) return
+    const saved = readWorkbenchState(sessionId, doc.path)
+    workbenchRef.current = saved; setWorkbench(saved); setMode(saved.mode)
+    for (const [item, position] of Object.entries(saved.positions)) scrollPositions.current.set(`${doc.path}\0${item}`,
+      { top: position.top, ...(position.anchor ? { anchor: position.anchor } : {}) })
+    const storedDrafts = readAnnotationDrafts(sessionId, doc.path)
+    draftsRef.current = storedDrafts; setDrafts(storedDrafts)
+    const selected = saved.selectedBlockId ?? ''
+    selectedRef.current = selected
+    setSelectedId(selected); setComment(storedDrafts[selected]?.comment ?? '')
+    setQuote(storedDrafts[selected]?.quote ?? ''); setAnchor(storedDrafts[selected]?.anchor)
+  }, [doc?.path, sessionId])
+
+  useEffect(() => {
+    if (!doc || !content.current) return
+    const viewport = content.current
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const targetPath = doc.path
+    const flush = (): void => { clearTimeout(timer); if (current.current?.document.path === targetPath) saveWorkbench({}, false) }
+    const scroll = (): void => { rememberPosition(); clearTimeout(timer); timer = setTimeout(flush, 200) }
+    viewport.addEventListener('scroll', scroll, { passive: true })
+    window.addEventListener('pagehide', flush)
+    return () => { viewport.removeEventListener('scroll', scroll); window.removeEventListener('pagehide', flush); flush() }
+  }, [doc?.path, mode, sessionId])
+
+  useLayoutEffect(() => {
+    const viewport = content.current
+    if (!doc || !viewport || (locatedEdit && (mode === 'read' || mode === 'changes'))) return
+    releaseNavigation.current()
+    releaseNavigation.current = restorePaperPosition(viewport, scrollPositions.current.get(`${doc.path}\0${mode}`) ?? { top: 0 })
+    return () => { releaseNavigation.current() }
+  }, [mode, doc?.path, locatedEdit])
+
+  const revealTarget = useCallback((selector: string, placeholder?: string): void => {
+    releaseNavigation.current()
+    const viewport = content.current
+    const target = viewport?.querySelector<HTMLElement>(selector)
+    releaseNavigation.current = viewport && target ? revealPaperTarget(viewport, target, placeholder) : () => {}
+  }, [])
+  useEffect(() => () => { releaseNavigation.current() }, [])
+  useEffect(() => () => { figurePickController.current?.abort() }, [])
+  useEffect(() => {
+    if (figureReplacement && figureDialog.current && !figureDialog.current.open) figureDialog.current.showModal()
+  }, [figureReplacement])
+  useEffect(() => {
+    if (recoveringBaseline && baselineDialog.current && !baselineDialog.current.open) baselineDialog.current.showModal()
+  }, [recoveringBaseline])
+  useEffect(() => {
+    if (!locatedEdit || (mode !== 'read' && mode !== 'changes')) return
+    const frame = requestAnimationFrame(() => {
+      const selector = mode === 'read' ? `[data-block="${CSS.escape(locatedEdit.blockId)}"]`
+        : locatedEdit.proposalId ? `[data-proposal="${CSS.escape(locatedEdit.proposalId)}"]`
+          : `[data-review-baseline="${CSS.escape(locatedEdit.blockId)}"]`
+      revealTarget(selector, mode === 'read' ? '[data-reader-placeholder]' : '[data-diff-placeholder]')
+    })
+    return () => { cancelAnimationFrame(frame) }
+  }, [mode, locatedEdit, doc?.current.id, revealTarget])
 
   const restore = (next: PaperView): void => {
+    if (readWorkbenchState(sessionId, next.document.path).positions.read || mode !== 'read') return
     const blockId = next.document.reading[sessionId]
     if (blockId) requestAnimationFrame(() => content.current?.querySelector(`[data-block="${CSS.escape(blockId)}"]`)?.scrollIntoView({ block: 'start' }))
   }
   const run = async (request: PaperCommand, adopt = true): Promise<boolean> => {
+    if (request.action === 'open' && current.current?.document.path !== request.path) { rememberPosition(); saveWorkbench({}, false) }
     const seq = ++generation.current
-    setBusy(true); setError(''); setNotice('')
+    setBusy(true); setError(''); setNotice(''); setFailedRequest(undefined)
     try {
       const next = await command(request, tab.signal, sessionId)
       if (seq !== generation.current || tab.signal.aborted) return false
@@ -180,13 +321,42 @@ export function PaperPanel({
       if (!changesReader && current.current && next.document.current.id !== current.current.document.current.id) setIncoming(next)
       else { setView(next); setIncoming(undefined) }
       if (request.action === 'open' && adopt) setControlsOpen(false)
-      localStorage.setItem(preferenceKey, next.document.path)
+      try { localStorage.setItem(preferenceKey, next.document.path) } catch { setStorageFailed(true) }
       if (!current.current || request.action === 'refresh') restore(next)
       return true
     } catch (caught) {
-      if (!tab.signal.aborted && seq === generation.current) setError(caught instanceof Error ? caught.message : String(caught))
+      if (!tab.signal.aborted && seq === generation.current) {
+        const message = caught instanceof Error ? caught.message : String(caught)
+        setError(message)
+        setFailedRequest({ request, adopt, uncertain: request.action !== 'open'
+          && /fetch|network|connection|disconnect|timeout|timed out/i.test(message) })
+      }
       return false
     } finally { if (seq === generation.current) setBusy(false) }
+  }
+
+  const recoverFailure = async (): Promise<void> => {
+    if (!failedRequest) return
+    setBusy(true)
+    try {
+      const next = await command({ action: 'open', path: failedRequest.request.path }, tab.signal, sessionId)
+      if (tab.signal.aborted) return
+      if (current.current && next.document.current.id !== current.current.document.current.id) {
+        setIncoming(next)
+        setView({ ...next, document: { ...next.document, current: current.current.document.current } })
+      } else setView(next)
+      const request = failedRequest.request
+      const decided = request.action === 'decide' && next.document.proposals.find(p => p.id === request.proposalId)?.status
+      if (decided && decided !== 'pending') { setFailedRequest(undefined); setError(''); setNotice(t('operationSettled')) }
+      else {
+        const safeRetry = !next.diskChanged && (!('revision' in request) || request.revision === next.document.current.id)
+          && (request.action === 'decide' || request.action === 'open' || request.action === 'review'
+            || request.action === 'resolve' || request.action === 'set-highlight' || request.action === 'unlock')
+        setFailedRequest({ ...failedRequest, uncertain: !safeRetry })
+        setNotice(t('statusChecked'))
+      }
+    } catch (caught) { if (!tab.signal.aborted) setError(caught instanceof Error ? caught.message : String(caught)) }
+    finally { if (!tab.signal.aborted) setBusy(false) }
   }
 
   const browse = async (directory: string): Promise<void> => {
@@ -221,9 +391,9 @@ export function PaperPanel({
     try {
       await leave(tab.signal, sessionId)
       if (seq !== generation.current || tab.signal.aborted) return
-      localStorage.removeItem(preferenceKey)
+      try { localStorage.removeItem(preferenceKey) } catch { setStorageFailed(true) }
       setView(undefined); setIncoming(undefined); setSelectedId(''); setSelectedNotes([])
-      setPath('article.md'); setMode('read'); setPickerOpen(false)
+      setPath('article.md'); changeMode('read'); setPickerOpen(false)
     } catch (caught) {
       if (seq === generation.current && !tab.signal.aborted) setError(caught instanceof Error ? caught.message : String(caught))
     } finally { if (seq === generation.current) setBusy(false) }
@@ -231,7 +401,7 @@ export function PaperPanel({
 
   useEffect(() => {
     void currentFile(tab.signal, sessionId).then((selected) => {
-      const saved = selected ?? localStorage.getItem(preferenceKey)
+      const saved = selected ?? preference(preferenceKey)
       if (saved && !tab.signal.aborted) void run({ action: 'open', path: saved })
     }).catch((caught: unknown) => { if (!tab.signal.aborted) setError(caught instanceof Error ? caught.message : String(caught)) })
     return () => { generation.current += 1; pickerGeneration.current += 1 }
@@ -249,11 +419,16 @@ export function PaperPanel({
   }, [running])
 
   useEffect(() => {
-    setMenu(undefined); setAnchor(undefined); setQuote(''); setEditing(false); setFocusReading(false)
+    setMenu(undefined)
+    const draft = draftsRef.current[selectedRef.current]
+    setAnchor(draft?.anchor); setQuote(draft?.quote ?? '')
+    setEditing(mode === 'read' && Boolean(draft?.comment))
     setPreviewFigure(undefined)
   }, [doc?.path, doc?.current.id, mode])
-
-  useEffect(() => { if (content.current) content.current.scrollTop = 0 }, [mode])
+  useEffect(() => {
+    figurePickController.current?.abort()
+    setLocatedEdit(undefined); setFigureReplacement(undefined); setFigureListing(undefined); releaseNavigation.current()
+  }, [doc?.path, doc?.current.id])
 
   useEffect(() => {
     setBib(undefined); setBibError('')
@@ -283,10 +458,9 @@ export function PaperPanel({
     finally { setBibBusy(false) }
   }
 
-  useEffect(() => { setComment('') }, [doc?.path, selectedId])
-
   useEffect(() => {
-    setSelectedNotes([]); setSelectedId(''); setSource(false); setShowHighlights(false); setShowNotes(false)
+    setSelectedNotes([]); setSource(false); setShowHighlights(false); setShowNotes(false); setShowDrafts(false); setFocusReading(false)
+    setRecoveringBaseline(undefined); setBaselineTarget(''); setFocusedReference(undefined)
   }, [doc?.path])
 
   useEffect(() => {
@@ -304,7 +478,7 @@ export function PaperPanel({
   }
   const openNativeFigure = async (figure: PaperFigure): Promise<void> => {
     if (!doc) return
-    const path = figureFilePath(doc.path, figureBase, figure.path)
+    const path = figure.file ?? figureFilePath(doc.path, figureBase, figure.path)
     if (!path) { setError(t('figureOpenFailed')); return }
     try {
       const source = await figurePath(path, tab.signal, sessionId)
@@ -320,13 +494,67 @@ export function PaperPanel({
     if (doc) insert(reviewContext(doc, annotations, block, intent, { contextPath: t('contextPath'), contextRevision: t('contextRevision'), contextRules: t('contextRules'), contextData: t('contextData') }))
   }
   const focusBlock = (block: PaperBlock): void => {
+    releaseNavigation.current()
     setSelectedId(block.id)
+    if (block.id !== selectedId) {
+      const draft = draftsRef.current[block.id]
+      setComment(draft?.comment ?? ''); setQuote(draft?.quote ?? ''); setAnchor(draft?.anchor)
+      setEditing(Boolean(draft?.comment)); setSource(false)
+    }
+    saveWorkbench({ selectedBlockId: block.id }, false)
+    setLocatedEdit(undefined)
     if (doc) void command({ action: 'position', path: doc.path, reader: sessionId, blockId: block.id }, tab.signal, sessionId).catch(() => { /* Position is advisory; manuscript operations report their own failures. */ })
+  }
+  const locateProposalEdit = (proposalId: string, edit: Proposal['edits'][number]): void => {
+    const block = doc?.current.blocks.find(candidate => candidate.id === edit.blockId && candidate.text === edit.before)
+    if (!block) return
+    focusBlock(block)
+    setLocatedEdit({ blockId: block.id, proposalId, ...(edit.operation ? { operation: edit.operation } : {}) })
+    changeMode('read', true)
+  }
+  const browseFigures = async (directory: string): Promise<void> => {
+    setFigureBusy(true)
+    try { setFigureListing(await listFigureFiles(directory, tab.signal, sessionId)) }
+    catch (caught) { if (!tab.signal.aborted) setError(caught instanceof Error ? caught.message : String(caught)) }
+    finally { setFigureBusy(false) }
+  }
+  const chooseReplacement = async (): Promise<void> => {
+    const controller = new AbortController()
+    figurePickController.current = controller
+    const signal = AbortSignal.any([tab.signal, controller.signal])
+    setFigureBusy(true); setError('')
+    try {
+      const selected = await pickFigure(signal, sessionId)
+      if (selected && !signal.aborted) setFigureReplacement(current => current && { ...current, path: selected })
+    } catch (caught) {
+      if (!signal.aborted) {
+        const message = caught instanceof Error ? caught.message : String(caught)
+        if (message.includes('requires macOS')) await browseFigures('')
+        else setError(message)
+      }
+    } finally {
+      if (figurePickController.current === controller) { figurePickController.current = undefined; setFigureBusy(false) }
+    }
+  }
+  const submitFigure = async (): Promise<void> => {
+    if (!doc || !figureReplacement) return
+    const targetPath = doc.path, targetRevision = doc.current.id
+    setFigureBusy(true); setError('')
+    try {
+      const next = await replaceFigure(targetPath, { revision: targetRevision, blockId: figureReplacement.figure.blockId,
+        figure: figureReplacement.figure.path, replacement: figureReplacement.path, reason: figureReplacement.reason,
+      }, tab.signal, sessionId)
+      if (!tab.signal.aborted && current.current?.document.path === targetPath && current.current.document.current.id === targetRevision) {
+        setView(next); setFigureReplacement(undefined); setFigureListing(undefined); changeMode('changes')
+      }
+    } catch (caught) { if (!tab.signal.aborted) setError(caught instanceof Error ? caught.message : String(caught)) }
+    finally { setFigureBusy(false) }
   }
   const selectText = (block: PaperBlock): void => {
     const selection = window.getSelection()
     const raw = selection?.toString().trim() ?? ''
     focusBlock(block)
+    if (!raw) return
     const unambiguous = raw !== '' && block.text.split(raw).length === 2
     setQuote(unambiguous ? raw : '')
     setAnchor(undefined)
@@ -353,16 +581,49 @@ export function PaperPanel({
     }
     return grouped
   }, [doc?.highlights])
-  const baselinesByBlock = useMemo(() => new Map(doc?.baselines.map(base => [base.blockId, base]) ?? []), [doc?.baselines])
+  const activeBaselines = useMemo(() => doc?.baselines.filter(base => !base.archivedAt) ?? [], [doc?.baselines])
+  const baselinesByBlock = useMemo(() => new Map(activeBaselines.map(base => [base.blockId, base])), [activeBaselines])
   const visibleBlocks = useMemo(() => readingBlocks(doc?.current.blocks ?? []), [doc?.current.blocks])
   const progressBlocks = useMemo(() => reviewableBlocks(doc?.current.blocks ?? []), [doc?.current.blocks])
+  const locations = useMemo(() => reviewNavigation(progressBlocks).locations, [progressBlocks])
   const notesFor = (blockId: string): Annotation[] => annotationsByBlock.get(blockId) ?? []
   const pending = doc?.proposals.filter(p => p.status === 'pending') ?? []
   const conflict = (proposal: Proposal): boolean => view?.diskChanged === true || incoming !== undefined
-    || (proposal.edits.some(edit => edit.operation) && proposal.baseRevision !== doc?.current.id) || proposal.edits.some(edit =>
-    doc?.current.blocks.find(b => b.id === edit.blockId)?.text !== edit.before
-    || doc.baselines.some(b => b.blockId === edit.blockId && b.locked))
-  const reviewChanges = doc?.baselines.filter(base => doc.current.blocks.find(b => b.id === base.blockId)?.text !== base.text) ?? []
+    || proposal.edits.some(edit =>
+      doc?.current.blocks.find(b => b.id === edit.blockId)?.text !== edit.before
+    || doc.baselines.some(b => !b.archivedAt && b.blockId === edit.blockId && b.locked))
+  const reviewChanges = activeBaselines.filter(base => doc?.current.blocks.find(b => b.id === base.blockId)?.text !== base.text)
+  const versionSelection = doc ? resolveVersionSelection(doc, workbench.versions) : undefined
+  const findEntries = useCallback((): SearchableBlock[] => {
+    if (!doc) return []
+    const plain = (text: string): string => renderedPlainText(text) ?? text
+    if (mode === 'read') return searchableBlocks(visibleBlocks, bib)
+    if (mode === 'references') return bib?.entries.map(entry => ({ id: `bib:${entry.key}`, text: referenceEntryText(entry) })) ?? []
+    if (mode === 'history') return [...doc.history].reverse().map((event, index) => ({ id: `history:${index}`,
+      text: `${new Date(event.at).toLocaleString()} ${t(historyKeys[event.action] ?? 'history')} ${event.detail}` }))
+    if (mode === 'versions' && versionSelection) {
+      const before = doc.revisions.find(revision => revision.id === versionSelection.leftRevisionId) ?? doc.current
+      const after = doc.revisions.find(revision => revision.id === versionSelection.rightRevisionId) ?? doc.current
+      if (versionSelection.layout === 'inline') return [{ id: 'version:inline:source', text: diffWordsWithSpace(before.text, after.text).map(part => part.value).join('') }]
+      if (versionSelection.layout === 'split') return [{ id: 'version:left:source', text: before.text }, { id: 'version:right:source', text: after.text }]
+      return [...searchableBlocks(before.blocks, bib).map(block => ({ ...block, id: `version:left:${block.id}` })),
+        ...searchableBlocks(after.blocks, bib).map(block => ({ ...block, id: `version:right:${block.id}` }))]
+    }
+    return [...pending.flatMap(proposal => [{ id: `proposal:${proposal.id}`, text: `${proposal.id} ${proposal.reason}` },
+      ...proposal.edits.flatMap((edit, index) => {
+        const targetId = `proposal:${proposal.id}:${index}`
+        return [{ id: `${targetId}:before`, targetId, text: edit.operation ? '' : plain(edit.before) },
+          { id: `${targetId}:after`, targetId, text: edit.after ? plain(edit.after) : t('deleteBlock') }]
+      })]), ...reviewChanges.flatMap((base) => {
+      const targetId = `baseline:${base.blockId}`
+      const currentBlock = doc.current.blocks.find(block => block.id === base.blockId)
+      return [{ id: `${targetId}:before`, targetId, text: plain(base.text) },
+        { id: `${targetId}:after`, targetId, text: currentBlock ? plain(currentBlock.text) : t('baselineMissing') }]
+    })]
+  }, [doc, mode, bib, visibleBlocks, workbench.versions, t])
+  const findTarget = useCallback((id: string): void => {
+    if (id.startsWith('bib:')) setFocusedReference(id.slice(4))
+  }, [])
   const compactHeader = Boolean(doc) && headerCollapsed
 
   const annotationCard = (annotation: Annotation): ReactNode => <div
@@ -395,7 +656,7 @@ export function PaperPanel({
             title={t(compactHeader ? 'showToolbar' : 'hideToolbar')} aria-expanded={!compactHeader} onClick={() => {
               const next = !headerCollapsed
               setHeaderCollapsed(next)
-              localStorage.setItem('paper-review:toolbar-collapsed', String(next))
+              try { localStorage.setItem('paper-review:toolbar-collapsed', String(next)) } catch { setStorageFailed(true) }
             }}><PaperIcon kind={compactHeader ? 'down' : 'up'} /></button>
         </div>}
       </div>
@@ -408,14 +669,20 @@ export function PaperPanel({
         {doc && <button className={css.leave} disabled={busy || running} onClick={() => { void exitMode() }}>{t('leave')}</button>}
       </div>}
       {doc && !compactHeader && <nav className={css.tabs} aria-label={t('reviewSections')}>{(['read', 'changes', 'versions', 'history', 'references'] as const).map((item) => {
-        return <button key={item} aria-label={t(item)} title={t(item)} aria-pressed={mode === item} onClick={() =>{  setMode(item) }}>
+        return <button key={item} aria-label={t(item)} title={t(item)} aria-pressed={mode === item} onClick={() => { changeMode(item) }}>
           <PaperIcon kind={item} size={15} /><span className={css.tabLabel}>{t(item)}</span>
           {item === 'changes' && pending.length > 0 && <span className={css.count}>{pending.length}</span>}
         </button>
       })}
       </nav>}
     </div>
-    {error && <div className={css.error} role="alert">{error}</div>}
+    {storageFailed && <div className={css.warning} role="status">{t('storageFailed')}</div>}
+    {error && <div className={css.error} role="alert"><span>{error}</span>
+      {failedRequest?.uncertain && <p>{t('operationUncertain')}</p>}
+      {failedRequest && <button disabled={busy} onClick={() => { void recoverFailure() }}>{t('checkOperation')}</button>}
+      {failedRequest && !failedRequest.uncertain && <button disabled={busy} onClick={() => { void run(failedRequest.request, failedRequest.adopt) }}>{t('retry')}</button>}
+      <button aria-label={t('dismissError')} onClick={() => { setError(''); setFailedRequest(undefined) }}>×</button>
+    </div>}
     {notice && <div className={css.notice} role="status">{notice}</div>}
     {pickerOpen && <div className={css.pickerBackdrop} role="presentation" onClick={() => { setPickerOpen(false) }}>
       <div className={css.picker} ref={picker} role="dialog" aria-modal="true" aria-label={t('browse')}
@@ -446,20 +713,31 @@ export function PaperPanel({
         setSelectedId(''); setEditing(false)
       }}>{t('load')}</button></div>}
     <div className={css.content} ref={content} data-paper-scroll>
-      {doc && <PaperFind key={doc.path} panel={panel} content={content} blocks={visibleBlocks} bibliography={bib}
-        mode={mode} onRead={() => { setMode('read') }} t={t} />}
-      {doc && mode === 'read' && <div className={css.progressAnchor}><ReviewProgress blocks={progressBlocks} baselines={doc.baselines} t={t}
+      {doc && <PaperFind key={`find:${doc.path}`} panel={panel} content={content} blocks={visibleBlocks} bibliography={bib}
+        mode={mode} entries={findEntries} onTarget={findTarget} onRead={() => { changeMode('read') }} onNavigate={cancelNavigation} t={t} />}
+      {doc && mode === 'read' && <div className={css.progressAnchor}><ReviewProgress key={`progress:${doc.path}`} blocks={progressBlocks} baselines={activeBaselines} t={t}
         jump={(block) => {
           focusBlock(block)
-          content.current?.querySelector(`[data-block="${CSS.escape(block.id)}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          revealTarget(`[data-block="${CSS.escape(block.id)}"]`)
         }} /></div>}
       {!doc && <div className={css.welcome}><span className={css.monogram}>¶</span><h2>{t('title')}</h2><p>{t('empty')}</p><p>{t('intro')}</p></div>}
       {doc && mode === 'read' && <>
         <div className={css.readToolbar}>
           <button aria-pressed={showHighlights} onClick={() => { setShowHighlights(!showHighlights) }}><PaperIcon kind="edit" size={15} />{t('highlights')} ({doc.highlights.filter(h => !h.removed).length})</button>
           <button aria-pressed={showNotes} onClick={() =>{  setShowNotes(!showNotes) }}><PaperIcon kind="changes" size={15} />{t('allNotes')}</button>
+          {Object.keys(drafts).length > 0 && <button aria-pressed={showDrafts} onClick={() => { setShowDrafts(!showDrafts) }}>{t('drafts')} ({Object.keys(drafts).length})</button>}
           {focusReading && <button onClick={() => { setFocusReading(false) }}>{t('exitFocus')}</button>}
         </div>
+        {showDrafts && <aside className={css.notes} aria-label={t('drafts')}>
+          {Object.entries(drafts).map(([blockId, draft]) => <div className={css.note} key={blockId}>
+            <strong>{t('draftLocal')}</strong><blockquote>{draft.quote || draft.source.slice(0, 180)}</blockquote><p>{draft.comment}</p>
+            <button disabled={!doc.current.blocks.some(block => block.id === blockId)} onClick={() => {
+              const block = doc.current.blocks.find(block => block.id === blockId)
+              if (block) { focusBlock(block); setEditing(true); revealTarget(`[data-block="${CSS.escape(blockId)}"]`) }
+            }}>{t('locate')}</button>
+            <button onClick={() => { void navigator.clipboard.writeText(draft.comment).catch(() => { setError(t('copyFailed')) }) }}>{t('copy')}</button>
+          </div>)}
+        </aside>}
         {showHighlights && <aside className={css.notes} aria-label={t('highlights')}>
           {doc.highlights.length === 0 && <p>{t('noHighlights')}</p>}
           {doc.highlights.map(highlight => <div className={css.note} key={highlight.id} data-highlight={highlight.id}>
@@ -468,7 +746,7 @@ export function PaperPanel({
             <span>{highlight.anchor === 'needs-location' ? t('detached') : ''} {highlight.removed ? t('removedHighlight') : ''}</span>
             <button disabled={highlight.anchor !== 'attached'} onClick={() => {
               const block = doc.current.blocks.find(b => b.id === highlight.blockId)
-              if (block) { focusBlock(block); content.current?.querySelector(`[data-block="${CSS.escape(block.id)}"]`)?.scrollIntoView({ block: 'center' }) }
+              if (block) { focusBlock(block); revealTarget(`[data-block="${CSS.escape(block.id)}"]`) }
             }}>{t('locate')}</button>
             <button disabled={busy} onClick={() => { void run({ action: 'set-highlight', path: doc.path, highlightId: highlight.id, removed: !highlight.removed }) }}>{t(highlight.removed ? 'restoreHighlight' : 'removeHighlight')}</button>
           </div>)}
@@ -481,15 +759,29 @@ export function PaperPanel({
           const state = !baseline ? 'unread' : baseline.text === block.text ? 'reviewed' : 'changed'
           const active = block.id === selectedId
           const provenance = block.start === 0 && block.kind === 'html' && /^\s*<!--/.test(block.text)
+          const positioned = locatedEdit?.blockId === block.id ? locatedEdit : undefined
           const blockView = <div key={block.id} data-block={provenance ? undefined : block.id} className={`${css.block} ${active ? css.selected : ''}`}>
             <div className={css.margin}><span className={css[state]} title={t(state)}>{state === 'reviewed' ? '✓' : state === 'changed' ? '↺' : '○'}</span>
               {notesFor(block.id).length > 0 && <button onClick={() => { focusBlock(block); setQuote(''); setAnchor(undefined); setEditing(true) }}>{notesFor(block.id).length}</button>}
               {baseline?.locked && <span title={t('locked')}>▣</span>}</div>
+            {positioned && positioned.operation !== 'insert-after' && <div className={css.locationMarker} data-location-marker={positioned.operation ?? 'replace'}>
+              <span>{positioned.proposalId ?? t('baseline')} · {t(positioned.operation === 'insert-before' ? 'locationBeforeHere'
+                : 'locationReplaceHere')}</span>
+              <button onClick={() => { changeMode('changes', true) }}><PaperIcon kind="changes" size={13} />{t(positioned.proposalId ? 'backToProposal' : 'backToReview')}</button>
+            </div>}
             {provenance
               ? <pre className={css.raw} onMouseUp={() => { selectText(block) }}>{block.text}</pre>
               : <ReaderText block={block} highlights={highlightsByBlock.get(block.id) ?? []}
                 annotations={notesFor(block.id)} labels={labels} bibliography={bib}
-                onSelect={(selection) => { focusBlock(block); setAnchor(selection); setQuote(selection?.quote ?? ''); setEditing(false) }}
+                onSelect={(selection) => {
+                  focusBlock(block)
+                  const draft = draftsRef.current[block.id]
+                  if (selection || !draft?.comment) {
+                    setAnchor(selection); setQuote(selection?.quote ?? ''); setEditing(false)
+                    if (draft?.comment && selection) saveDraft(block.id, { ...draft, source: block.text,
+                      revision: doc.current.id, quote: selection.quote, anchor: selection })
+                  }
+                }}
                 onMenu={(event, selection) => {
                   if (!selection) {
                     if (window.getSelection()?.toString().trim()) { event.preventDefault(); setError(t('oneBlockSelection')) }
@@ -498,10 +790,18 @@ export function PaperPanel({
                   event.preventDefault(); focusBlock(block); setAnchor(selection); setQuote(selection.quote); setError('')
                   setMenu({ x: event.clientX, y: event.clientY, block, anchor: selection })
                 }} />}
-            {figuresByBlock.get(block.id)?.map(figure => <button key={figure.path} className={css.figureInline}
-              aria-label={`${t('openFigure')} ${figure.label}`} onClick={() => { setPreviewFigure(figure) }}>
-              <PaperIcon kind="fullscreen" size={14} />{t('openFigure')} · {figure.label}
-            </button>)}
+            {figuresByBlock.get(block.id)?.map((figure) => {
+              const pinned = pinnedFigure(doc.current, figure)
+              const file = figureFilePath(doc.path, figureBase, pinned.path)
+              return file && <FigurePreview key={figure.path} figure={pinned} file={file} media={figureMedia} t={t}
+                onOpen={setPreviewFigure} onReplace={() => {
+                  setFigureReplacement({ figure, path: '', reason: t('figureReplacementDefault') }); setFigureListing(undefined)
+                }} />
+            })}
+            {positioned?.operation === 'insert-after' && <div className={css.locationMarker} data-location-marker="insert-after">
+              <span>{positioned.proposalId ?? t('baseline')} · {t('locationAfterHere')}</span>
+              <button onClick={() => { changeMode('changes', true) }}><PaperIcon kind="changes" size={13} />{t(positioned.proposalId ? 'backToProposal' : 'backToReview')}</button>
+            </div>}
             {active && <div className={css.actions}>
               <button onClick={() =>{  setEditing(!editing) }}><PaperIcon kind="edit" size={14} />{t('annotate')}</button>
               <button onClick={() =>{  attach(`${t('askIntent')} ${quote}`, [], block) }}><PaperIcon kind="sparkle" size={14} />{t('ask')}</button>
@@ -520,15 +820,31 @@ export function PaperPanel({
             {active && source && <pre className={css.raw} onMouseUp={() =>{  selectText(block) }}>{block.text}</pre>}
             {active && editing && <div className={css.annotationEditor}>
               {quote ? <blockquote>{quote}</blockquote> : <small>{t('wholeBlock')}</small>}
-              <textarea aria-label={t('comment')} placeholder={t('comment')} value={comment} onChange={(event) =>{  setComment(event.target.value) }} />
-              <button disabled={busy || !comment.trim()} onClick={() => {
-                const index = block.text.indexOf(quote)
-                void run({ action: 'annotate', path: doc.path, revision: doc.current.id, blockId: block.id, quote,
-                  prefix: anchor?.prefix ?? (quote ? block.text.slice(Math.max(0, index - 32), index) : ''),
-                  suffix: anchor?.suffix ?? (quote ? block.text.slice(index + quote.length, index + quote.length + 32) : ''),
-                  ...(anchor ? { rendered: true, offset: anchor.offset } : {}), comment,
-                }).then((saved) => { if (saved) setComment('') })
-              }}><PaperIcon kind="check" size={15} />{t('save')}</button><button onClick={() =>{  setEditing(false); setComment('') }}><PaperIcon kind="close" size={15} />{t('cancel')}</button>
+              {drafts[block.id]?.source !== undefined && drafts[block.id]?.source !== block.text && <div className={css.warning} role="status">{t('draftStale')}
+                <button onClick={() => { setQuote(''); setAnchor(undefined); saveDraft(block.id, { source: block.text, revision: doc.current.id, quote: '', comment }) }}>{t('draftUseCurrent')}</button></div>}
+              <small>{t('draftLocal')}</small>
+              <textarea aria-label={t('comment')} placeholder={t('comment')} maxLength={4000} value={comment} onChange={(event) => {
+                const value = event.target.value
+                setComment(value)
+                const previous = draftsRef.current[block.id]
+                saveDraft(block.id, { source: previous?.source ?? block.text, revision: previous?.revision ?? doc.current.id,
+                  quote: previous?.quote ?? quote, comment: value,
+                  ...(previous?.anchor ? { anchor: previous.anchor } : anchor ? { anchor } : {}) })
+              }} />
+              <button disabled={busy || !comment.trim() || (drafts[block.id] !== undefined && drafts[block.id]?.source !== block.text)}
+                onClick={() => {
+                  const index = block.text.indexOf(quote)
+                  void run({ action: 'annotate', path: doc.path, revision: doc.current.id, blockId: block.id, quote,
+                    prefix: anchor?.prefix ?? (quote ? block.text.slice(Math.max(0, index - 32), index) : ''),
+                    suffix: anchor?.suffix ?? (quote ? block.text.slice(index + quote.length, index + quote.length + 32) : ''),
+                    ...(anchor ? { rendered: true, offset: anchor.offset } : {}), comment,
+                  }).then((saved) => { if (saved && draftsRef.current[block.id]?.comment === comment
+                  && current.current?.document.path === doc.path) {
+                    saveDraft(block.id); if (selectedRef.current === block.id) setComment('')
+                  } })
+                }}><PaperIcon kind="check" size={15} />{t('save')}</button>
+              <button onClick={() => { setEditing(false) }}>{t('keepDraft')}</button>
+              <button onClick={() => { setEditing(false); setComment(''); saveDraft(block.id) }}>{t('discardDraft')}</button>
               {notesFor(block.id).map(annotationCard)}
             </div>}
           </div>
@@ -547,13 +863,43 @@ export function PaperPanel({
         <p className={css.help}>{t('riskNote')}</p>
         {pending.length === 0 && <p className={css.empty}>{t('noProposals')}</p>}
         {pending.map(proposal => <section className={css.proposal} key={proposal.id} data-proposal={proposal.id} data-risk={proposal.flags.length > 0 || proposal.meaning !== 'style'}>
-          <div className={css.proposalTitle}><strong>{proposal.id}</strong><span>{proposal.annotationIds.join(' · ')}</span><span>{t('modelLabel')} {t(proposal.meaning)}</span></div>
-          <p>{proposal.reason}</p>
+          <div data-find-id={`proposal:${proposal.id}`} data-find-text><div className={css.proposalTitle}><strong>{proposal.id}</strong><span>{proposal.annotationIds.join(' · ')}</span><span>{t('modelLabel')} {t(proposal.meaning)}</span></div>
+            <p>{proposal.reason}</p></div>
           {proposal.flags.length > 0 && <div className={css.flags}>{proposal.flags.map(flag => <span key={flag}>{t(flag)}</span>)}</div>}
-          {proposal.edits.map(edit => <div key={`${edit.blockId}:${edit.operation ?? 'replace'}`}>
-            <h4>{edit.operation ? t(edit.operation === 'insert-before' ? 'insertBefore' : 'insertAfter') : ''} {doc.current.blocks.find(b => b.id === edit.blockId)?.section}</h4>
-            <LazyWordDiff before={edit.operation ? '' : edit.before} after={edit.after} labels={diffLabels} markdownLabels={labels} />
-          </div>)}
+          {proposal.edits.map((edit, editIndex) => {
+            const target = doc.current.blocks.find(block => block.id === edit.blockId && block.text === edit.before)
+            const location = target ? locations.get(target.id) : undefined
+            return <div key={`${edit.blockId}:${edit.operation ?? 'replace'}:${editIndex}`}>
+              <div className={css.proposalLocation}>
+                <div className={css.locationTrail}><span>{location ? location.headings.join(' › ') || t('progressStart') : '—'}</span>
+                  <span>{location ? `${t('locationPosition')} ${location.index + 1}/${location.total} · ${Math.round((location.index + 1) / location.total * 100)}%`
+                    : t('locationUnavailable')}</span></div>
+                <div className={css.locationRow}><span><strong>{t(edit.operation === 'insert-before' ? 'insertBefore'
+                  : edit.operation === 'insert-after' ? 'insertAfter' : 'replaceBlock')}</strong>
+                {target && <span className={css.locationPreview} title={target.text}>{blockPreview(target, 110)}</span>}</span>
+                <button disabled={!location} onClick={() => { locateProposalEdit(proposal.id, edit) }}>
+                  <PaperIcon kind="read" size={14} />{t('viewInArticle')}</button></div>
+              </div>
+              <LazyWordDiff before={edit.operation ? '' : edit.before} after={edit.after} labels={diffLabels} markdownLabels={labels} findId={`proposal:${proposal.id}:${editIndex}`} />
+              {(() => {
+                const retained = proposal.figureChanges?.filter(change => change.blockId === edit.blockId) ?? []
+                const previewBlock = { id: edit.blockId, kind: 'paragraph', section: '', start: 0, end: 0 }
+                const oldFigures = collectFigures([{ ...previewBlock, text: edit.before }])
+                const newFigures = collectFigures([{ ...previewBlock, text: edit.after }])
+                if (!retained.length && !oldFigures.length && !newFigures.length) return null
+                const previews = (side: 'before' | 'after'): ReactNode => (side === 'before' ? oldFigures : newFigures).map((figure) => {
+                  const asset = retained.find(change => change[side].path === figure.path)?.[side]
+                  const shown = asset ? { ...figure, path: asset.snapshot } : side === 'before' ? pinnedFigure(doc.current, figure) : figure
+                  const file = figureFilePath(doc.path, figureBase, shown.path)
+                  return file && <FigurePreview key={figure.path} figure={shown} file={file}
+                    media={figureMedia} t={t} onOpen={setPreviewFigure} />
+                })
+                return <div className={css.figureComparison} data-figure-comparison><p>{t('figureCaptionCheck')}</p>
+                  <div className={css.figureComparisonPair}><section><h5>{t('figureOld')}</h5>{previews('before')}</section>
+                    <section><h5>{t('figureNew')}</h5>{previews('after')}</section></div></div>
+              })()}
+            </div>
+          })}
           {conflict(proposal) && <p className={css.warning}>{t('overlap')}</p>}
           <div className={css.decisions}><button disabled={busy || conflict(proposal)} onClick={() => { void run({ action: 'decide', path: doc.path, revision: doc.current.id, proposalId: proposal.id, accept: true }) }}><PaperIcon kind="check" size={15} />{t('accept')}</button>
             <button disabled={busy} onClick={() => { void run({ action: 'decide', path: doc.path, revision: doc.current.id, proposalId: proposal.id, accept: false }) }}><PaperIcon kind="close" size={15} />{t('reject')}</button>
@@ -564,53 +910,122 @@ export function PaperPanel({
         {reviewChanges.length === 0 && <p className={css.empty}>{t('noChanges')}</p>}
         {reviewChanges.map((base) => {
           const block = doc.current.blocks.find(b => b.id === base.blockId)
-          return <section className={css.proposal} key={base.blockId} data-risk="true"><p>{block?.section ?? t('removed')}</p>
-            <LazyWordDiff before={base.text} after={block?.text ?? ''} labels={{ ...diffLabels, before: t('before'), after: t('after') }} markdownLabels={labels} />
+          const location = block ? locations.get(block.id) : undefined
+          return <section className={css.proposal} key={base.blockId} data-risk="true" data-review-baseline={base.blockId} data-find-id={`baseline:${base.blockId}`}>
+            <div className={css.proposalLocation}><div className={css.locationTrail}><span>{location ? location.headings.join(' › ') || t('progressStart') : '—'}</span>
+              <span>{location ? `${t('locationPosition')} ${location.index + 1}/${location.total}` : t('locationUnavailable')}</span></div>
+            {block && <div className={css.locationRow}><span className={css.locationPreview}>{blockPreview(block, 110)}</span>
+              <button disabled={!location} onClick={() => { focusBlock(block); setLocatedEdit({ blockId: block.id }); changeMode('read', true) }}>
+                <PaperIcon kind="read" size={14} />{t('viewInArticle')}</button></div>}
+            </div>
+            {block ? <LazyWordDiff before={base.text} after={block.text} labels={{ ...diffLabels, before: t('before'), after: t('after') }} markdownLabels={labels} findId={`baseline:${base.blockId}`} />
+              : <>
+                <section data-find-id={`baseline:${base.blockId}:before`}><h5>{t('before')}</h5><div data-find-text>
+                  <ReaderText block={{ id: base.blockId, text: base.text, kind: 'paragraph', section: '', start: 0, end: base.text.length }} highlights={[]} annotations={[]} labels={labels} />
+                </div></section>
+                <p className={css.warning} data-find-id={`baseline:${base.blockId}:after`} data-find-text>{t('baselineMissing')}</p>
+                <button disabled={busy} onClick={() => { setRecoveringBaseline(base.blockId); setBaselineTarget('') }}>{t('recoverBaseline')}</button>
+              </>}
             {block && <button disabled={busy} onClick={() =>{  mark(block, base.locked) }}>{t('mark')}</button>}
           </section>
         })}
+        {doc.baselines.some(base => base.archivedAt) && <details className={css.sourceComparison}>
+          <summary>{t('archivedBaselines')} ({doc.baselines.filter(base => base.archivedAt).length})</summary>
+          {doc.baselines.filter(base => base.archivedAt).map(base => <div className={css.note} key={`${base.blockId}:${base.archivedAt}`}>
+            <p>{base.text}</p><small>{new Date(base.reviewedAt).toLocaleString()}</small>
+            <button disabled={busy || activeBaselines.some(active => active.blockId === base.blockId)} onClick={() => {
+              if (base.archivedAt) void run({ action: 'restore-baseline', path: doc.path, revision: doc.current.id, blockId: base.blockId, archivedAt: base.archivedAt })
+            }}>{t('restoreBaseline')}</button>
+          </div>)}
+        </details>}
       </div>}
-      {doc && mode === 'versions' && <Versions key={doc.path} document={doc} t={t} />}
-      {doc && mode === 'references' && <div className={css.references}>
-        <h3>{t('references')}</h3><p className={css.help}>{t('bibHelp')}</p>
-        {bibError && <p className={css.error} role="alert">{bibError}</p>}
-        {!bib && !bibError && <p>{t('loading')}</p>}
-        {bib && <>
-          <div className={css.bibFiles}><strong>{t('bibSources')}</strong>{bib.files.length === 0 && <p>{t('bibNone')}</p>}
-            {bib.files.map(file => <div key={file}><code>{file}</code><button disabled={bibBusy}
-              onClick={() => { void updateBib(bib.files.filter(item => item !== file)) }}>{t('bibUnbind')}</button></div>)}
-          </div>
-          <form className={css.bibBind} onSubmit={(event) => {
-            event.preventDefault()
-            if (bibPath.trim() && !bib.files.includes(bibPath.trim())) void updateBib([...bib.files, bibPath.trim()])
-          }}>
-            <input aria-label={t('bibPath')} placeholder={t('bibPathHint')} value={bibPath}
-              onChange={(event) => { setBibPath(event.target.value) }} />
-            <button disabled={bibBusy || !bibPath.trim() || bib.files.includes(bibPath.trim())}>{t('bibBind')}</button>
-            <button type="button" disabled={bibBusy} onClick={() => { void chooseBib() }}>{t('bibChoose')}</button>
-          </form>
-          {(bib.missingKeys.length > 0 || bib.possibleBareKeys.length > 0) && <div className={css.bibWarnings}>
-            {bib.missingKeys.length > 0 && <p><strong>{t('bibMissing')}</strong> {bib.missingKeys.join(', ')}</p>}
-            {bib.possibleBareKeys.length > 0 && <p><strong>{t('bibLegacy')}</strong> {bib.possibleBareKeys.join(', ')}</p>}
-          </div>}
-          <h4>{t('bibEntries')} ({bib.entries.length})</h4>
-          <div className={css.bibEntries}>{bib.entries.map(entry => <div key={entry.key}>
-            <strong>[@{entry.key}]</strong><span>{entry.fields.author} · {entry.fields.year}</span>
-            <p>{entry.fields.title}</p><small>{entry.file}</small>
-          </div>)}</div>
-        </>}
-      </div>}
+      {doc && mode === 'versions' && <Versions key={`versions:${doc.path}`} document={doc} t={t} selection={versionSelection} bibliography={bib}
+        onSelectionChange={(versions) => { saveWorkbench({ versions }) }} figurePreview={(revision, block) =>
+          collectFigures([block]).map((figure) => {
+            const shown = pinnedFigure(revision, figure)
+            const file = figureFilePath(doc.path, authoredFigureBase(revision.text), shown.path)
+            return file && <FigurePreview key={figure.path} figure={shown} file={file} media={figureMedia} t={t}
+              onOpen={setPreviewFigure} />
+          })} />}
+      {doc && mode === 'references' && <References bibliography={bib} blocks={visibleBlocks} busy={bibBusy} error={bibError}
+        path={bibPath} onPathChange={setBibPath} onBind={(files) => { void updateBib(files) }} onChoose={() => { void chooseBib() }}
+        onRetry={() => { setBibBusy(true); setBibError('')
+          const targetPath = doc.path
+          const live = (): boolean => !tab.signal.aborted && current.current?.document.path === targetPath
+          void bibliography(targetPath, tab.signal, sessionId).then((next) => { if (live()) setBib(next) },
+            (caught: unknown) => { if (live()) setBibError(caught instanceof Error ? caught.message : String(caught)) })
+            .finally(() => { if (live()) setBibBusy(false) }) }}
+        onLocate={(blockId, key) => {
+          const block = doc.current.blocks.find(candidate => candidate.id === blockId)
+          if (block) { focusBlock(block); setLocatedEdit({ blockId }); changeMode('read', true); setNotice(`${t('citationLocated')} [@${key}]`) }
+        }} state={workbench.references ?? { query: '', page: 0, nextCitation: {} }}
+        onStateChange={(references) => { saveWorkbench({ references }) }} focusedKey={focusedReference}
+        labels={{ title: t('references'), help: t('bibHelp'), sources: t('bibSources'), none: t('bibNone'), unbind: t('bibUnbind'),
+          path: t('bibPath'), pathHint: t('bibPathHint'), bind: t('bibBind'), choose: t('bibChoose'), missing: t('bibMissing'), legacy: t('bibLegacy'),
+          entries: t('bibEntries'), loading: t('loading'), retry: t('retry'), search: t('bibSearch'), searchHint: t('bibSearchHint'),
+          noEntries: t('bibNoEntries'), noResults: t('findNone'), clear: t('clearFilter'), previous: t('previousPage'), next: t('nextPage'),
+          page: t('page'), showing: t('showing'), citationCount: t('citationCount'), locate: t('locateCitation'), nextCitation: t('nextCitation'),
+          unused: t('citationUnused'), doi: t('doi'), url: t('publicationLink') }} />}
       {doc && mode === 'history' && <div className={css.history}>{doc.history.length === 0 ? t('noHistory') : [...doc.history].reverse().map((event, i) =>
-        <div key={i}><time>{new Date(event.at).toLocaleString()}</time><strong>{t(historyKeys[event.action] ?? 'history')}</strong><code>{event.detail}</code></div>)}</div>}
+        <div key={i} data-find-id={`history:${i}`} data-find-text><time>{new Date(event.at).toLocaleString()}</time><strong>{t(historyKeys[event.action] ?? 'history')}</strong><code>{event.detail}</code></div>)}</div>}
     </div>
-    {doc && mode === 'read' && figures.length > 0 && <FigureGallery figures={figures} manuscript={doc.path} base={figureBase}
+    {doc && (mode === 'read' || previewFigure) && (galleryFigures.length > 0 || previewFigure) && <FigureGallery
+      figures={galleryFigures.length ? galleryFigures : previewFigure ? [previewFigure] : []} showDock={mode === 'read'} manuscript={doc.path} base={figureBase}
       sessionId={sessionId} signal={tab.signal} thumbnail={figureThumbnail} fullPage={figurePage} bytes={figureBytes}
       selected={previewFigure} onSelect={setPreviewFigure}
       onLocate={(figure) => { content.current?.querySelector(`[data-block="${CSS.escape(figure.blockId)}"]`)?.scrollIntoView({ block: 'center' }) }}
       onNative={(figure) => { void openNativeFigure(figure) }}
       labels={{ figures: t('figureList'), pdf: t('figurePdf'), image: t('figureImage'), open: t('openFigure'), close: t('figureClose'), loading: t('loading'),
         failed: t('figureOpenFailed'), locate: t('locateFigure'), native: t('figureNative'),
+        zoomIn: t('figureZoomIn'), zoomOut: t('figureZoomOut'), fit: t('figureFit'), actualSize: t('figureActualSize'),
+        previous: t('previousFigure'), next: t('nextFigure'), retry: t('retry'), pdfPreview: t('figurePdfPreview'), panHint: t('figurePanHint'),
         expand: t('figureExpand'), collapse: t('figureCollapse') }} />}
+    {doc && recoveringBaseline && <dialog ref={baselineDialog} className={css.figureReplaceDialog} aria-label={t('recoverBaseline')}
+      onClose={() => { setRecoveringBaseline(undefined); setBaselineTarget('') }}>
+      <h3>{t('recoverBaseline')}</h3><p>{t('baselineRecoveryHelp')}</p>
+      <label>{t('baselineTarget')}<select aria-label={t('baselineTarget')} value={baselineTarget} onChange={(event) => { setBaselineTarget(event.target.value) }}>
+        <option value="">{t('chooseParagraph')}</option>
+        {progressBlocks.filter(block => !baselinesByBlock.has(block.id)).map(block => <option key={block.id} value={block.id}>
+          {locations.get(block.id)?.headings.join(' › ')} · {blockPreview(block, 100)}</option>)}
+      </select></label>
+      <p className={css.warning}>{t('baselineRelinkHelp')}</p>
+      <button disabled={busy || !baselineTarget} onClick={() => {
+        void run({ action: 'relink-baseline', path: doc.path, revision: doc.current.id, blockId: recoveringBaseline, targetBlockId: baselineTarget })
+          .then((saved) => { if (saved) setRecoveringBaseline(undefined) })
+      }}>{t('relinkBaseline')}</button>
+      <button disabled={busy} onClick={() => {
+        void run({ action: 'archive-baseline', path: doc.path, revision: doc.current.id, blockId: recoveringBaseline })
+          .then((saved) => { if (saved) setRecoveringBaseline(undefined) })
+      }}>{t('archiveBaseline')}</button>
+      <button onClick={() => { setRecoveringBaseline(undefined) }}>{t('cancel')}</button>
+    </dialog>}
+    {doc && figureReplacement && <dialog ref={figureDialog} className={css.figureReplaceDialog}
+      aria-label={t('replaceFigure')} onClose={() => {
+        figurePickController.current?.abort(); setFigureBusy(false); setFigureReplacement(undefined)
+      }}>
+      <h3>{t('replaceFigure')} · {figureReplacement.figure.label}</h3><p>{t('figureCaptionCheck')}</p>
+      <label>{t('figureReplacementPath')}<input value={figureReplacement.path} placeholder={t('figureReplacementPath')}
+        onChange={(event) => { setFigureReplacement({ ...figureReplacement, path: event.target.value }) }} /></label>
+      <button disabled={figureBusy} onClick={() => { void chooseReplacement() }}><PaperIcon kind="folder" />{t('figureReplacement')}</button>
+      <button disabled={figureBusy} onClick={() => { setError(''); void browseFigures('') }}>{t('figureBrowseWorkspace')}</button>
+      {figureListing && <div className={css.figureFileList}><code>{figureListing.path || t('workspace')}</code>
+        {figureListing.path && <button onClick={() => { void browseFigures(figureListing.path.split('/').slice(0, -1).join('/')) }}>{t('progressStart')}</button>}
+        {figureListing.entries.map(entry => <button key={entry.name} disabled={figureBusy} onClick={() => {
+          const path = [figureListing.path, entry.name].filter(Boolean).join('/')
+          if (entry.type === 'directory') void browseFigures(path)
+          else { setFigureReplacement({ ...figureReplacement, path }); setFigureListing(undefined) }
+        }}>{entry.type === 'directory' ? '▸ ' : ''}{entry.name}</button>)}
+        {figureListing.truncated && <p>{t('truncated')}</p>}</div>}
+      <label>{t('figureReplacementReason')}<textarea value={figureReplacement.reason}
+        onChange={(event) => { setFigureReplacement({ ...figureReplacement, reason: event.target.value }) }} /></label>
+      {error && <p role="alert">{error}</p>}<div className={css.figureReplaceActions}>
+        <button onClick={() => {
+          figurePickController.current?.abort(); setFigureBusy(false); setFigureReplacement(undefined)
+        }}>{t('cancel')}</button>
+        <button disabled={figureBusy || !figureReplacement.path.trim() || !figureReplacement.reason.trim()}
+          onClick={() => { void submitFigure() }}>{figureBusy ? t('loading') : t('figureReplacementSubmit')}</button>
+      </div>
+    </dialog>}
     {doc && menu && <SelectionMenu x={menu.x} y={menu.y} title={t('selectionMenu')} close={closeMenu} items={[
       ...(['yellow', 'green', 'blue', 'underline'] as const).map(color => ({ label: t(color), color, disabled: busy, run: () => {
         if (typeof Highlight === 'undefined') { setError(t('highlightUnsupported')); return }
@@ -631,4 +1046,4 @@ export function PaperPanel({
   </section>
 }
 
-const historyKeys: Record<string, PaperReviewKey> = { imported: 'imported', annotated: 'annotated', proposed: 'proposed', revised: 'proposalRevised', resolved: 'resolved', reopened: 'reopened', reviewed: 'mark', 'reviewed-and-locked': 'lock', accepted: 'accepted', rejected: 'rejected', unlocked: 'unlocked', highlighted: 'highlightSaved', 'highlight-removed': 'removeHighlight', 'highlight-restored': 'restoreHighlight' }
+const historyKeys: Record<string, PaperReviewKey> = { imported: 'imported', annotated: 'annotated', proposed: 'proposed', revised: 'proposalRevised', resolved: 'resolved', reopened: 'reopened', reviewed: 'mark', 'reviewed-and-locked': 'lock', accepted: 'accepted', rejected: 'rejected', unlocked: 'unlocked', highlighted: 'highlightSaved', 'highlight-removed': 'removeHighlight', 'highlight-restored': 'restoreHighlight', 'archive-baseline': 'baselineArchived', 'restore-baseline': 'baselineRestored', 'relink-baseline': 'baselineRelinked' }

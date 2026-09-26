@@ -2,14 +2,16 @@
 import { constants } from 'node:fs'
 import { mkdir, open, readFile, readdir, realpath, rename, stat, unlink } from 'node:fs/promises'
 import { isAbsolute, relative, resolve, sep } from 'node:path'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
+import { authoredFigureBase, collectFigures, figureFilePath, pinnedFigure, replaceFigureReference } from './figures.ts'
 import { z } from 'zod'
 import { checkChanges, migrateAnnotations, parseRevision, revisionId } from './document.ts'
 import { assertNewCitations, citationsIn, parseBibtex, possibleBareCitationKeys, reviewableBlocks } from './bibliography.ts'
 import type { BibEntry } from './bibliography.ts'
 import { acquireOwnerLock } from './owner-lock.ts'
-import { DocumentSchema, ProposalInputSchema, ProposalRevisionInputSchema } from './schema.ts'
-import type { BibliographyView, PaperCommand, PaperDocument, PaperView, Proposal, ProposalInput, ProposalRevisionInput } from './schema.ts'
+import { DeletionInputSchema, DocumentSchema, FigureReplacementSchema, ProposalInputSchema, ProposalRevisionInputSchema } from './schema.ts'
+import type { DeletionInput } from './schema.ts'
+import type { BibliographyView, FigureAsset, FigureReplacement, PaperCommand, PaperDocument, PaperView, Proposal, ProposalInput, ProposalRevisionInput } from './schema.ts'
 
 const JournalSchema = z.object({ before: z.string(), after: z.string(), next: DocumentSchema })
 const BibBindingsSchema = z.record(z.string(), z.array(z.string()))
@@ -83,8 +85,10 @@ export class PaperStore {
   private tail: Promise<unknown> = Promise.resolve()
   private closed = false
 
-  /** @param workspaceRoot - explicit local project directory. @param maxBytes - source byte cap. */
-  constructor(private readonly workspaceRoot: string, private readonly maxBytes: number) {}
+  /** @param workspaceRoot - local project. @param maxBytes - source byte cap. @param maxFigureBytes - retained figure byte cap. */
+  constructor(
+    private readonly workspaceRoot: string, private readonly maxBytes: number, private readonly maxFigureBytes = 64 * 1024 * 1024,
+  ) {}
 
   /** Acquire exclusive plugin ownership before serving any request. */
   async start(): Promise<void> {
@@ -174,7 +178,7 @@ export class PaperStore {
    * @param extension - file suffix to list alongside directories.
    * @returns bounded visible folders and matching files, with truncation state.
    */
-  listFiles(path: string, extension: 'md' | 'bib' = 'md'): Promise<{ path: string; entries: { name: string; type: 'directory' | 'file' }[]; truncated: boolean }> {
+  listFiles(path: string, extension: 'md' | 'bib' | 'figure' = 'md'): Promise<{ path: string; entries: { name: string; type: 'directory' | 'file' }[]; truncated: boolean }> {
     return this.serial(async () => {
       if (isAbsolute(path) || path.split(/[\\/]/).some(part => part === '..' || part === '.paper-review')) throw new Error('Choose a directory inside the manuscript workspace')
       const directory = await realpath(resolve(this.root, path))
@@ -182,7 +186,8 @@ export class PaperStore {
       if (relativePath === '..' || relativePath.startsWith(`..${sep}`) || isAbsolute(relativePath)) throw new Error('Directory must be inside the manuscript workspace')
       if (!(await stat(directory)).isDirectory()) throw new Error('Choose a directory')
       const entries = (await readdir(directory, { withFileTypes: true }))
-        .filter(entry => !entry.name.startsWith('.') && (entry.isDirectory() || (entry.isFile() && entry.name.toLowerCase().endsWith(`.${extension}`))))
+        .filter(entry => !entry.name.startsWith('.') && (entry.isDirectory() || (entry.isFile() && (extension === 'figure'
+          ? /\.(?:pdf|png|jpe?g|webp|gif|svg)$/i.test(entry.name) : entry.name.toLowerCase().endsWith(`.${extension}`)))))
         .map(entry => ({ name: entry.name, type: entry.isDirectory() ? 'directory' as const : 'file' as const }))
         .sort((a, b) => Number(a.type === 'file') - Number(b.type === 'file') || a.name.localeCompare(b.name, undefined, { numeric: true }))
       return { path: relativePath === '' ? '' : relativePath.split(sep).join('/'), entries: entries.slice(0, 500), truncated: entries.length > 500 }
@@ -195,15 +200,138 @@ export class PaperStore {
    * @returns canonical file path, confined to this review workspace.
    */
   figurePath(path: string): Promise<string> {
-    return this.serial(async () => {
-      if (!path || isAbsolute(path) || path.split(/[\\/]/).some(part => part === '..' || part === '.paper-review')
+    return this.serial(() => this.resolveFigure(path))
+  }
+
+  private async resolveFigure(path: string): Promise<string> {
+    if (!path || isAbsolute(path) || path.split(/[\\/]/).some(part => part === '..' || part === '.paper-review')
         || !/\.(?:pdf|png|jpe?g|webp|gif|svg)$/i.test(path)) throw new Error('Choose a local PDF or image inside the manuscript workspace')
-      const source = await realpath(resolve(this.root, path))
-      const normalized = relative(this.root, source)
-      if (normalized === '..' || normalized.startsWith(`..${sep}`) || isAbsolute(normalized)
+    const source = await realpath(resolve(this.root, path))
+    const normalized = relative(this.root, source)
+    if (normalized === '..' || normalized.startsWith(`..${sep}`) || isAbsolute(normalized)
         || normalized.split(sep).includes('.paper-review')) throw new Error('Figure must remain inside the manuscript workspace')
-      if (!(await stat(source)).isFile()) throw new Error('Figure must be a regular file')
-      return source
+    if (!(await stat(source)).isFile()) throw new Error('Figure must be a regular file')
+    return source
+  }
+
+  /**
+   * List exact figure references and retained destinations in the current manuscript.
+   * @param path - manuscript path.
+   * @returns reader revision, source-change flag and workspace-relative figure files.
+   */
+  listFigures(path: string): Promise<{
+    revision: string
+    diskChanged: boolean
+    figures: { blockId: string; label: string; path: string; file: string | null; hash?: string }[]
+  }> {
+    return this.serial(async () => {
+      const { document, disk } = await this.load(path)
+      const base = authoredFigureBase(document.current.text)
+      return { revision: document.current.id, diskChanged: revisionId(disk) !== document.current.id,
+        figures: collectFigures(document.current.blocks).map((figure) => {
+          const hash = document.current.figureAssets?.find(asset => asset.path === figure.path)?.hash
+          return { ...figure, file: figureFilePath(document.path, base, pinnedFigure(document.current, figure).path) ?? null,
+            ...(hash ? { hash } : {}) }
+        }) }
+    })
+  }
+
+  private async figureData(path: string): Promise<Buffer> {
+    const source = await this.resolveFigure(path)
+    const handle = await open(source, 'r')
+    try {
+      if ((await handle.stat()).size > this.maxFigureBytes) throw new Error('Figure exceeds maxFigureBytes; choose a smaller file or raise the configured limit')
+      const data = await handle.readFile()
+      if (!data.length || data.length > this.maxFigureBytes) throw new Error('Figure is empty or exceeds maxFigureBytes')
+      return data
+    } finally { await handle.close() }
+  }
+
+  private async retainFigure(directory: string, path: string, authoredPath: string): Promise<FigureAsset> {
+    const data = await this.figureData(path)
+    const hash = createHash('sha256').update(data).digest('hex')
+    const suffix = path.split('.').at(-1)?.toLowerCase()
+    const snapshot = `figures/review-assets/${hash}.${suffix}`
+    const relativePath = [directory, snapshot].filter(Boolean).join('/')
+    const folder = resolve(this.root, directory, 'figures/review-assets')
+    for (const part of [directory, [directory, 'figures'].filter(Boolean).join('/'), [directory, 'figures/review-assets'].filter(Boolean).join('/')]) {
+      const existing = await realpath(resolve(this.root, part)).catch((error: unknown) => {
+        if (missing(error)) return undefined
+        throw error
+      })
+      if (existing !== undefined) {
+        const inside = relative(this.root, existing)
+        if (inside === '..' || inside.startsWith(`..${sep}`) || isAbsolute(inside)) throw new Error('Figure snapshot directory escapes the workspace')
+      }
+    }
+    await mkdir(folder, { recursive: true })
+    const normalized = relative(this.root, await realpath(folder))
+    if (normalized === '..' || normalized.startsWith(`..${sep}`) || isAbsolute(normalized)) throw new Error('Figure snapshot directory escapes the workspace')
+    const destination = resolve(this.root, relativePath)
+    try {
+      const handle = await open(destination, 'wx', 0o444)
+      try { await handle.writeFile(data); await handle.sync() } finally { await handle.close() }
+    } catch (error) {
+      if (!(error instanceof Error && 'code' in error && error.code === 'EEXIST')) throw error
+      if (createHash('sha256').update(await this.figureData(relativePath)).digest('hex') !== hash) throw new Error('Retained figure bytes changed; restore the snapshot before continuing')
+    }
+    return { path: authoredPath, snapshot, hash }
+  }
+
+  /**
+   * Retain both images and submit or revise one figure-reference proposal without writing Markdown.
+   * @param path - manuscript path.
+   * @param input - exact block, reader version, authored figure and workspace replacement file.
+   * @returns pending proposal state; acceptance still uses the ordinary source and lock checks.
+   */
+  replaceFigure(path: string, input: FigureReplacement): Promise<PaperView> {
+    return this.serial(async () => {
+      const request = FigureReplacementSchema.parse(input)
+      const { document, key, disk } = await this.load(path)
+      this.assertRevision(document, request.revision)
+      if (revisionId(disk) !== document.current.id) throw new Error('Load external manuscript changes before replacing a figure')
+      const block = document.current.blocks.find(candidate => candidate.id === request.blockId)
+      const figure = block && collectFigures([block]).find(candidate => candidate.path === request.figure)
+      if (!block || !figure) throw new Error('Figure reference no longer exists; use paper_figure_list and reread the block')
+      if (document.baselines.some(base => !base.archivedAt && base.blockId === block.id && base.locked)) throw new Error('Unlock the reviewed figure block before replacing its figure')
+      const previous = request.proposalId ? document.proposals.find(proposal => proposal.id === request.proposalId) : undefined
+      if (request.proposalId && (!previous || previous.status !== 'pending')) throw new Error('Proposal is no longer pending')
+      const previousEdit = previous?.edits.find(edit => edit.blockId === block.id && edit.operation === undefined)
+      if (previous && (previous.baseRevision !== document.current.id || (previousEdit && previousEdit.before !== block.text))) {
+        throw new Error('Reread and rebase the pending proposal before replacing its figure')
+      }
+      const directory = authoredFigureBase(document.current.text) || document.path.slice(0, Math.max(0, document.path.lastIndexOf('/')))
+      const currentPath = figureFilePath(document.path, directory, pinnedFigure(document.current, figure).path)
+      if (!currentPath) throw new Error('Figure path cannot be resolved inside this workspace')
+      const before = await this.retainFigure(directory, currentPath, figure.path)
+      const after = await this.retainFigure(directory, request.replacement, figure.path)
+      if (before.hash === after.hash) throw new Error('Replacement figure has identical bytes')
+      after.path = after.snapshot
+      const previousChange = previous?.figureChanges?.find(change => change.blockId === block.id && change.before.path === figure.path)
+      const priorDestination = previousChange?.after.path ?? figure.path
+      const pendingBlock = { ...block, text: previousEdit?.after ?? block.text }
+      if (!collectFigures([pendingBlock]).some(candidate => candidate.path === priorDestination)) {
+        throw new Error('Pending proposal no longer contains the selected figure reference')
+      }
+      const updated = replaceFigureReference(pendingBlock, priorDestination, after.path)
+      const edited = { blockId: block.id, before: block.text, after: updated }
+      const candidate: ProposalInput = { baseRevision: document.current.id, annotationIds: previous?.annotationIds ?? [],
+        meaning: previous?.meaning ?? 'structure', reason: request.reason,
+        edits: [...(previous?.edits.filter(edit => edit.blockId !== block.id) ?? []), edited] }
+      const flags = await this.proposalFlags(document, candidate)
+      const figureChanges = [
+        ...(previous?.figureChanges?.filter(change => change.blockId !== block.id || change.before.path !== figure.path) ?? []),
+        { blockId: block.id, before, after },
+      ]
+      const id = previous?.id ?? `P${document.proposals.length + 1}`
+      if (previous) Object.assign(previous, candidate, { flags, figureChanges })
+      else document.proposals.push({ ...candidate, id, flags, figureChanges, status: 'pending', createdAt: new Date().toISOString() })
+      const assets = [...(document.current.figureAssets?.filter(asset => asset.path !== before.path) ?? []), before]
+      document.current.figureAssets = assets
+      for (const revision of document.revisions) if (revision.id === document.current.id) revision.figureAssets = assets
+      this.record(document, previous ? 'revised' : 'proposed', id)
+      await atomicWrite(key, JSON.stringify(document))
+      return { document, diskChanged: false }
     })
   }
 
@@ -445,7 +573,6 @@ export class PaperStore {
     const editKeys = proposal.edits.map(edit => edit.operation
       ? `${edit.blockId}:${edit.operation}:${edit.after}` : `${edit.blockId}:replace`)
     if (new Set(editKeys).size !== editKeys.length) throw new Error('A proposal cannot repeat an identical edit or replace one block twice')
-    if (proposal.edits.some(edit => edit.operation) && proposal.baseRevision !== document.current.id) throw new Error('Insertions require the current reader revision; rebase the proposal before inserting')
     for (const annotationId of proposal.annotationIds) {
       const annotation = document.annotations.find(a => a.id === annotationId)
       if (annotation === undefined || annotation.anchor !== 'attached') throw new Error('Referenced annotation is missing or needs manual location')
@@ -454,9 +581,15 @@ export class PaperStore {
     const keys = bibliography.files.length ? new Set(bibliography.entries.map(entry => entry.key)) : null
     for (const edit of proposal.edits) {
       const block = base.blocks.find(b => b.id === edit.blockId)
-      if (block === undefined || block.text !== edit.before) throw new Error('Edit must match one unchanged base block')
+      if (block === undefined) throw new Error(`Block ${edit.blockId} was not found in the base revision. Read it again with paper_read; deletion uses exact before text and empty after.`)
+      if (block.text !== edit.before) {
+        let at = 0
+        while (at < Math.min(block.text.length, edit.before.length) && block.text[at] === edit.before[at]) at++
+        const excerpt = (value: string): string => JSON.stringify(value.slice(Math.max(0, at - 24), at + 48))
+        throw new Error(`Block ${edit.blockId}: before differs from saved Markdown at character ${at + 1}. Expected ${excerpt(block.text)}; received ${excerpt(edit.before)}. Copy exact source from paper_read, including table punctuation and math delimiters. Empty after is allowed for deletion.`)
+      }
       if (document.current.blocks.find(b => b.id === edit.blockId)?.text !== edit.before) throw new Error('The proposed block has changed; reread it')
-      if (document.baselines.some(b => b.blockId === edit.blockId && b.locked)) throw new Error('The author locked this block; ask them to unlock it')
+      if (document.baselines.some(b => !b.archivedAt && b.blockId === edit.blockId && b.locked)) throw new Error('The author locked this block; ask them to unlock it')
       if (edit.operation) {
         assertStandaloneFragment(edit.after)
         assertNewCitations('', citationSource(edit.after), keys)
@@ -517,7 +650,43 @@ export class PaperStore {
         && JSON.stringify(candidate.edits) === JSON.stringify(previous.edits)) throw new Error('Proposal revision makes no changes')
       const flags = await this.proposalFlags(document, candidate)
       Object.assign(previous, candidate, { flags })
+      if (revision.edits) previous.figureChanges = previous.figureChanges?.filter(change => candidate.edits.some(edit =>
+        edit.blockId === change.blockId && collectFigures([{ id: edit.blockId, text: edit.after, kind: 'paragraph', section: '', start: 0, end: edit.after.length }])
+          .some(figure => figure.path === change.after.path)))
       this.record(document, 'revised', previous.id)
+      await atomicWrite(key, JSON.stringify(document))
+      return { document, diskChanged: false }
+    })
+  }
+
+  /**
+   * Propose whole-block deletion using a source hash; Markdown never needs to be retyped by the model.
+   * Existing groups retain their other edits and metadata; changed or locked source is still rejected.
+   * @param path - manuscript.
+   * @param input - current revision, exact block and hash returned by paper_read.
+   * @returns pending proposal; manuscript bytes are unchanged.
+   */
+  proposeDeletion(path: string, input: DeletionInput): Promise<PaperView> {
+    return this.serial(async () => {
+      const deletion = DeletionInputSchema.parse(input)
+      const { document, key, disk } = await this.load(path)
+      this.assertRevision(document, deletion.baseRevision)
+      if (revisionId(disk) !== document.current.id) throw new Error('External changes await reader refresh; reread before proposing deletion')
+      const block = document.current.blocks.find(item => item.id === deletion.blockId)
+      if (!block || revisionId(block.text) !== deletion.beforeHash) throw new Error('Deletion source hash does not match; use paper_read with blockId again')
+      const previous = deletion.proposalId ? document.proposals.find(item => item.id === deletion.proposalId && item.status === 'pending') : undefined
+      if (deletion.proposalId && !previous) throw new Error('Proposal is no longer pending')
+      if (previous && previous.baseRevision !== deletion.baseRevision) throw new Error('Rebase the pending proposal with paper_revise before appending deletion')
+      if (previous?.edits.some(edit => edit.blockId === block.id)) throw new Error('This proposal already edits the block; revise the existing edit rather than appending a conflicting deletion')
+      const edit = { blockId: block.id, before: block.text, after: '' }
+      const candidate = ProposalInputSchema.parse({ baseRevision: deletion.baseRevision,
+        annotationIds: previous?.annotationIds ?? [], meaning: previous?.meaning ?? 'structure',
+        reason: previous ? `${previous.reason}\n\n${deletion.reason}` : deletion.reason, edits: [...(previous?.edits ?? []), edit] })
+      const flags = await this.proposalFlags(document, candidate)
+      const id = previous?.id ?? `P${document.proposals.length + 1}`
+      if (previous) Object.assign(previous, candidate, { flags })
+      else document.proposals.push({ ...candidate, id, status: 'pending', flags, createdAt: new Date().toISOString() })
+      this.record(document, previous ? 'revised' : 'proposed', id)
       await atomicWrite(key, JSON.stringify(document))
       return { document, diskChanged: false }
     })
@@ -584,8 +753,8 @@ export class PaperStore {
           for (const blockId of command.blockIds) {
             const block = document.current.blocks.find(b => b.id === blockId)
             if (!block) throw new Error('Block no longer exists')
-            const locked = command.locked || document.baselines.some(b => b.blockId === blockId && b.locked)
-            document.baselines = document.baselines.filter(b => b.blockId !== blockId)
+            const locked = command.locked || document.baselines.some(b => !b.archivedAt && b.blockId === blockId && b.locked)
+            document.baselines = document.baselines.filter(b => b.archivedAt || b.blockId !== blockId)
             document.baselines.push({ blockId, revision: document.current.id, text: block.text,
               locked, reviewedAt: new Date().toISOString() })
           }
@@ -597,11 +766,17 @@ export class PaperStore {
           if (!proposal || proposal.status !== 'pending') throw new Error('Proposal is no longer pending')
           if (command.accept) {
             if (revisionId(disk) !== document.current.id) throw new Error('Source changed outside paper review; acceptance was refused')
-            if (proposal.edits.some(edit => edit.operation) && proposal.baseRevision !== document.current.id) throw new Error('Insertion anchor is stale; rebase this proposal before accepting it')
+            const figureDirectory = authoredFigureBase(document.current.text) || document.path.slice(0, Math.max(0, document.path.lastIndexOf('/')))
+            for (const change of proposal.figureChanges ?? []) for (const asset of [change.before, change.after]) {
+              const file = figureFilePath(document.path, figureDirectory, asset.snapshot)
+              if (!file || createHash('sha256').update(await this.figureData(file)).digest('hex') !== asset.hash) {
+                throw new Error('Retained figure bytes changed; regenerate the figure proposal before accepting it')
+              }
+            }
             const changes = proposal.edits.map((edit) => {
               const block = document.current.blocks.find(b => b.id === edit.blockId)
               if (!block || block.text !== edit.before) throw new Error('This proposal overlaps an accepted or external edit. Ask for a new proposal.')
-              if (document.baselines.some(b => b.blockId === edit.blockId && b.locked)) throw new Error('Unlock the reviewed block before accepting a change')
+              if (document.baselines.some(b => !b.archivedAt && b.blockId === edit.blockId && b.locked)) throw new Error('Unlock the reviewed block before accepting a change')
               return { block, edit }
             })
             const bibliography = await this.bibEntries(document.path)
@@ -641,8 +816,33 @@ export class PaperStore {
           break
         }
         case 'position': document.reading[command.reader] = command.blockId; break
+        case 'archive-baseline':
+        case 'restore-baseline':
+        case 'relink-baseline': {
+          if (revisionId(disk) !== document.current.id) throw new Error('Load external changes before recovering a review record')
+          const restoring = command.action === 'restore-baseline'
+          const baseline = document.baselines.find(b => b.blockId === command.blockId && (command.action === 'restore-baseline'
+            ? b.archivedAt === command.archivedAt : !b.archivedAt))
+          if (!baseline) throw new Error('Review record no longer matches this recovery action')
+          if (restoring) {
+            if (document.baselines.some(b => b.blockId === baseline.blockId && !b.archivedAt)) throw new Error('An active review record already exists for this paragraph')
+            delete baseline.archivedAt
+          } else {
+            if (document.current.blocks.some(b => b.id === baseline.blockId)) throw new Error('Only a missing paragraph review record can be archived or reassociated')
+            if (command.action === 'relink-baseline') {
+              const target = document.current.blocks.find(b => b.id === command.targetBlockId)
+              if (!target) throw new Error('The chosen paragraph no longer exists')
+              if (document.baselines.some(b => !b.archivedAt && b.blockId === target.id)) throw new Error('The chosen paragraph already has an active review record')
+              document.baselines.push({ ...baseline, blockId: target.id })
+            }
+            baseline.archivedAt = new Date().toISOString()
+          }
+          this.record(document, command.action, command.action === 'relink-baseline'
+            ? `${command.blockId} -> ${command.targetBlockId}` : command.blockId)
+          break
+        }
         case 'unlock': {
-          const baseline = document.baselines.find(b => b.blockId === command.blockId)
+          const baseline = document.baselines.find(b => !b.archivedAt && b.blockId === command.blockId)
           if (!baseline) throw new Error('No review baseline exists for this block')
           baseline.locked = false
           this.record(document, 'unlocked', command.blockId)

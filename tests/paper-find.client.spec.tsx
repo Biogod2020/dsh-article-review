@@ -25,7 +25,7 @@ it('indexes rendered words but omits hidden source notes and Markdown punctuatio
   expect(findPaperHits(indexed, 'hidden')).toEqual([])
 })
 
-function Harness(): ReactNode {
+function Harness({ onNavigate }: { onNavigate?: () => void } = {}): ReactNode {
   const panel = useRef<HTMLElement>(null)
   const content = useRef<HTMLDivElement>(null)
   const [mode, setMode] = useState('read')
@@ -33,7 +33,7 @@ function Harness(): ReactNode {
     <input aria-label="Manuscript path" />
     <button onClick={() => { setMode('changes') }}>Changes</button>
     <div ref={content} data-scroll><PaperFind panel={panel} content={content} blocks={blocks} mode={mode}
-      onRead={() => { setMode('read') }} t={key => en[key]} />
+      onRead={() => { setMode('read') }} onNavigate={onNavigate} t={key => en[key]} />
     {mode === 'read' && <>
       <div data-block="one"><div data-reader-text>A <strong>paired</strong> image and paired counts.</div></div>
       <div data-block="two"><div data-reader-text>Another paired image.</div></div>
@@ -101,7 +101,8 @@ it('jumps the manuscript viewport to the selected match, including a later match
     }) as DOMRect
     return range
   })
-  render(<Harness />)
+  const onNavigate = vi.fn()
+  render(<Harness onNavigate={onNavigate} />)
   const viewport = document.querySelector<HTMLElement>('[data-scroll]')!
   const scrollTo = vi.fn()
   viewport.scrollTo = scrollTo
@@ -112,6 +113,7 @@ it('jumps the manuscript viewport to the selected match, including a later match
   const input = await screen.findByRole('searchbox', { name: en.find })
   fireEvent.change(input, { target: { value: 'paired' } })
   await waitFor(() => { expect(scrollTo).toHaveBeenCalledWith({ top: 20, behavior: 'instant' }) })
+  expect(onNavigate).toHaveBeenCalled()
   fireEvent.keyDown(input, { key: 'Enter' })
   await waitFor(() => { expect(scrollTo).toHaveBeenCalledWith({ top: 360, behavior: 'instant' }) })
 })

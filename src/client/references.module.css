@@ -1,0 +1,30 @@
+.references { padding: 1rem; max-width: 60rem; margin-inline: auto; }
+.references h3 { margin: 0 0 .5rem; }
+.references button, .references input { color: var(--dsw-alias-label-primary); background: var(--dsw-alias-bg-layer-1); border: 1px solid var(--dsw-alias-border-l2); border-radius: .45rem; padding: .45rem .65rem; font: inherit; }
+.references button { display: inline-flex; align-items: center; gap: .3rem; cursor: pointer; }
+.references button:disabled { opacity: .5; cursor: default; }
+.references button:focus-visible, .references input:focus-visible, .references a:focus-visible, .references summary:focus-visible { outline: 2px solid var(--paper-accent); outline-offset: 2px; }
+.help, .entry small, .entryHeader span, .listHeader > span { color: var(--dsw-alias-label-secondary); font-size: .85em; }
+.sources { border: 1px solid var(--dsw-alias-border-l2); border-radius: .65rem; padding: .6rem .75rem; margin-block: 1rem; }
+.sources summary { cursor: pointer; }
+.sources > div { display: flex; align-items: center; gap: .5rem; margin-top: .5rem; }
+.sources code { overflow-wrap: anywhere; flex: 1; }
+.bind { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .65rem; }
+.bind input { flex: 1 1 12rem; min-width: 0; }
+.error { border-inline-start: 3px solid var(--paper-removed); padding: .35rem .65rem; margin-block: .7rem; }
+.error p { margin-top: 0; overflow-wrap: anywhere; }
+.warnings { border-inline-start: 3px solid var(--paper-warning); padding-inline-start: .65rem; font-size: .9em; overflow-wrap: anywhere; }
+.filter { display: flex; align-items: end; gap: .4rem; }
+.filter label { flex: 1; display: grid; gap: .25rem; font-size: .85em; }
+.filter input { min-width: 0; width: 100%; box-sizing: border-box; }
+.listHeader { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: .4rem; margin-block: .9rem .5rem; }
+.listHeader h4 { margin: 0; }
+.entries { display: grid; gap: .6rem; }
+.entry { border: 1px solid var(--dsw-alias-border-l2); border-radius: .65rem; padding: .7rem .85rem; overflow-wrap: anywhere; }
+.entryHeader { display: flex; align-items: baseline; justify-content: space-between; gap: .5rem; }
+.entryHeader code { font-size: .85em; }
+.entry h4 { margin: .45rem 0; line-height: 1.45; }
+.entry p { margin: .3rem 0; line-height: 1.5; }
+.actions { display: flex; flex-wrap: wrap; gap: .45rem; align-items: center; margin-top: .6rem; font-size: .85em; }
+.actions a { color: var(--paper-accent); text-decoration: underline; text-underline-offset: .15rem; }
+.pagination { display: flex; gap: .5rem; align-items: center; justify-content: space-between; margin-top: 1rem; font-size: .85em; }

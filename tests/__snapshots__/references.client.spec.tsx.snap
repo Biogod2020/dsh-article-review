@@ -1,0 +1,14 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`formats protected capitals, LaTeX accents and escaped symbols without modifying metadata 1`] = `
+{
+  "entries": [
+    "[@key0]Citations: 3A multimodal H&E experimentMüller, Anna and Šimek, Boris · 2020references/example.bibFirst citation in manuscriptNext citationDOI: 10.1234/paired.evidencePublication: https://example.org/paper",
+    "[@key1]Citations: 1Synthetic research 1Example, Author 1 · 2021references/example.bibFirst citation in manuscript",
+  ],
+  "links": [
+    "https://doi.org/10.1234/paired.evidence",
+    "https://example.org/paper",
+  ],
+}
+`;

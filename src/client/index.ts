@@ -69,6 +69,21 @@ export function apply(ctx: Context): void {
       if (!result.ok) throw new Error(result.error.message)
       return z.object({ path: z.string().nullable() }).parse(result.value).path
     },
+    async pickFigure(signal, sessionId) {
+      const result = await connection.rpc.call('/api', 'paper-review/pick-figure', { sessionId }, signal)
+      if (!result.ok) throw new Error(result.error.message)
+      return z.object({ path: z.string().nullable() }).parse(result.value).path
+    },
+    async listFigureFiles(path, signal, sessionId) {
+      const result = await connection.rpc.call('/api', 'paper-review/list-files', { sessionId, path, extension: 'figure' }, signal)
+      if (!result.ok) throw new Error(result.error.message)
+      return FileListingSchema.parse(result.value)
+    },
+    async replaceFigure(path, input, signal, sessionId) {
+      const result = await connection.rpc.call('/api', 'paper-review/replace-figure', { sessionId, path, ...input }, signal)
+      if (!result.ok) throw new Error(result.error.message)
+      return ViewSchema.parse(result.value)
+    },
     figurePath: resolveFigure,
     async figureThumbnail(path, signal, sessionId) {
       const result = await connection.rpc.call('/api', 'paper-review/figure-thumbnail', { sessionId, path, size: 'thumb' }, signal)

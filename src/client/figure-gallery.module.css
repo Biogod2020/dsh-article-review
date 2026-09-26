@@ -1,0 +1,23 @@
+/** Full-screen figure controls inherit the current DSH theme. */
+.lightbox{position:fixed;inset:0;width:100vw;height:100vh;max-width:none;max-height:none;margin:0;padding:0;border:0;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);color-scheme:inherit;box-sizing:border-box;font:13px system-ui,sans-serif}
+.lightbox[open]{display:flex;flex-direction:column}
+.lightbox::backdrop{background:#000b}
+.bar{flex:none;padding:9px 12px;display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-module-platform)}
+.bar strong{font-size:14px;white-space:nowrap}
+.bar>span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary)}
+.lightbox button{padding:6px 9px;border:1px solid var(--dsw-alias-border-l2);border-radius:7px;background:var(--dsw-alias-bg-layer-1);color:inherit;cursor:pointer;white-space:nowrap}
+.lightbox button:hover:not(:disabled){background:var(--dsw-alias-bg-module-platform)}
+.lightbox button:disabled{opacity:.4;cursor:default}
+.lightbox button:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}
+.controls{flex:none;display:flex;justify-content:center;align-items:center;flex-wrap:wrap;gap:7px;padding:8px;border-bottom:1px solid var(--dsw-alias-border-l2)}
+.controls output{min-width:46px;text-align:center;font-variant-numeric:tabular-nums}
+.separator{height:22px;border-left:1px solid var(--dsw-alias-border-l2);margin:0 5px}
+.viewport{flex:1;min-height:0;position:relative;overflow:hidden;display:grid;place-items:center;touch-action:none;user-select:none}
+.viewport[data-pannable=true]{cursor:grab}
+.viewport[data-pannable=true]:active{cursor:grabbing}
+.viewport img{position:absolute;left:50%;top:50%;max-width:none;max-height:none;transform-origin:center;object-fit:contain;will-change:transform}
+.viewport p{color:var(--dsw-alias-label-secondary);padding:0 20px;text-align:center}
+.message{text-align:center}
+.tile{width:100%}
+.footer{flex:none;padding:7px 12px;border-top:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary);font-size:11px;text-align:center}
+@media(max-width:500px){.bar{flex-wrap:wrap;gap:7px}.bar>span{flex-basis:45%}.bar strong{max-width:45%;overflow:hidden;text-overflow:ellipsis}.controls{gap:5px;padding:6px}.lightbox button{padding:6px 8px}}

@@ -9,8 +9,12 @@ export const BlockSchema = z.object({
   id, kind: z.string(), section: z.string(), text,
   start: z.number().int().nonnegative(), end: z.number().int().nonnegative(),
 })
-/** One immutable imported or accepted manuscript version. */
-export const RevisionSchema = z.object({ id, text, blocks: z.array(BlockSchema), createdAt: z.string() })
+/** Retained figure bytes and their authored destination. */
+export const FigureAssetSchema = z.object({ path: z.string(), snapshot: z.string(), hash: z.string().regex(/^[a-f0-9]{64}$/) })
+/** One immutable imported or accepted manuscript version with optional retained figures. */
+export const RevisionSchema = z.object({
+  id, text, blocks: z.array(BlockSchema), createdAt: z.string(), figureAssets: z.array(FigureAssetSchema).optional(),
+})
 /** A quotation anchored to the block and the exact version the reader saw. */
 export const AnnotationSchema = z.object({
   id, blockId: id, revision: id, quote: text, prefix: text, suffix: text, comment: text,
@@ -44,9 +48,16 @@ export const ProposalRevisionInputSchema = z.object({
 export const ProposalSchema = ProposalInputSchema.extend({
   id, status: z.enum(['pending', 'accepted', 'rejected']), createdAt: z.string(),
   flags: z.array(z.enum(['numbers', 'citations', 'figures', 'claim-language', 'methods', 'structure'])),
+  figureChanges: z.array(z.object({ blockId: id, before: FigureAssetSchema, after: FigureAssetSchema })).optional(),
+})
+/** Snapshot-backed figure replacement; source writes still require acceptance. */
+export const FigureReplacementSchema = z.object({
+  revision: id, blockId: id, figure: z.string().min(1), replacement: z.string().min(1),
+  reason: z.string().min(1).max(4000), proposalId: id.optional(),
 })
 /** Per-block human review state; accepting a proposal does not advance it. */
-export const BaselineSchema = z.object({ blockId: id, revision: id, text, locked: z.boolean(), reviewedAt: z.string() })
+export const BaselineSchema = z.object({ blockId: id, revision: id, text, locked: z.boolean(), reviewedAt: z.string(),
+  archivedAt: z.string().optional() })
 /** Project-persisted state for one manuscript. No browser storage is authoritative. */
 export const DocumentSchema = z.object({
   schemaVersion: z.literal(1), path: z.string().min(1), current: RevisionSchema,
@@ -65,11 +76,19 @@ export const CommandSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('resolve'), path: z.string(), annotationId: id, resolved: z.boolean() }),
   z.object({ action: z.literal('review'), path: z.string(), revision: id, blockIds: z.array(id).min(1), locked: z.boolean() }),
   z.object({ action: z.literal('unlock'), path: z.string(), blockId: id }),
+  z.object({ action: z.literal('archive-baseline'), path: z.string(), revision: id, blockId: id }),
+  z.object({ action: z.literal('restore-baseline'), path: z.string(), revision: id, blockId: id, archivedAt: z.string() }),
+  z.object({ action: z.literal('relink-baseline'), path: z.string(), revision: id, blockId: id, targetBlockId: id }),
   z.object({ action: z.literal('decide'), path: z.string(), revision: id, proposalId: id, accept: z.boolean() }),
   z.object({ action: z.literal('position'), path: z.string(), reader: id, blockId: id }),
 ])
 /** Wire response, also validates browser reads before rendering. */
 export const ViewSchema = z.object({ document: DocumentSchema, diskChanged: z.boolean() })
+/** Hash-checked deletion copies exact Markdown on the host rather than through model arguments. */
+export const DeletionInputSchema = z.object({ baseRevision: id, blockId: id, beforeHash: z.string().regex(/^[a-f0-9]{64}$/),
+  reason: z.string().min(1).max(4000), proposalId: id.optional() })
+/** Whole-block deletion proposal, optionally appended to a pending group. */
+export type DeletionInput = z.infer<typeof DeletionInputSchema>
 /** One bounded directory level of Markdown files and folders. */
 export const FileListingSchema = z.object({ path: z.string(), entries: z.array(z.object({ name: z.string(), type: z.enum(['directory', 'file']) })), truncated: z.boolean() })
 /** BibTeX remains on disk; this read-only projection keeps the bibliography outside the manuscript body. */
@@ -99,6 +118,10 @@ export type Proposal = z.infer<typeof ProposalSchema>
 export type ProposalInput = z.infer<typeof ProposalInputSchema>
 /** Partial in-place update of a pending proposal. */
 export type ProposalRevisionInput = z.infer<typeof ProposalRevisionInputSchema>
+/** Snapshot-backed figure replacement request. */
+export type FigureReplacement = z.infer<typeof FigureReplacementSchema>
+/** Retained figure bytes and their authored reference. */
+export type FigureAsset = z.infer<typeof FigureAssetSchema>
 /** Validated operator action. */
 export type PaperCommand = z.infer<typeof CommandSchema>
 /** Version-pinned reader response. */

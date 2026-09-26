@@ -4,6 +4,7 @@ import { fromMarkdown } from 'mdast-util-from-markdown'
 import { gfm } from 'micromark-extension-gfm'
 import { gfmFromMarkdown } from 'mdast-util-gfm'
 import type { Annotation, PaperBlock, PaperHighlight, PaperRevision, Proposal, ProposalInput } from './schema.ts'
+import { collectFigures } from './figures.ts'
 
 /**
  * Hash exact UTF-8 source, including whitespace.
@@ -38,7 +39,9 @@ export function parseRevision(text: string, previous?: PaperRevision, replacemen
       block.id = candidate.id
     }
   }
-  return { id: revisionId(text), text, blocks, createdAt: new Date().toISOString() }
+  const paths = new Set(collectFigures(blocks).map(figure => figure.path))
+  const figureAssets = previous?.figureAssets?.filter(asset => paths.has(asset.path))
+  return { id: revisionId(text), text, blocks, createdAt: new Date().toISOString(), ...(figureAssets?.length ? { figureAssets } : {}) }
 }
 
 /**

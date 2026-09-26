@@ -1,0 +1,5 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`fits native pixels, zooms with controls and double click, and drags a magnified figure 1`] = `"Figure 1figures/a.pdfOpen complete file×‹1 / 2›−40%+Fit100%PDF preview: page 1. Open complete file for all pages."`;
+
+exports[`retries a failed PDF preview at the same pinned file, then reuses it after closing > failed PDF preview 1`] = `"Figure 1figures/a.pdfOpen complete file×‹1 / 2›−100%+Fit100%Preview failedRetryPDF preview: page 1. Open complete file for all pages."`;
