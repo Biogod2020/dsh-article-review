@@ -32,7 +32,11 @@ async function copyDeclarations(directory) {
 await copyArtifact('lib/index.js')
 await copyArtifact('lib/client.js')
 const clientPath = join(target, 'lib/client.js')
-await writeFile(clientPath, (await readFile(clientPath, 'utf8')).replace(/[ \t]+$/gm, ''))
+// CSS module labels keep relative paths; the release does not ship the client sourcemap.
+await writeFile(clientPath, (await readFile(clientPath, 'utf8'))
+  .replace(/[ \t]+$/gm, '')
+  .replace(/^([ \t]*\/\/#region \\0dsh-css:).*[/\\]src[/\\]/gm, '$1src/')
+  .replace(/^\/\/# sourceMappingURL=client\.js\.map\r?\n?/gm, ''))
 if (await copyDeclarations('lib/types') === 0) throw new Error('Build the declaration files before preparing a release')
 
 const dependencies = { ...releaseManifest.dependencies }
