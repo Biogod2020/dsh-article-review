@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-experimental-paper-review",
-  "version": "0.1.7-alpha.5",
+  "version": "0.1.7-alpha.6",
   "description": "Annotation-driven Markdown manuscript review with proposals and human review baselines",
   "keywords": ["deepseek-harness", "dsh", "dsh-plugin", "paper-review", "markdown", "manuscript", "annotations"],
   "repository": { "type": "git", "url": "git+https://github.com/Biogod2020/dsh-article-review.git" },

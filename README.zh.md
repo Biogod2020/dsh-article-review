@@ -28,7 +28,7 @@ kind: "package-bundle"
 使用 DSH 的配置管理命令安装预构建的版本 tag：
 
 ```sh
-dsh plugin --profile web add 'github:Biogod2020/dsh-article-review#v0.1.7-alpha.5'
+dsh plugin --profile web add 'github:Biogod2020/dsh-article-review#v0.1.7-alpha.6'
 dsh web
 ```
 
@@ -77,7 +77,7 @@ dsh web
 
 1. 在同一段内选中文字后右键，可选择黄、绿、蓝三色高亮、下划线、批注、复制、专注阅读或 AI 上下文。行内格式和重复短语会保留实际选中的位置。高亮和批注不会修改正文。高亮列表支持移除与恢复。点击段落仍可使用原有操作按钮。
 2. 确认段落已审，或已审并锁定。这会保存人工审阅基线。锁定会阻止本插件为该段提交和接受修改。再次确认已审会保留锁定，只有**解锁**才会解除它。右侧的窄进度轨显示可审阅段落比例及状态，不改变正文宽度。展开后可按章节查看段落预览，点击即可跳转。绿色表示当前文字已审，灰色表示未审，橙色表示审后有修改。文末书目和来源注释不计入分母；接受修改后，重新审阅前进度可能回退。
-3. 打开**审阅变更**，阅读每组提案中 Markdown 渲染后的修改前后正文；变化的可见文字会局部着色。新段落或标题会标明插在锚点区块之前或之后，显示为新增内容，而不是把锚点显示成整段改写。还要检查模型自报类别和独立词面提示。对比内容会在接近可见区域时载入；滚动到提案处即可检查。展开**查看 Markdown 源码差异**可核对精确的逐词变化及格式语法变化。你或智能体都能逐组接受或拒绝；`paper_decide` 仅应在你要求接受时使用。接受会修改文件，但不会把结果标为已审。如需改进待审提案，可点击**要求重做**或让智能体调用 `paper_revise`：它会保留原提案 ID、重新检查且不修改正文。已接受或已拒绝的提案不能再改。
+3. 打开**审阅变更**，阅读每组提案中 Markdown 渲染后的修改前后正文；变化的可见文字会局部着色。新增 Markdown 区块会标明插在锚点之前或之后，而不是把锚点显示成整段改写。还要检查模型自报类别和独立词面提示。对比内容会在接近可见区域时载入；滚动到提案处即可检查。展开**查看 Markdown 源码差异**可核对精确的逐词变化及格式语法变化。你或智能体都能逐组接受或拒绝；`paper_decide` 仅应在你要求接受时使用。接受会修改文件，但不会把结果标为已审。如需改进待审提案，可点击**要求重做**或让智能体调用 `paper_revise`：它会保留原提案 ID、重新检查且不修改正文。已接受或已拒绝的提案不能再改。
 4. 检查**相对我最后审过的内容**，确认后再把修改后的段落标为已审。连续接受多轮修改，仍然相对于此前的人工基线比较。
 5. **检查更新**会刷新提案信息。会话轮次结束后也会检查。外部文件变化不会替换当前阅读内容，直到你选择**载入新版本**。
 6. 打开**版本对比**，任选两个已保存版本。**渲染后并排**只给变化的可见文字着色，不再填满整块；细边线提示变化的段落。外部改写的段落可能获得新 ID，因此此视图会在相邻的稳定段落之间匹配足够相似的段落，但只用于文字着色，不会迁移已保存的批注。**源码并排**和**源码行内差异**显示完整 Markdown 原文中的精确增删，包括仅有格式变化的内容。如果段落无法可靠配对或渲染后的文字无法可靠映射，界面仅保留边线而不在正文内着色。交换左右版本可反向比较。此页面不会恢复文件或更新人工审阅基线。窄面板中，左右正文会上下排列。
@@ -139,7 +139,7 @@ dsh web
 
 #### 模型看到什么
 
-打开稿件前，模型就能使用 `paper_list` 和 `paper_open`。启用审阅后，还会收到原生 `paper_read`、`paper_annotations`、`paper_propose`、`paper_revise`、`paper_check`、`paper_decide` 和六个 `paper_bib_*` schema；精确 schema 保存在[组合测试快照](tests/__snapshots__/composition.spec.ts.snap)中。读取结果包含精确段落 id、原文、版本和锁定状态。新增段落或 Markdown 标题时，应设为 `insert-before` 或 `insert-after`，`before` 填锚点区块的精确原文，`after` 只填一个新区块。同一锚点处的标题和段落可以依阅读顺序写成两条编辑，合成一组提案。为兼容旧调用，省略 `operation` 但 `after` 是未改动的锚点原文加一个空行分隔的新段落或标题，也会按插入处理；其他省略 `operation` 的编辑仍是单区块替换。提案返回 id、状态、词面提示及 `manuscriptWritten: false`。检查结果说明待审修改是否仍匹配未锁定原文；提供提案 ID 后还会返回该提案的完整内容。`paper_revise` 保留提案 ID，不修改稿件。`paper_decide` 可在冲突检查后拒绝或接受待审提案。BibTeX 新增和替换只写已绑定的 `.bib` 文件，并返回 `metadataVerified: false`。模型仍保留 DSH 权限模式允许的普通工具。
+打开稿件前，模型就能使用 `paper_list` 和 `paper_open`。启用审阅后，还会收到原生 `paper_read`、`paper_annotations`、`paper_propose`、`paper_revise`、`paper_check`、`paper_decide` 和六个 `paper_bib_*` schema；精确 schema 保存在[组合测试快照](tests/__snapshots__/composition.spec.ts.snap)中。读取结果包含精确区块 id、原文、版本和锁定状态。插入时用 `insert-before` 或 `insert-after`，`before` 填锚点的精确原文，`after` 可填完整 Markdown 片段，包括列表、表格、引用块、代码和多个区块。省略 `operation` 可用完整 Markdown 替换区块，也可把 `after` 设为空字符串来提议删除。兼容旧调用：若 `after` 含未改动的锚点及用空行分隔的新区块，也会按插入处理。提案返回 id、状态、词面提示及 `manuscriptWritten: false`。检查结果说明待审修改是否仍匹配未锁定原文；提供提案 ID 后还会返回该提案的完整内容。`paper_revise` 保留提案 ID，不修改稿件。`paper_decide` 可在冲突检查后拒绝或接受待审提案。BibTeX 新增和替换只写已绑定的 `.bib` 文件，并返回 `metadataVerified: false`。模型仍保留 DSH 权限模式允许的普通工具。
 
 #### Token 影响
 
@@ -158,7 +158,7 @@ dsh web
 ##### 英文编辑指令
 
 ```markdown
-Only change the selected blocks; if the author requests an added paragraph, insert one before or after a selected block. Read with paper_read, then submit each independent change with paper_propose. For an existing pending proposal, inspect it with paper_check and revise it in place with paper_revise; do not create another proposal. Group dependent edits. Preserve numbers, citations and scientific claims unless explicitly instructed. Do not strengthen causality, generalizability, novelty, significance or superiority. If evidence is missing, report it. Never treat a mechanical check as scientific validation.
+Only change the selected blocks; insert complete Markdown before or after an exact anchor when the author requests new material. Read with paper_read, then submit each independent change with paper_propose. For an existing pending proposal, inspect it with paper_check and revise it in place with paper_revise; do not create another proposal. Group dependent edits. Preserve numbers, citations and scientific claims unless explicitly instructed. Do not strengthen causality, generalizability, novelty, significance or superiority. If evidence is missing, report it. Never treat a mechanical check as scientific validation.
 ```
 
 #### Token 影响
@@ -175,7 +175,7 @@ Only change the selected blocks; if the author requests an added paragraph, inse
 
 这个本地单作者 Markdown 原型存在以下限制。
 
-- 尚未实现 PDF、Word、LaTeX 原稿、带修订痕迹的文档导出、段落删除/移动以及跨段落 Markdown 引用解析。提案可以替换同类完整 Markdown 块，或在精确锚点旁插入新段落和标题；相关修改可以按阅读顺序分组。
+- 尚未实现 PDF、Word、LaTeX 原稿、带修订痕迹的文档导出、区块移动以及跨区块 Markdown 引用解析。提案可以替换或删除精确区块，也可在精确锚点旁插入完整 Markdown 片段；相关修改可以分组。
 - 数字、引用、图表、方法和论断词检查只是覆盖不完整的词面信号，不是科学审计。真实提供商的修改质量和独立复核模型尚未验证；自动化测试中的模型响应来自脚本。
 - 选区限定在一个 Markdown 段落内。跨段选择会明确提示；可分别批注后一起提交。高亮需要支持 CSS Custom Highlight API 的浏览器。段落原文变化后，渲染选区会标为**需要重新定位**，即使引文仍出现在其他位置。尚未实现模糊匹配和手动重定位；请保留旧记录，在目标位置新建。
 - 锁定只约束本插件，不约束外部编辑器。不配合的外部写入可能在最终检查与重命名之间竞争。原子替换和恢复日志针对进程中断，不保证突然断电持久性或抵御恶意本地文件系统修改。

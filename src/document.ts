@@ -80,7 +80,9 @@ export function checkChanges(proposal: ProposalInput, blocks: PaperBlock[]): Pro
       if (JSON.stringify(before.match(pattern) ?? []) !== JSON.stringify(edit.after.match(pattern) ?? [])) flags.add(flag)
     }
     if (/method|方法/i.test(blocks.find(b => b.id === edit.blockId)?.section ?? '')) flags.add('methods')
-    if (proposal.meaning === 'structure' || edit.operation) flags.add('structure')
+    const original = blocks.find(block => block.id === edit.blockId)
+    const resulting = edit.operation ? [] : parseRevision(edit.after).blocks
+    if (proposal.meaning === 'structure' || edit.operation || resulting.length !== 1 || resulting[0]?.kind !== original?.kind) flags.add('structure')
   }
   return [...flags]
 }

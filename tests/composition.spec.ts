@@ -226,6 +226,27 @@ it('boots from a composition, keeps ordinary tools, and lets agents and operator
   expect(groupedView.document.proposals.at(-1)?.edits.map(edit => edit.after)).toEqual([
     '### Screening Reference Set', 'The frozen reference uses a separate study set.',
   ])
+  const list = '- **Class A**: direct H&E.\n- **Class B**: indirect imaging.\n- **Class C**: excluded assays.'
+  const proposedList = await ctx.tools.execute({ agent, callId: ToolCallId('list-proposal'), name: 'paper_propose', arguments: {
+    path: 'article.md', baseRevision: naturalBase.document.current.id, annotationIds: [],
+    reason: 'Show the three screening classes as a list.', meaning: 'structure',
+    edits: [{ blockId: naturalAnchor.id, before: naturalAnchor.text, after: list, operation: 'insert-after' }],
+  }, signal: new AbortController().signal })
+  expect(proposedList.isError).not.toBe(true)
+  const listView = z.object({ result: z.object({ value: ViewSchema }) }).parse(await (await rpc({ action: 'open', path: 'article.md' })).json()).result.value
+  const listProposal = listView.document.proposals.at(-1)!
+  expect(listProposal.edits[0]?.after).toBe(list)
+  const revisedList = await ctx.tools.execute({ agent, callId: ToolCallId('revise-list-proposal'), name: 'paper_revise', arguments: {
+    path: 'article.md', proposalId: listProposal.id, revision: listView.document.current.id,
+    edits: [{ blockId: naturalAnchor.id, before: naturalAnchor.text,
+      after: '- **Class A**: direct H&E.\n- **Class B**: indirect imaging or morphology.\n- **Class C**: excluded assays.',
+      operation: 'insert-after' }],
+  }, signal: new AbortController().signal })
+  expect(revisedList.isError).not.toBe(true)
+  const revisedView = z.object({ result: z.object({ value: ViewSchema }) }).parse(await (await rpc({ action: 'open', path: 'article.md' })).json()).result.value
+  expect(revisedView.document.proposals.at(-1)?.id).toBe(listProposal.id)
+  expect(revisedView.document.proposals.at(-1)?.edits[0]?.after).toContain('indirect imaging or morphology')
+  expect(await readFile(join(root, 'article.md'), 'utf8')).not.toContain('**Class A**')
   const left = await (await control('paper-review/leave', {})).json() as { result: { ok: boolean } }
   expect(left.result.ok).toBe(true)
   expect(await readFile(join(root, '.paper-review', 'sessions.json'), 'utf8')).toBe('[]')

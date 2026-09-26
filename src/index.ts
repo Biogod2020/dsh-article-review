@@ -163,7 +163,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   }
   ctx.effect(() => ctx.tools.register(defineTool({
     name: 'paper_propose',
-    description: 'Submit a manuscript change for author review without writing the source. Copy blockId and exact before text from paper_read. To add a paragraph or Markdown heading, use operation: insert-before/insert-after with only that new block in after. For a heading plus paragraph at one position, supply two insertion edits at the same anchor in reading order, heading first. For compatibility, an omitted operation also inserts when after contains the exact unchanged before block, a blank line, and exactly one new paragraph or heading before or after it. Group dependent edits. Insertions require the current baseRevision. Mechanical checks flag number, citation, figure, claim-word, Methods and insertion changes.',
+    description: 'Submit a manuscript change for author review without writing the source. Copy blockId and exact before text from paper_read. With operation: insert-before/insert-after, after may contain any complete Markdown fragment, including lists, tables, headings, quotes, code and multiple blocks. Without operation, after replaces the selected block; an empty string proposes deletion. For compatibility, an unchanged before block followed or preceded by blank-separated new blocks is treated as insertion. Group dependent edits. Insertions require the current baseRevision. Version, locks and bound citation keys are checked; lexical flags are review hints, not scientific approval.',
     parameters: {
       path: pathParameter, baseRevision: { type: 'string', required: true },
       annotationIds: { type: 'array', items: { type: 'string' }, required: true },
@@ -171,7 +171,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       meaning: { type: 'string', enum: ['style', 'structure', 'claim', 'evidence'], required: true },
       edits: { type: 'array', required: true, items: { type: 'object', additionalProperties: false, properties: {
         blockId: { type: 'string', required: true }, before: { type: 'string', required: true }, after: { type: 'string', required: true },
-        operation: { type: 'string', enum: ['insert-before', 'insert-after'], description: 'Use to insert one new paragraph or Markdown heading beside the exact before anchor. Omit for a single-block replacement or an unchanged anchor plus one blank-separated new block.' },
+        operation: { type: 'string', enum: ['insert-before', 'insert-after'], description: 'Insert complete Markdown blocks beside the exact before anchor. Omit to replace the block; set after to empty to propose deletion.' },
       } } },
     },
     output,
@@ -188,7 +188,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
 
   ctx.effect(() => ctx.tools.register(defineTool({
     name: 'paper_revise',
-    description: 'Revise an existing pending manuscript proposal in place; keep its id and do not write the manuscript. Use paper_check with proposalId to inspect it, and paper_read for the current revision and exact source. Supply only fields to change; if edits is supplied, it replaces the complete edit group. Edits may replace a block or insert one paragraph or Markdown heading before/after an exact anchor using operation. A heading plus paragraph at one anchor can be grouped as two insertion edits in reading order. An omitted operation also inserts when after contains the exact unchanged before block and one blank-separated new paragraph or heading. To rebase a stale proposal, provide baseRevision equal to the current reader revision and complete edits with current block ids and exact before text. The same source, annotation, lock and mechanical-risk checks as paper_propose run again. Settled proposals cannot be revised.',
+    description: 'Revise an existing pending manuscript proposal in place; keep its id and do not write the manuscript. Inspect it with paper_check and read current source with paper_read. Supplied edits replace the complete edit group. Use operation to insert any complete Markdown fragment beside an exact anchor; omit operation to replace a block with any complete Markdown fragment or delete it with empty after. An unchanged anchor beside blank-separated new blocks is also treated as insertion. Rebase stale proposals with the current baseRevision, block ids and exact before text. Version, annotation, lock and citation checks run again. Settled proposals cannot be revised.',
     parameters: {
       path: pathParameter,
       proposalId: { type: 'string', required: true, description: 'Id of the pending proposal to revise.' },
@@ -199,7 +199,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       meaning: { type: 'string', enum: ['style', 'structure', 'claim', 'evidence'], description: 'Optional revised author-facing change category.' },
       edits: { type: 'array', description: 'Optional full replacement edit group; omit to keep all existing edits.', items: { type: 'object', additionalProperties: false, properties: {
         blockId: { type: 'string', required: true }, before: { type: 'string', required: true }, after: { type: 'string', required: true },
-        operation: { type: 'string', enum: ['insert-before', 'insert-after'], description: 'Use to insert one new paragraph or Markdown heading beside the exact before anchor. Omit for a single-block replacement or an unchanged anchor plus one blank-separated new block.' },
+        operation: { type: 'string', enum: ['insert-before', 'insert-after'], description: 'Insert complete Markdown blocks beside the exact before anchor. Omit to replace the block; set after to empty to propose deletion.' },
       } } },
     },
     output,

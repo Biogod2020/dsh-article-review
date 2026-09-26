@@ -14,24 +14,41 @@ import type { BibliographyView, PaperCommand, PaperDocument, PaperView, Proposal
 const JournalSchema = z.object({ before: z.string(), after: z.string(), next: DocumentSchema })
 const BibBindingsSchema = z.record(z.string(), z.array(z.string()))
 
-/** Retain the unchanged anchor when a model supplies it beside one new paragraph or heading as a replacement. */
+/** Retain an unchanged anchor when a model supplies it beside new Markdown blocks. */
 function normalizeBlockInsertions(proposal: ProposalInput): ProposalInput {
   return { ...proposal, edits: proposal.edits.map((edit) => {
     if (edit.operation) return edit
     const blocks = parseRevision(edit.after).blocks
     const first = blocks[0]
+    const last = blocks.at(-1)
+    if (blocks.length < 2 || !first || !last) return edit
     const second = blocks[1]
-    if (blocks.length !== 2 || !first || !second || first.start !== 0
-      || edit.after.slice(second.end).trim() !== ''
-      || !/^(?:[ \t]*\r?\n){2,}[ \t]*$/.test(edit.after.slice(first.end, second.start))) return edit
-    if (first.text === edit.before && (second.kind === 'paragraph' || second.kind === 'heading')) {
-      return { ...edit, operation: 'insert-after', after: second.text }
+    const penultimate = blocks.at(-2)
+    if (!second || !penultimate) return edit
+    if (first.text === edit.before && /\r?\n[ \t]*\r?\n/.test(edit.after.slice(first.end, second.start))) {
+      return { ...edit, operation: 'insert-after', after: edit.after.slice(second.start, last.end) }
     }
-    if (second.text === edit.before && (first.kind === 'paragraph' || first.kind === 'heading')) {
-      return { ...edit, operation: 'insert-before', after: first.text }
+    if (last.text === edit.before && /\r?\n[ \t]*\r?\n/.test(edit.after.slice(penultimate.end, last.start))) {
+      return { ...edit, operation: 'insert-before', after: edit.after.slice(first.start, penultimate.end) }
     }
     return edit
   }) }
+}
+
+/** Check only that Markdown cannot consume neighboring source when inserted or replaced. */
+function assertStandaloneFragment(fragment: string): void {
+  if (!fragment.trim()) throw new Error('Insert non-empty Markdown; use an empty replacement to propose deleting a block')
+  const marker = `paperReviewBoundary${randomUUID().replaceAll('-', '')}`
+  const blocks = parseRevision(`${marker}Before\n\n${fragment}\n\n${marker}After`).blocks
+  if (blocks.length < 3 || blocks[0]?.text !== `${marker}Before` || blocks.at(-1)?.text !== `${marker}After`) {
+    throw new Error('Markdown fragment must leave neighboring blocks intact; close fences or other open constructs')
+  }
+}
+
+/** Citation keys inside code or raw HTML are examples, not manuscript citations. */
+function citationSource(fragment: string): string {
+  return parseRevision(fragment).blocks.filter(block => block.kind !== 'code' && block.kind !== 'html')
+    .map(block => block.text).join('\n\n')
 }
 
 /** Atomic file replacement preserving source permissions. @param path - destination. @param text - bytes to publish. */
@@ -440,24 +457,20 @@ export class PaperStore {
       if (block === undefined || block.text !== edit.before) throw new Error('Edit must match one unchanged base block')
       if (document.current.blocks.find(b => b.id === edit.blockId)?.text !== edit.before) throw new Error('The proposed block has changed; reread it')
       if (document.baselines.some(b => b.blockId === edit.blockId && b.locked)) throw new Error('The author locked this block; ask them to unlock it')
-      const after = parseRevision(edit.after)
       if (edit.operation) {
-        if (after.blocks.length !== 1 || !['paragraph', 'heading'].includes(after.blocks[0]?.kind ?? '')
-          || after.blocks[0]?.text !== edit.after) throw new Error('Insert exactly one complete Markdown paragraph or heading; use separate edits for other blocks')
-        assertNewCitations('', edit.after, keys)
+        assertStandaloneFragment(edit.after)
+        assertNewCitations('', citationSource(edit.after), keys)
       } else {
         if (edit.before === edit.after) throw new Error('Replacement must contain an actual change')
-        if (after.blocks.length !== 1 || after.blocks[0]?.kind !== block.kind || after.blocks[0].text !== edit.after) {
-          throw new Error('Replacement must be one complete Markdown block without changing its block type. To add a paragraph or heading, keep the original block unchanged beside one new blank-separated block, or use operation: insert-before/insert-after with only the new block in after. Group edits if the original also changes.')
-        }
-        if (block.kind !== 'code' && block.kind !== 'html') assertNewCitations(edit.before, edit.after, keys)
+        if (edit.after !== '') assertStandaloneFragment(edit.after)
+        assertNewCitations(citationSource(edit.before), citationSource(edit.after), keys)
       }
     }
     return checkChanges(proposal, base.blocks)
   }
 
   /**
-   * Submit validated replacements or paragraph/heading insertions without writing the manuscript.
+   * Submit validated Markdown replacements, deletions or insertions without writing the manuscript.
    * @param path - manuscript.
    * @param input - exact base and edits.
    * @returns stored proposal id and checks.
@@ -593,8 +606,8 @@ export class PaperStore {
             })
             const bibliography = await this.bibEntries(document.path)
             const keys = bibliography.files.length ? new Set(bibliography.entries.map(entry => entry.key)) : null
-            for (const { block, edit } of changes) {
-              if (edit.operation || (block.kind !== 'code' && block.kind !== 'html')) assertNewCitations(edit.operation ? '' : edit.before, edit.after, keys)
+            for (const { edit } of changes) {
+              assertNewCitations(edit.operation ? '' : citationSource(edit.before), citationSource(edit.after), keys)
             }
             const sourceText = document.current.text
             output = sourceText

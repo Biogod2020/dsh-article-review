@@ -291,17 +291,62 @@ describe('manuscript review workflow', () => {
     expect(accepted.document.current.blocks.find(block => block.text === paragraph)?.section).toBe('Screening Reference Set')
   })
 
-  it('recognizes a paragraph before an unchanged anchor but rejects altered or multiple blocks', async () => {
+  it('recognizes new blocks beside an unchanged anchor and accepts multi-block replacements', async () => {
     const { root, store, view } = await setup()
     const anchor = view.document.current.blocks[3]!
     const input = proposal(view, anchor.text, `Opening context.\n\n${anchor.text}`)
     const proposed = await store.propose('article.md', input)
     expect(proposed.document.proposals[0]?.edits[0]).toMatchObject({ operation: 'insert-before', after: 'Opening context.' })
-    await expect(store.propose('article.md', proposal(view, anchor.text,
-      'A changed evaluation sentence.\n\nAnother paragraph.'))).rejects.toThrow('Group edits if the original also changes')
-    await expect(store.propose('article.md', proposal(view, anchor.text,
-      `${anchor.text}\n\nFirst addition.\n\nSecond addition.`))).rejects.toThrow('one complete Markdown block')
+    const replacement = await store.propose('article.md', proposal(view, anchor.text,
+      'A changed evaluation sentence.\n\nAnother paragraph.'))
+    expect(replacement.document.proposals.at(-1)?.flags).toContain('structure')
+    const multiple = await store.propose('article.md', proposal(view, anchor.text,
+      `${anchor.text}\n\nFirst addition.\n\nSecond addition.`))
+    expect(multiple.document.proposals.at(-1)?.edits[0]).toMatchObject({ operation: 'insert-after',
+      after: 'First addition.\n\nSecond addition.' })
     expect(await readFile(join(root, 'article.md'), 'utf8')).toBe(original)
+  })
+
+  it('proposes lists, tables, quotes, code and mixed Markdown without writing until acceptance', async () => {
+    const source = '# Study\n\nOpening context.\n\nClosing context.\n'
+    const { root, store, view } = await setup(source)
+    const anchor = view.document.current.blocks[1]!
+    const fragments = [
+      '- **Class A**: direct H&E.\n- **Class B**: indirect imaging.\n- **Class C**: excluded assays.',
+      '| Class | Count |\n| --- | ---: |\n| A | 150 |',
+      '> Source review was AI-assisted.',
+      '```text\n[@example-is-not-a-citation]\n```',
+      '### Screening Reference Set\n\nThe labels were frozen separately.',
+    ]
+    for (const fragment of fragments) {
+      const proposed = await store.propose('article.md', { baseRevision: view.document.current.id,
+        annotationIds: [], reason: 'Add reviewable context.', meaning: 'structure',
+        edits: [{ blockId: anchor.id, before: anchor.text, after: fragment, operation: 'insert-after' }] })
+      expect(proposed.document.proposals.at(-1)?.status).toBe('pending')
+      expect(await readFile(join(root, 'article.md'), 'utf8')).toBe(source)
+    }
+    const accepted = await accept(store, 'P1')
+    expect(accepted.document.current.blocks.find(block => block.kind === 'list')?.text).toBe(fragments[0])
+    expect(await readFile(join(root, 'article.md'), 'utf8')).toContain(fragments[0]!)
+  })
+
+  it('allows changing block type or deleting a block through the author acceptance gate', async () => {
+    const source = '# Study\n\nOpening context.\n\nClosing context.\n'
+    const { root, store, view } = await setup(source)
+    const anchor = view.document.current.blocks[1]!
+    const list = '- First point.\n- Second point.'
+    const proposed = await store.propose('article.md', proposal(view, anchor.text, list))
+    expect(proposed.document.proposals[0]?.flags).toContain('structure')
+    expect(await readFile(join(root, 'article.md'), 'utf8')).toBe(source)
+    const accepted = await accept(store, 'P1')
+    expect(accepted.document.current.blocks.find(block => block.kind === 'list')?.text).toBe(list)
+    const closing = accepted.document.current.blocks.find(block => block.text === 'Closing context.')!
+    await store.propose('article.md', { baseRevision: accepted.document.current.id, annotationIds: [],
+      reason: 'Remove redundant closing text.', meaning: 'structure',
+      edits: [{ blockId: closing.id, before: closing.text, after: '' }] })
+    expect(await readFile(join(root, 'article.md'), 'utf8')).toContain('Closing context.')
+    await accept(store, 'P2')
+    expect(await readFile(join(root, 'article.md'), 'utf8')).not.toContain('Closing context.')
   })
 
   it('revises a pending proposal into a separate paragraph without creating another proposal', async () => {
@@ -317,12 +362,12 @@ describe('manuscript review workflow', () => {
     expect(await readFile(join(root, 'article.md'), 'utf8')).toBe(original)
   })
 
-  it('rejects malformed, locked, stale and unbound-citation insertions without changing source', async () => {
+  it('rejects unclosed, locked, stale and unbound-citation insertions without changing source', async () => {
     const { root, store, view } = await setup()
     const anchor = view.document.current.blocks[3]!
     const input: ProposalInput = { baseRevision: view.document.current.id, annotationIds: [], reason: 'Add context.', meaning: 'style',
       edits: [{ blockId: anchor.id, before: anchor.text, after: 'New context.', operation: 'insert-after' }] }
-    await expect(store.propose('article.md', { ...input, edits: [{ ...input.edits[0]!, after: 'One.\n\nTwo.' }] })).rejects.toThrow('one complete Markdown paragraph')
+    await expect(store.propose('article.md', { ...input, edits: [{ ...input.edits[0]!, after: '```text\nUnclosed fence' }] })).rejects.toThrow('leave neighboring blocks intact')
     await expect(store.propose('article.md', { ...input, edits: [{ ...input.edits[0]!, after: 'New citation [@missing].' }] })).rejects.toThrow()
     await store.propose('article.md', input)
     await store.command({ action: 'review', path: 'article.md', revision: view.document.current.id, blockIds: [anchor.id], locked: true })
@@ -415,15 +460,18 @@ describe('manuscript review workflow', () => {
     await expect(store.revise('article.md', { ...change, reason: state!.reason })).rejects.toThrow('no changes')
     await expect(store.revise('article.md', { ...change, revision: 'stale' })).rejects.toThrow('reader version is stale')
     await expect(store.revise('article.md', { ...change, proposalId: 'P99' })).rejects.toThrow('no longer pending')
-    await expect(store.revise('article.md', { ...change, edits: [{ blockId: block.id, before: block.text, after: '# Wrong block type' }] })).rejects.toThrow('block type')
+    const changedType = await store.revise('article.md', { ...change,
+      edits: [{ blockId: block.id, before: block.text, after: '# New section' }] })
+    expect(changedType.document.proposals[0]?.flags).toContain('structure')
+    const changedState = changedType.document.proposals[0]
     await expect(store.revise('article.md', { ...change, annotationIds: ['missing'] })).rejects.toThrow('annotation')
     await store.command({ action: 'review', path: 'article.md', revision: view.document.current.id, blockIds: [block.id], locked: true })
-    await expect(store.revise('article.md', change)).rejects.toThrow('locked')
+    await expect(store.revise('article.md', { ...change, reason: 'Another explanation.' })).rejects.toThrow('locked')
     await store.command({ action: 'unlock', path: 'article.md', blockId: block.id })
     const external = original.replace(block.text, 'External author correction.')
     await writeFile(join(root, 'article.md'), external)
     await expect(store.revise('article.md', change)).rejects.toThrow('External changes')
-    expect((await store.read('article.md')).document.proposals[0]).toEqual(state)
+    expect((await store.read('article.md')).document.proposals[0]).toEqual(changedState)
     expect(await readFile(join(root, 'article.md'), 'utf8')).toBe(external)
     await writeFile(join(root, 'article.md'), original)
     await store.command({ action: 'decide', path: 'article.md', revision: view.document.current.id, proposalId: 'P1', accept: false })
