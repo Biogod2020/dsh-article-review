@@ -36,7 +36,7 @@ const clientPath = join(target, 'lib/client.js')
 await writeFile(clientPath, (await readFile(clientPath, 'utf8'))
   .replace(/[ \t]+$/gm, '')
   .replace(/^([ \t]*\/\/#region \\0dsh-css:).*[/\\]src[/\\]/gm, '$1src/')
-  .replace(/^\/\/# sourceMappingURL=client\.js\.map\r?\n?/gm, ''))
+  .replace(/^\/\/# sourceMappingURL=client\.js\.map\r?\n?/gm, '').trimEnd() + '\n')
 if (await copyDeclarations('lib/types') === 0) throw new Error('Build the declaration files before preparing a release')
 
 const dependencies = { ...releaseManifest.dependencies }

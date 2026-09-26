@@ -28,7 +28,7 @@ Read a Markdown manuscript beside the native conversation, collect annotations, 
 Install the prebuilt version tag with DSH's profile command:
 
 ```sh
-dsh plugin --profile web add 'github:Biogod2020/dsh-article-review#v0.1.7-alpha.7'
+dsh plugin --profile web add 'github:Biogod2020/dsh-article-review#v0.1.7-alpha.8'
 dsh web
 ```
 

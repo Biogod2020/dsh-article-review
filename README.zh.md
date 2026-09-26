@@ -28,7 +28,7 @@ kind: "package-bundle"
 使用 DSH 的配置管理命令安装预构建的版本 tag：
 
 ```sh
-dsh plugin --profile web add 'github:Biogod2020/dsh-article-review#v0.1.7-alpha.7'
+dsh plugin --profile web add 'github:Biogod2020/dsh-article-review#v0.1.7-alpha.8'
 dsh web
 ```
 
