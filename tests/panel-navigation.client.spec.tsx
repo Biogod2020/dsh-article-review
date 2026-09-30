@@ -173,3 +173,16 @@ it('returns to the manually scrolled location instead of repeating a previous pr
   expect(viewport.scrollTop).toBe(3600)
   expect(document.querySelector('[data-location-marker]')).toBeNull()
 })
+
+it('filters pending groups without accepting, rejecting or marking any text reviewed', async () => {
+  const { block, command } = fixture()
+  await screen.findByText(block.text)
+  fireEvent.click(screen.getByRole('button', { name: en.changes }))
+  const filter = screen.getByRole('combobox', { name: en.queueFilter })
+  fireEvent.change(filter, { target: { value: 'style' } })
+  expect(document.querySelector('[data-proposal="P7"]')).toBeNull()
+  expect(screen.getByText(en.queueEmpty)).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: en.clearFilter }))
+  expect(document.querySelector('[data-proposal="P7"]')).toBeTruthy()
+  expect(command.mock.calls.every(([request]) => !['decide', 'review'].includes(request.action))).toBe(true)
+})

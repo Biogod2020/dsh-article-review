@@ -34,6 +34,38 @@ afterEach(async () => {
 })
 
 describe('manuscript review workflow', () => {
+  it('checks the real acceptance prerequisites and returns exact numerical evidence without writing source', async () => {
+    const { root, store, view } = await setup('## Results\n\np < 0.05.\n')
+    await store.propose('article.md', proposal(view, 'p < 0.05.', 'p > 0.05.'))
+    const checked = await store.check('article.md')
+    expect(checked.scientificallyVerified).toBe(false)
+    expect(checked.proposals[0]).toMatchObject({ id: 'P1', applicable: true, blockers: [], flags: ['numbers'],
+      evidence: [{ editIndex: 0, changes: [{ category: 'numbers', before: [{ text: '< 0.05', start: 2, end: 8 }],
+        after: [{ text: '> 0.05', start: 2, end: 8 }] }] }] })
+    expect(await readFile(join(root, 'article.md'), 'utf8')).toBe('## Results\n\np < 0.05.\n')
+    await store.command({ action: 'review', path: 'article.md', revision: view.document.current.id,
+      blockIds: [view.document.current.blocks[1]!.id], locked: true })
+    const locked = await store.check('article.md')
+    expect(locked.proposals[0]?.applicable).toBe(false)
+    expect(locked.proposals[0]?.blockers.join(' ')).toContain('Unlock')
+    expect((await store.read('article.md')).document.proposals[0]?.status).toBe('pending')
+  })
+
+  it('detects a bibliography changed after proposal creation before reporting applicability', async () => {
+    const { root, store, view } = await setup('Original statement.\n')
+    const bib = join(root, 'references.bib')
+    await writeFile(bib, '@article{new, author={Ada}, title={Study}, year={2026}}\n')
+    await store.configureBibliography('article.md', ['references.bib'])
+    await store.propose('article.md', proposal(view, 'Original statement.', 'Statement [@new].'))
+    expect((await store.check('article.md')).proposals[0]?.applicable).toBe(true)
+    await writeFile(bib, '@article{other, author={Ada}, title={Other}, year={2026}}\n')
+    const checked = await store.check('article.md')
+    expect(checked.proposals[0]?.applicable).toBe(false)
+    expect(checked.proposals[0]?.blockers.join(' ')).toContain('no entry')
+    await expect(accept(store, 'P1')).rejects.toThrow('no entry')
+    expect(await readFile(join(root, 'article.md'), 'utf8')).toBe('Original statement.\n')
+  })
+
   it('appends hash-checked LaTeX table deletion while preserving an existing proposal group', async () => {
     const table = '| Contrast | $\\Delta$ |\n| --- | --- |\n| Workflow | [-3.6, 9.9] |'
     const text = `# Results\n\nKeep this paragraph.\n\n${table}\n\nOld caption.\n`

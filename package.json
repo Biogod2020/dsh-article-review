@@ -20,7 +20,7 @@
   },
   "files": ["lib/index.js", "lib/client.js", "lib/types/**/*.d.ts", "cordis.patch.yml"],
   "dsh": { "bundle": { "patch": "./cordis.patch.yml" }, "client": { "platform": "web", "inject": ["@deepseek-ai/dsh-client-ui-sidebar-right", "@deepseek-ai/dsh-client-ui-conversation"] } },
-  "scripts": { "bundle": "tsdown", "watch": "tsdown --watch" },
+  "scripts": { "bundle": "tsdown", "watch": "tsdown --watch", "test": "npm --prefix validation test", "test:setup": "npm --prefix validation ci --ignore-scripts", "typecheck:core": "npm --prefix validation run typecheck", "test:harness": "node scripts/test-harness.mjs" },
   "dependencies": {
     "@deepseek-ai/node-addon-system": "workspace:^",
     "@deepseek-ai/dsh-native-command": "workspace:^",

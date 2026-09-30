@@ -87,6 +87,19 @@ it('boots from a composition, keeps ordinary tools, and lets agents and operator
   const envelope: unknown = await (await rpc({ action: 'open', path: 'article.md' })).json()
   const view = z.object({ result: z.object({ value: ViewSchema }) }).parse(envelope).result.value
   expect((await (await control('paper-review/current', {})).json() as { result: { value: { path: string } } }).result.value.path).toBe('article.md')
+  const firstPage = await ctx.tools.execute({ agent, callId: ToolCallId('read-first-page'), name: 'paper_read',
+    arguments: { path: 'article.md', startBlock: 0, maxBlocks: 1 }, signal: new AbortController().signal })
+  expect(firstPage.isError).not.toBe(true)
+  expect(JSON.stringify(firstPage)).toContain('nextStartBlock')
+  const continuation = await ctx.tools.execute({ agent, callId: ToolCallId('read-next-page'), name: 'paper_read',
+    arguments: { path: 'article.md', startBlock: 1, maxBlocks: 1, revision: view.document.current.id }, signal: new AbortController().signal })
+  expect(continuation.isError).not.toBe(true)
+  const stalePage = await ctx.tools.execute({ agent, callId: ToolCallId('read-stale-page'), name: 'paper_read',
+    arguments: { path: 'article.md', startBlock: 1, revision: 'stale' }, signal: new AbortController().signal })
+  expect(stalePage.isError).toBe(true)
+  const unpinnedPage = await ctx.tools.execute({ agent, callId: ToolCallId('read-unpinned-page'), name: 'paper_read',
+    arguments: { path: 'article.md', startBlock: 1 }, signal: new AbortController().signal })
+  expect(unpinnedPage.isError).toBe(true)
   const block = view.document.current.blocks[1]!
   const adapter = new MockAdapter([
     toolCallResponse('read-paper', 'paper_read', { path: 'article.md' }),
