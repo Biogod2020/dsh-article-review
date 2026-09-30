@@ -1,0 +1,55 @@
+{
+  "compilerOptions": {
+    "target": "ES2024",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "skipLibCheck": true,
+    "jsx": "react-jsx",
+    "types": [
+      "node"
+    ],
+    "typeRoots": [
+      "./node_modules/@types"
+    ],
+    "paths": {
+      "zod": [
+        "./node_modules/zod"
+      ],
+      "mdast-util-from-markdown": [
+        "./node_modules/mdast-util-from-markdown"
+      ],
+      "mdast-util-gfm": [
+        "./node_modules/mdast-util-gfm"
+      ],
+      "micromark-extension-gfm": [
+        "./node_modules/micromark-extension-gfm"
+      ],
+      "vitest": [
+        "./node_modules/vitest"
+      ],
+      "fast-check": [
+        "./node_modules/fast-check"
+      ]
+    }
+  },
+  "include": [
+    "../src/change-audit.ts",
+    "../src/document.ts",
+    "../src/figures.ts",
+    "../src/schema.ts",
+    "../src/review-queue.ts",
+    "../src/manuscript-read.ts",
+    "../tests/change-audit.spec.ts",
+    "../tests/document.spec.ts",
+    "../tests/document-properties.spec.ts",
+    "../tests/review-queue.spec.ts",
+    "../tests/manuscript-read.spec.ts"
+  ]
+}

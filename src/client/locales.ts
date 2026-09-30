@@ -3,6 +3,8 @@ import type {} from '@deepseek-ai/dsh-client-ui-slots'
 
 /** Chinese interface dictionary. */
 export const zh = {
+  queueFilter: '筛选待审提案', allProposals: '全部提案', needsJudgment: '优先判断', queueEmpty: '此类别没有待审提案；其他提案仍保留。',
+  changeEvidence: '具体变化依据', evidenceTruncated: '此处仅显示部分变化，请查看完整源码差异',
   citationEtAl: 'et al.',
   deleteBlock: '删除此区块', storageFailed: '浏览器无法保存本地状态。关闭前请复制未保存的批注。',
   operationUncertain: '连接中断，无法确认操作是否已完成。请先检查状态，不要重复提交。', checkOperation: '检查操作状态', retry: '重试', dismissError: '关闭错误提示',
@@ -81,6 +83,8 @@ export const zh = {
 export type PaperReviewKey = keyof typeof zh
 /** English interface dictionary. */
 export const en: Record<PaperReviewKey, string> = {
+  queueFilter: 'Filter pending proposals', allProposals: 'All proposals', needsJudgment: 'Needs judgment', queueEmpty: 'No pending proposals match. Other proposals are retained.',
+  changeEvidence: 'Exact change evidence', evidenceTruncated: 'Examples are truncated; inspect the full source diff',
   citationEtAl: 'et al.',
   deleteBlock: 'Delete this block', storageFailed: 'Browser storage is unavailable. Copy unsaved annotations before closing.',
   operationUncertain: 'Connection lost; the operation may have completed. Check its status before submitting again.', checkOperation: 'Check operation status', retry: 'Retry', dismissError: 'Dismiss error',

@@ -14,6 +14,7 @@ import { CommandSchema, FigureReplacementSchema, ProposalInputSchema, ProposalRe
 import type { Proposal } from './schema.ts'
 import { PaperStore, reviewSessions } from './store.ts'
 import { revisionId } from './document.ts'
+import { readManuscriptPage } from './manuscript-read.ts'
 import { pickNativeBibliography, pickNativeFigure, pickNativeManuscript } from './native-file-picker.ts'
 
 /** Cordis plugin identity. */
@@ -130,42 +131,52 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     },
     presentCall: () => ({ card: 'generic', kind: 'read', title: 'Open manuscript' }),
   })))
+  // Validate conditional tool inputs explicitly rather than relying on loop-name inference.
+  const readRequest = z.object({ path: z.string(), blockId: z.string().optional(), proposalId: z.string().optional(),
+    startBlock: z.number().optional(), maxBlocks: z.number().optional(), maxCharacters: z.number().optional(), revision: z.string().optional() })
   for (const toolName of ['paper_read', 'paper_annotations', 'paper_check'] as const) {
     ctx.effect(() => ctx.tools.register(defineTool({
       name: toolName,
       description: toolName === 'paper_read'
-        ? 'Read manuscript blocks and their exact ids and revision. Optionally read one block plus its neighbors; a selected block also returns beforeHash for paper_delete, so LaTeX or table Markdown need not be retyped. Preserve scientific claims; never strengthen causality, generalizability, novelty, significance or superiority without explicit author instruction.'
+        ? 'Read manuscript blocks and their exact ids and revision. For long manuscripts, set startBlock=0 and maxBlocks (1–200). Follow page.nextStartBlock using the returned revision; never mix revisions. maxCharacters is a soft budget: an oversized first block is returned whole and explicitly flagged, never truncated. Optionally read one block plus its neighbors; a selected block also returns beforeHash for paper_delete, so LaTeX or table Markdown need not be retyped. Preserve scientific claims; never strengthen causality, generalizability, novelty, significance or superiority without explicit author instruction.'
         : toolName === 'paper_annotations' ? 'Read author annotations and their exact quotations. Detached annotations require the author to locate them again.'
-          : 'Check pending proposals against current text, author locks and external source changes. Pass proposalId to read one pending proposal in full before revising it. Mechanical flags are review hints, not scientific verification.',
+          : 'Revalidate pending proposals using the actual acceptance preflight: exact source, author locks, citation bindings, retained figure hashes and size limits. Returns actionable blockers and source-offset lexical evidence without writing the manuscript. Pass proposalId to read one pending proposal in full before revising it. Mechanical flags are review hints, not scientific verification.',
       parameters: toolName === 'paper_check'
         ? { path: pathParameter, proposalId: { type: 'string', description: 'Optional pending proposal id whose full content should be returned.' } }
-        : { path: pathParameter, blockId: { type: 'string', description: 'Optional exact block id returned by paper_read.' } },
+        : { path: pathParameter, blockId: { type: 'string', description: 'Optional exact block id returned by paper_read.' },
+          ...(toolName === 'paper_read' ? {
+            startBlock: { type: 'number' as const, description: 'Zero-based block index for whole-block pagination; incompatible with blockId.' },
+            maxBlocks: { type: 'number' as const, description: 'Maximum whole blocks per page, integer 1–200; default 40.' },
+            maxCharacters: { type: 'number' as const, description: 'Soft UTF-16 character budget, 1000–200000; default 32000. The first block remains whole.' },
+            revision: { type: 'string' as const, description: 'Required for continuation pages; exact revision returned by the first page.' },
+          } : {}),
+        },
       output,
-      async execute(args, exec) {
+      async execute(input, exec) {
         exec.signal.throwIfAborted()
+        const args = readRequest.parse(input)
         const store = await modelStore(exec.agent)
+        if (toolName === 'paper_check') {
+          const { proposal, ...checked } = await store.check(args.path, args.proposalId)
+          return { ...checked, ...(proposal ? { proposal: modelProposal(proposal) } : {}) }
+        }
         const { document, diskChanged } = await store.read(args.path)
         if (toolName === 'paper_annotations') return { revision: document.current.id,
-          annotations: document.annotations.map(({ id, blockId, revision, quote, prefix, suffix, comment, status, anchor }) =>
-            ({ id, blockId, revision, quote, prefix, suffix, comment, status, anchor })), diskChanged }
-        if (toolName === 'paper_check') {
-          const selected = args.proposalId === undefined ? undefined : document.proposals.find(p => p.id === args.proposalId && p.status === 'pending')
-          if (args.proposalId !== undefined && !selected) throw new Error('Pending proposal not found')
-          return { revision: document.current.id, diskChanged,
-            ...(selected ? { proposal: modelProposal(selected) } : {}),
-            proposals: document.proposals.filter(p => p.status === 'pending').map(p => ({
-              id: p.id, flags: p.flags, authorDeclaredMeaning: p.meaning,
-              applicable: !diskChanged && p.edits.every(e =>
-                document.current.blocks.some(b => b.id === e.blockId && b.text === e.before)
-                && !document.baselines.some(b => !b.archivedAt && b.blockId === e.blockId && b.locked)),
-            })),
-          }
-        }
+          annotations: document.annotations.filter(annotation => args.blockId === undefined || annotation.blockId === args.blockId)
+            .map(({ id, blockId, revision, quote, prefix, suffix, comment, status, anchor }) =>
+              ({ id, blockId, revision, quote, prefix, suffix, comment, status, anchor })), diskChanged }
+        const paged = args.startBlock !== undefined || args.maxBlocks !== undefined || args.maxCharacters !== undefined
+        if (paged && args.blockId !== undefined) throw new Error('Use blockId or pagination, not both')
+        if (args.revision !== undefined && args.revision !== document.current.id) throw new Error('Reader revision changed; reread the manuscript')
+        const page = paged ? readManuscriptPage(document.current, {
+          startBlock: args.startBlock, maxBlocks: args.maxBlocks, maxCharacters: args.maxCharacters, revision: args.revision,
+        }) : undefined
         const index = args.blockId === undefined ? -1 : document.current.blocks.findIndex(b => b.id === args.blockId)
         if (args.blockId !== undefined && index === -1) throw new Error('Block no longer exists; reread the manuscript')
         const selectedBlock = document.current.blocks[index]
         return { path: document.path, revision: document.current.id, diskChanged,
-          blocks: index === -1 ? document.current.blocks : document.current.blocks.slice(Math.max(0, index - 1), index + 2),
+          blocks: page?.blocks ?? (index === -1 ? document.current.blocks : document.current.blocks.slice(Math.max(0, index - 1), index + 2)),
+          ...(page ? { page: page.page } : {}),
           ...(selectedBlock ? { beforeHash: revisionId(selectedBlock.text) } : {}),
           lockedBlockIds: document.baselines.filter(b => !b.archivedAt && b.locked).map(b => b.blockId),
         }

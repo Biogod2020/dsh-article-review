@@ -5,6 +5,7 @@ import { gfm } from 'micromark-extension-gfm'
 import { gfmFromMarkdown } from 'mdast-util-gfm'
 import type { Annotation, PaperBlock, PaperHighlight, PaperRevision, Proposal, ProposalInput } from './schema.ts'
 import { collectFigures } from './figures.ts'
+import { auditTextChanges } from './change-audit.ts'
 
 /**
  * Hash exact UTF-8 source, including whitespace.
@@ -31,13 +32,21 @@ export function parseRevision(text: string, previous?: PaperRevision, replacemen
     if (node.type === 'heading') section = raw.replace(/^#+\s*/, '')
     return { id: randomUUID(), kind: node.type, section, text: raw, start, end }
   })
+  // Index once: preserve the same conservative uniqueness rule without quadratic scans.
+  const key = (kind: string, source: string): string => JSON.stringify([kind, source])
+  const oldByKey = new Map<string, PaperBlock | null>()
+  const newCounts = new Map<string, number>()
+  for (const old of previous?.blocks ?? []) {
+    const identity = key(old.kind, replacements.get(old.id) ?? old.text)
+    oldByKey.set(identity, oldByKey.has(identity) ? null : old)
+  }
   for (const block of blocks) {
-    const candidates = previous?.blocks.filter(old =>
-      (replacements.get(old.id) ?? old.text) === block.text && old.kind === block.kind) ?? []
-    const candidate = candidates[0]
-    if (candidate && candidates.length === 1 && blocks.filter(b => b.text === block.text && b.kind === block.kind).length === 1) {
-      block.id = candidate.id
-    }
+    const identity = key(block.kind, block.text)
+    newCounts.set(identity, (newCounts.get(identity) ?? 0) + 1)
+  }
+  for (const block of blocks) {
+    const identity = key(block.kind, block.text), candidate = oldByKey.get(identity)
+    if (candidate && newCounts.get(identity) === 1) block.id = candidate.id
   }
   const paths = new Set(collectFigures(blocks).map(figure => figure.path))
   const figureAssets = previous?.figureAssets?.filter(asset => paths.has(asset.path))
@@ -51,14 +60,19 @@ export function parseRevision(text: string, previous?: PaperRevision, replacemen
  * @returns migrated anchor statuses with their original quotation and version intact.
  */
 export function migrateAnnotations<T extends Annotation | PaperHighlight>(annotations: T[], revision: PaperRevision): T[] {
+  const blocks = new Map(revision.blocks.map(block => [block.id, block]))
+  const unique = (source: string, target: string): boolean => {
+    if (!target) return false
+    const first = source.indexOf(target)
+    return first !== -1 && source.indexOf(target, first + 1) === -1
+  }
   return annotations.map((annotation) => {
-    const block = revision.blocks.find(b => b.id === annotation.blockId)
+    const block = blocks.get(annotation.blockId)
     const quote = annotation.quote
     const needle = annotation.prefix + quote + annotation.suffix
-    const occurrences = (source: string, target: string): number => target ? source.split(target).length - 1 : 0
     const attached = block !== undefined && (annotation.renderedSource !== undefined
       ? block.text === annotation.renderedSource
-      : quote === '' || occurrences(block.text, needle) === 1 || occurrences(block.text, quote) === 1)
+      : quote === '' || unique(block.text, needle) || unique(block.text, quote))
     return { ...annotation, anchor: attached ? 'attached' : 'needs-location' }
   })
 }
@@ -71,19 +85,22 @@ export function migrateAnnotations<T extends Annotation | PaperHighlight>(annota
  */
 export function checkChanges(proposal: ProposalInput, blocks: PaperBlock[]): Proposal['flags'] {
   const flags = new Set<Proposal['flags'][number]>()
-  const patterns: [Proposal['flags'][number], RegExp][] = [
-    ['numbers', /(?:\b\d+(?:\.\d+)?(?:e[-+]?\d+)?\s*(?:%|mg|kg|mm|cm|mL|μm|µm|s\b)?)/gi],
-    ['citations', /\[@[^\]]+\]|\[cite:\s*[^\]]+\]|\\cite\w*\{[^}]+\}|\[\d+(?:[-,–]\s*\d+)*\]|\b[a-z][a-z0-9:_-]*(?:19|20)\d{2}[a-z]?\b/g],
-    ['figures', /\b(?:fig(?:ure)?\.?|table|supplement(?:ary)?|extended data)\s*[\da-z.()-]+/gi],
-    ['claim-language', /\b(?:all|always|consistently|significant(?:ly)?|robust(?:ly)?|generali[sz]\w*|caus\w*|prove\w*|superior|outperform\w*|novel|first|only|may|might|not|no)\b|所有|显著|因果|证明|泛化|优于|首次|可能|未|不/g],
-  ]
-  for (const edit of proposal.edits) {
-    for (const [flag, pattern] of patterns) {
-      const before = edit.operation ? '' : edit.before
-      if (JSON.stringify(before.match(pattern) ?? []) !== JSON.stringify(edit.after.match(pattern) ?? [])) flags.add(flag)
+  const byId = new Map(blocks.map(block => [block.id, block]))
+  const methodBlocks = new Set<string>()
+  const headings: { depth: number; methods: boolean }[] = []
+  for (const block of blocks) {
+    if (block.kind === 'heading') {
+      const depth = block.text.match(/^ {0,3}(#{1,6})(?:\s|$)/)?.[1]?.length
+        ?? (/\n {0,3}=+\s*$/.test(block.text) ? 1 : 2)
+      while (headings.length && headings.at(-1)!.depth >= depth) headings.pop()
+      headings.push({ depth, methods: /method|方法|experimental setup|statistical analys/i.test(block.text) })
     }
-    if (/method|方法/i.test(blocks.find(b => b.id === edit.blockId)?.section ?? '')) flags.add('methods')
-    const original = blocks.find(block => block.id === edit.blockId)
+    if (headings.some(heading => heading.methods) || /method|方法/i.test(block.section)) methodBlocks.add(block.id)
+  }
+  for (const edit of proposal.edits) {
+    for (const evidence of auditTextChanges(edit.operation ? '' : edit.before, edit.after)) flags.add(evidence.category)
+    if (methodBlocks.has(edit.blockId)) flags.add('methods')
+    const original = byId.get(edit.blockId)
     const resulting = edit.operation ? [] : parseRevision(edit.after).blocks
     if (proposal.meaning === 'structure' || edit.operation || resulting.length !== 1 || resulting[0]?.kind !== original?.kind) flags.add('structure')
   }

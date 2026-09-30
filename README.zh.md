@@ -201,3 +201,17 @@ Only change the selected blocks; insert complete Markdown before or after an exa
 确定性的组合与浏览器测试在不联系模型提供商的情况下覆盖集成流程，不能据此确认科学审阅质量。
 
 </details>
+
+## 开发与质量检查
+
+新增具体数字/论断变化依据、按类别筛选的待审队列、绑定版本的完整区块分页读取，以及检查与接受修改共用的预检流程。实现说明、验证记录与限制见[工程质量文档](docs/engineering-quality.md)。
+
+```sh
+npm run test:setup
+npm test
+npm run typecheck:core
+# 完整原生测试和前后端独立类型检查，需要已有安装好的 DSH：
+DSH_HARNESS_ROOT=/absolute/path/to/deepseek-harness npm run test:harness
+```
+
+独立测试不需要 DSH 仓库或模型密钥。原生测试在临时副本中执行，不修改已安装的 harness。源码升级不会自动更新预构建安装标签；测试通过也不等于已经证明科学审阅质量达到 SOTA。

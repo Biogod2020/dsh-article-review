@@ -7,6 +7,9 @@ import { fileAddressFor } from '@deepseek-ai/dsh-util-workspace-path'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
 import type { Annotation, BibliographyView, FigureReplacement, FileListing, PaperCommand, PaperBlock, PaperView, Proposal } from '../schema.ts'
+import { ChangeEvidence } from './change-evidence.tsx'
+import { pendingReviewQueue, filterReviewQueue, needsJudgment } from '../review-queue.ts'
+import type { QueueFilter } from '../review-queue.ts'
 import { reviewContext } from './context.ts'
 import { attachContext } from './composer.ts'
 import { ReaderText } from './reader-text.tsx'
@@ -169,6 +172,8 @@ export function PaperPanel({
   const [error, setError] = useState('')
   const [failedRequest, setFailedRequest] = useState<{ request: PaperCommand; adopt: boolean; uncertain: boolean }>()
   const [notice, setNotice] = useState('')
+  const [queueFilter, setQueueFilter] = useState<QueueFilter>('all')
+  useEffect(() => { setQueueFilter('all') }, [view?.document.path])
   const [source, setSource] = useState(false)
   const [listing, setListing] = useState<FileListing>()
   const [pickerOpen, setPickerOpen] = useState(false)
@@ -587,7 +592,8 @@ export function PaperPanel({
   const progressBlocks = useMemo(() => reviewableBlocks(doc?.current.blocks ?? []), [doc?.current.blocks])
   const locations = useMemo(() => reviewNavigation(progressBlocks).locations, [progressBlocks])
   const notesFor = (blockId: string): Annotation[] => annotationsByBlock.get(blockId) ?? []
-  const pending = doc?.proposals.filter(p => p.status === 'pending') ?? []
+  const pending = useMemo(() => pendingReviewQueue(doc?.proposals ?? []), [doc?.proposals])
+  const visiblePending = useMemo(() => filterReviewQueue(pending, queueFilter), [pending, queueFilter])
   const conflict = (proposal: Proposal): boolean => view?.diskChanged === true || incoming !== undefined
     || proposal.edits.some(edit =>
       doc?.current.blocks.find(b => b.id === edit.blockId)?.text !== edit.before
@@ -609,7 +615,7 @@ export function PaperPanel({
       return [...searchableBlocks(before.blocks, bib).map(block => ({ ...block, id: `version:left:${block.id}` })),
         ...searchableBlocks(after.blocks, bib).map(block => ({ ...block, id: `version:right:${block.id}` }))]
     }
-    return [...pending.flatMap(proposal => [{ id: `proposal:${proposal.id}`, text: `${proposal.id} ${proposal.reason}` },
+    return [...visiblePending.flatMap(proposal => [{ id: `proposal:${proposal.id}`, text: `${proposal.id} ${proposal.reason}` },
       ...proposal.edits.flatMap((edit, index) => {
         const targetId = `proposal:${proposal.id}:${index}`
         return [{ id: `${targetId}:before`, targetId, text: edit.operation ? '' : plain(edit.before) },
@@ -620,7 +626,7 @@ export function PaperPanel({
       return [{ id: `${targetId}:before`, targetId, text: plain(base.text) },
         { id: `${targetId}:after`, targetId, text: currentBlock ? plain(currentBlock.text) : t('baselineMissing') }]
     })]
-  }, [doc, mode, bib, visibleBlocks, workbench.versions, t])
+  }, [doc, mode, bib, visibleBlocks, visiblePending, workbench.versions, t])
   const findTarget = useCallback((id: string): void => {
     if (id.startsWith('bib:')) setFocusedReference(id.slice(4))
   }, [])
@@ -862,7 +868,16 @@ export function PaperPanel({
         }}><PaperIcon kind="down" size={15} />{t('nextRisk')}</button></div>
         <p className={css.help}>{t('riskNote')}</p>
         {pending.length === 0 && <p className={css.empty}>{t('noProposals')}</p>}
-        {pending.map(proposal => <section className={css.proposal} key={proposal.id} data-proposal={proposal.id} data-risk={proposal.flags.length > 0 || proposal.meaning !== 'style'}>
+        {pending.length > 0 && <div className={css.queueControls}>
+          <label>{t('queueFilter')} <select value={queueFilter} onChange={event => { setQueueFilter(event.target.value as QueueFilter) }}>
+            {(['all', 'attention', 'style', 'structure', 'claim', 'evidence'] as const).map(filter =>
+              <option key={filter} value={filter}>{t(filter === 'all' ? 'allProposals' : filter === 'attention' ? 'needsJudgment' : filter)} ({filterReviewQueue(pending, filter).length})</option>)}
+          </select></label>
+          <span role="status">{t('showing')} {visiblePending.length}/{pending.length}</span>
+          {queueFilter !== 'all' && <button onClick={() => { setQueueFilter('all') }}>{t('clearFilter')}</button>}
+        </div>}
+        {pending.length > 0 && visiblePending.length === 0 && <p>{t('queueEmpty')}</p>}
+        {visiblePending.map(proposal => <section className={css.proposal} key={proposal.id} data-proposal={proposal.id} data-risk={needsJudgment(proposal)}>
           <div data-find-id={`proposal:${proposal.id}`} data-find-text><div className={css.proposalTitle}><strong>{proposal.id}</strong><span>{proposal.annotationIds.join(' · ')}</span><span>{t('modelLabel')} {t(proposal.meaning)}</span></div>
             <p>{proposal.reason}</p></div>
           {proposal.flags.length > 0 && <div className={css.flags}>{proposal.flags.map(flag => <span key={flag}>{t(flag)}</span>)}</div>}
@@ -880,6 +895,7 @@ export function PaperPanel({
                 <button disabled={!location} onClick={() => { locateProposalEdit(proposal.id, edit) }}>
                   <PaperIcon kind="read" size={14} />{t('viewInArticle')}</button></div>
               </div>
+              <ChangeEvidence before={edit.operation ? '' : edit.before} after={edit.after} t={t} />
               <LazyWordDiff before={edit.operation ? '' : edit.before} after={edit.after} labels={diffLabels} markdownLabels={labels} findId={`proposal:${proposal.id}:${editIndex}`} />
               {(() => {
                 const retained = proposal.figureChanges?.filter(change => change.blockId === edit.blockId) ?? []

@@ -201,3 +201,17 @@ This local single-author Markdown prototype has the following limits.
 The deterministic composition and browser tests cover integration without contacting a model provider. They do not establish scientific review quality.
 
 </details>
+
+## Development and quality checks
+
+The source now includes exact numerical/claim change evidence, categorized pending-review queues, revision-pinned whole-block reads, and a shared check/acceptance preflight. See [engineering notes and the verification record](docs/engineering-quality.md).
+
+```sh
+npm run test:setup
+npm test
+npm run typecheck:core
+# Full native tests and separate host/browser type checks with an installed harness:
+DSH_HARNESS_ROOT=/absolute/path/to/deepseek-harness npm run test:harness
+```
+
+The portable lane needs no DSH checkout or model credentials. The native lane tests in a disposable copy without changing your installed harness. Source changes do not update the prebuilt installation tag automatically.
