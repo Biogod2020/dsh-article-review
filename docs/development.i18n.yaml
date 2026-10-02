@@ -1,4 +1,4 @@
 # Bilingual consistency record: Git blob hashes of the English and Chinese documents.
 # Update both documents together, then refresh their hashes with git hash-object -w.
-README.md: 2066453c5cdc57805b20948c0e724991e7d83dbd
-README.zh.md: 81c9d40bcfdfd1c919d73cff1d9f6b3b84eb9818
+development.md: 0f6fcc067715520795f1165c0dc9494a9cbf2963
+development.zh.md: fbbad03314c3c60bcf39296b35b029f8c21dca80
