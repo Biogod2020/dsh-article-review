@@ -8,6 +8,8 @@
 
 安装命令见 [项目首页](../README.zh.md#installation)。安装器将本包的[组合配置](../cordis.patch.yml)加入 Web 层之后；无需额外启动器或模型配置。此独立插件已在 macOS + DSH `0.2.0-rc.2` 上完成启动检查。宿主/客户端类型与集成测试使用上游 `dsh-v0.2.0-rc.2`（`639ed015`）。其他平台的要求见 [支持范围与兼容性](#scope-and-compatibility)。
 
+浏览器只接收当前正文与版本目录，历史正文按对比选择读取。段落共享可见性观察器；PDF 预览共用缓存和转换队列（`previewCacheBytes` 默认 4194304，`previewConcurrency` 默认 1）。见[性能测量](performance.zh.md)。
+
 ## 本地开发
 
 在包含此插件的兼容 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 工作区中构建，然后安装已构建的本地目录：

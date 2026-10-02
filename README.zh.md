@@ -30,7 +30,7 @@ kind: "package-bundle"
 需要 DSH Web `0.2.0-rc.2`、Node.js 22（≥22.19）或 24+，沿用现有模型配置。
 
 ```sh
-dsh plugin --profile web add 'github:Biogod2020/dsh-article-review#v0.2.0-rc.1'
+dsh plugin --profile web add 'github:Biogod2020/dsh-article-review#v0.2.0-rc.2'
 dsh web
 ```
 

@@ -6,7 +6,10 @@ import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots
 import { fileAddressFor } from '@deepseek-ai/dsh-util-workspace-path'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
-import type { Annotation, BibliographyView, FigureReplacement, FileListing, PaperCommand, PaperBlock, PaperView, Proposal } from '../schema.ts'
+import type { Annotation, BibliographyView, FigureReplacement, FileListing, PaperCommand, PaperBlock, PaperRevision, Proposal } from '../schema.ts'
+import type { WorkbenchView } from '../workbench-view.ts'
+import { useRevisionPair } from './revision-pair.ts'
+import { useNearViewport } from './near-viewport.ts'
 import { ChangeEvidence } from './change-evidence.tsx'
 import { pendingReviewQueue, filterReviewQueue, needsJudgment } from '../review-queue.ts'
 import type { QueueFilter } from '../review-queue.ts'
@@ -43,7 +46,9 @@ function preference(key: string): string | null {
 /** Operator actions carried over the authenticated DSH connection. */
 export interface PaperPanelActions {
   /** @param command - explicit operator gesture. @param signal - tab lifetime. @returns validated persisted state. */
-  command: (command: PaperCommand, signal: AbortSignal, sessionId: string) => Promise<PaperView>
+  command: (command: PaperCommand, signal: AbortSignal, sessionId: string) => Promise<WorkbenchView>
+  /** Read one immutable historical body on explicit comparison selection. */
+  readRevision: (path: string, revision: string, signal: AbortSignal, sessionId: string) => Promise<PaperRevision>
   /**
    * @param path - workspace-relative folder.
    * @param signal - tab lifetime.
@@ -66,7 +71,7 @@ export interface PaperPanelActions {
   /** Browse folders and figure files on hosts without Finder. */
   listFigureFiles: (path: string, signal: AbortSignal, sessionId: string) => Promise<FileListing>
   /** Retain old/new figure bytes and create a pending reference change, without writing Markdown. */
-  replaceFigure: (path: string, input: FigureReplacement, signal: AbortSignal, sessionId: string) => Promise<PaperView>
+  replaceFigure: (path: string, input: FigureReplacement, signal: AbortSignal, sessionId: string) => Promise<WorkbenchView>
   /** @param path - workspace-relative figure. @returns canonical path for native preview. */
   figurePath: (path: string, signal: AbortSignal, sessionId: string) => Promise<string>
   /** @param path - workspace-relative PDF. @returns bounded first-page PNG when a renderer is available. */
@@ -109,15 +114,7 @@ export const WordDiff = memo(function WordDiff({ before, after, labels, markdown
 /** Defer Markdown parsing until a comparison approaches the review viewport. */
 function LazyWordDiff({ before, after, labels, markdownLabels, findId }: Parameters<typeof WordDiff>[0]): ReactNode {
   const root = useRef<HTMLDivElement>(null)
-  const [visible, setVisible] = useState(() => typeof IntersectionObserver === 'undefined')
-  useEffect(() => {
-    if (visible || !root.current) return
-    const observer = new IntersectionObserver((entries) => {
-      if (entries.some(entry => entry.isIntersecting)) { setVisible(true); observer.disconnect() }
-    }, { root: root.current.closest('[data-paper-scroll]'), rootMargin: '600px 0px' })
-    observer.observe(root.current)
-    return () => { observer.disconnect() }
-  }, [visible])
+  const visible = useNearViewport(root)
   const estimatedHeight = Math.max(150, Math.ceil(Math.max(before.length, after.length) / 50) * 28 + 90)
   return <div ref={root} data-lazy-diff data-find-id={findId}>{visible
     ? <WordDiff before={before} after={after} labels={labels} markdownLabels={markdownLabels} findId={findId} />
@@ -130,7 +127,7 @@ function LazyWordDiff({ before, after, labels, markdownLabels, findId }: Paramet
  * @returns manuscript workbench.
  */
 export function PaperPanel({
-  useTabInfo, useSession, useInput, sessionId, inputActions, t, command, listFiles,
+  useTabInfo, useSession, useInput, sessionId, inputActions, t, command, readRevision, listFiles,
   pickFile, currentFile, bibliography, bindBibliography, pickBibliography, pickFigure, listFigureFiles, replaceFigure,
   figurePath, figureThumbnail, figurePage, figureBytes, leave,
 }: PaperPanelProps): ReactNode {
@@ -140,8 +137,8 @@ export function PaperPanel({
   const wasRunning = useRef(running)
   const preferenceKey = `paper-review:path:${sessionId}`
   const [path, setPath] = useState(() => preference(preferenceKey) ?? 'article.md')
-  const [view, setView] = useState<PaperView>()
-  const [incoming, setIncoming] = useState<PaperView>()
+  const [view, setView] = useState<WorkbenchView>()
+  const [incoming, setIncoming] = useState<WorkbenchView>()
   const [workbench, setWorkbench] = useState(() => readWorkbenchState(sessionId, path))
   const workbenchRef = useRef(workbench)
   const [mode, setMode] = useState<PanelMode>(workbench.mode)
@@ -288,9 +285,13 @@ export function PaperPanel({
 
   const revealTarget = useCallback((selector: string, placeholder?: string): void => {
     releaseNavigation.current()
-    const viewport = content.current
-    const target = viewport?.querySelector<HTMLElement>(selector)
-    releaseNavigation.current = viewport && target ? revealPaperTarget(viewport, target, placeholder) : () => {}
+    // Selection adds actions and removes the previous block's actions; measure after that commit.
+    const frame = requestAnimationFrame(() => {
+      const viewport = content.current
+      const target = viewport?.querySelector<HTMLElement>(selector)
+      releaseNavigation.current = viewport && target ? revealPaperTarget(viewport, target, placeholder) : () => {}
+    })
+    releaseNavigation.current = () => { cancelAnimationFrame(frame) }
   }, [])
   useEffect(() => () => { releaseNavigation.current() }, [])
   useEffect(() => () => { figurePickController.current?.abort() }, [])
@@ -311,7 +312,7 @@ export function PaperPanel({
     return () => { cancelAnimationFrame(frame) }
   }, [mode, locatedEdit, doc?.current.id, revealTarget])
 
-  const restore = (next: PaperView): void => {
+  const restore = (next: WorkbenchView): void => {
     if (readWorkbenchState(sessionId, next.document.path).positions.read || mode !== 'read') return
     const blockId = next.document.reading[sessionId]
     if (blockId) requestAnimationFrame(() => content.current?.querySelector(`[data-block="${CSS.escape(blockId)}"]`)?.scrollIntoView({ block: 'start' }))
@@ -603,6 +604,7 @@ export function PaperPanel({
     || doc.baselines.some(b => !b.archivedAt && b.blockId === edit.blockId && b.locked))
   const reviewChanges = activeBaselines.filter(base => doc?.current.blocks.find(b => b.id === base.blockId)?.text !== base.text)
   const versionSelection = doc ? resolveVersionSelection(doc, workbench.versions) : undefined
+  const versionPair = useRevisionPair(doc, versionSelection, mode === 'versions', readRevision, tab.signal, sessionId)
   const findEntries = useCallback((): SearchableBlock[] => {
     if (!doc) return []
     const plain = (text: string): string => renderedPlainText(text) ?? text
@@ -611,8 +613,9 @@ export function PaperPanel({
     if (mode === 'history') return [...doc.history].reverse().map((event, index) => ({ id: `history:${index}`,
       text: `${new Date(event.at).toLocaleString()} ${t(historyKeys[event.action] ?? 'history')} ${event.detail}` }))
     if (mode === 'versions' && versionSelection) {
-      const before = doc.revisions.find(revision => revision.id === versionSelection.leftRevisionId) ?? doc.current
-      const after = doc.revisions.find(revision => revision.id === versionSelection.rightRevisionId) ?? doc.current
+      const before = versionPair.revisions.find(revision => revision.id === versionSelection.leftRevisionId)
+      const after = versionPair.revisions.find(revision => revision.id === versionSelection.rightRevisionId)
+      if (!before || !after) return []
       if (versionSelection.layout === 'inline') return [{ id: 'version:inline:source', text: diffWordsWithSpace(before.text, after.text).map(part => part.value).join('') }]
       if (versionSelection.layout === 'split') return [{ id: 'version:left:source', text: before.text }, { id: 'version:right:source', text: after.text }]
       return [...searchableBlocks(before.blocks, bib).map(block => ({ ...block, id: `version:left:${block.id}` })),
@@ -629,7 +632,7 @@ export function PaperPanel({
       return [{ id: `${targetId}:before`, targetId, text: plain(base.text) },
         { id: `${targetId}:after`, targetId, text: currentBlock ? plain(currentBlock.text) : t('baselineMissing') }]
     })]
-  }, [doc, mode, bib, visibleBlocks, visiblePending, workbench.versions, t])
+  }, [doc, mode, bib, visibleBlocks, visiblePending, workbench.versions, versionPair.revisions, t])
   const findTarget = useCallback((id: string): void => {
     if (id.startsWith('bib:')) setFocusedReference(id.slice(4))
   }, [])
@@ -737,7 +740,21 @@ export function PaperPanel({
           <button aria-pressed={showHighlights} onClick={() => { setShowHighlights(!showHighlights) }}><PaperIcon kind="edit" size={15} />{t('highlights')} ({doc.highlights.filter(h => !h.removed).length})</button>
           <button aria-pressed={showNotes} onClick={() =>{  setShowNotes(!showNotes) }}><PaperIcon kind="changes" size={15} />{t('allNotes')}</button>
           {Object.keys(drafts).length > 0 && <button aria-pressed={showDrafts} onClick={() => { setShowDrafts(!showDrafts) }}>{t('drafts')} ({Object.keys(drafts).length})</button>}
-          {focusReading && <button onClick={() => { setFocusReading(false) }}>{t('exitFocus')}</button>}
+          <button disabled={!progressBlocks.some(block => baselinesByBlock.get(block.id)?.text !== block.text)} onClick={() => {
+            const start = progressBlocks.findIndex(block => block.id === selectedRef.current)
+            const order = [...progressBlocks.slice(start + 1), ...progressBlocks.slice(0, start + 1)]
+            const next = order.find(block => baselinesByBlock.get(block.id)?.text !== block.text)
+            if (next) { focusBlock(next); revealTarget(`[data-block="${CSS.escape(next.id)}"]`) }
+          }}><PaperIcon kind="down" size={15} />{t('nextReview')}</button>
+          <button aria-pressed={focusReading} onClick={() => {
+            if (!focusReading && !selectedRef.current) {
+              const at = content.current ? capturePaperPosition(content.current).anchor?.blockId : undefined
+              const target = progressBlocks.find(block => block.id === at) ?? progressBlocks.find(block => block.kind === 'paragraph') ?? progressBlocks[0]
+              if (target) focusBlock(target)
+            }
+            setFocusReading(!focusReading)
+          }}>
+            <PaperIcon kind="read" size={15} />{t(focusReading ? 'exitFocus' : 'focusReading')}</button>
         </div>
         {showDrafts && <aside className={css.notes} aria-label={t('drafts')}>
           {Object.entries(drafts).map(([blockId, draft]) => <div className={css.note} key={blockId}>
@@ -771,7 +788,7 @@ export function PaperPanel({
           const active = block.id === selectedId
           const provenance = block.start === 0 && block.kind === 'html' && /^\s*<!--/.test(block.text)
           const positioned = locatedEdit?.blockId === block.id ? locatedEdit : undefined
-          const blockView = <div key={block.id} data-block={provenance ? undefined : block.id} className={`${css.block} ${active ? css.selected : ''}`}>
+          const blockView = <div key={block.id} data-block={provenance ? undefined : block.id} aria-current={active ? 'true' : undefined} className={`${css.block} ${active ? css.selected : ''}`}>
             <div className={css.margin}><span className={css[state]} title={t(state)}>{state === 'reviewed' ? '✓' : state === 'changed' ? '↺' : '○'}</span>
               {notesFor(block.id).length > 0 && <button onClick={() => { focusBlock(block); setQuote(''); setAnchor(undefined); setEditing(true) }}>{notesFor(block.id).length}</button>}
               {baseline?.locked && <span title={t('locked')}>▣</span>}</div>
@@ -959,7 +976,8 @@ export function PaperPanel({
           </div>)}
         </details>}
       </div>}
-      {doc && mode === 'versions' && <Versions key={`versions:${doc.path}`} document={doc} t={t} selection={versionSelection} bibliography={bib}
+      {doc && mode === 'versions' && <Versions key={`versions:${doc.path}`} document={doc} revisions={versionPair.revisions} loading={versionPair.loading} error={versionPair.error} onRetry={versionPair.retry}
+        t={t} selection={versionSelection} bibliography={bib}
         onSelectionChange={(versions) => { saveWorkbench({ versions }) }} figurePreview={(revision, block) =>
           collectFigures([block]).map((figure) => {
             const shown = pinnedFigure(revision, figure)

@@ -4,6 +4,7 @@ import { plainBibText } from './bib-display.ts'
 import { en } from './locales.ts'
 
 type BibEntry = BibliographyView['entries'][number]
+const indexes = new WeakMap<readonly BibEntry[], Map<string, BibEntry>>()
 
 function authorLabel(author: string | undefined): string | undefined {
   if (!author) return undefined
@@ -34,7 +35,8 @@ function citationLabel(entry: BibEntry): string | undefined {
  */
 export function displayCitations(source: string, entries: readonly BibEntry[]): string {
   if (entries.length === 0 || !source.includes('[@')) return source
-  const byKey = new Map(entries.map(entry => [entry.key, entry]))
+  let byKey = indexes.get(entries)
+  if (!byKey) { byKey = new Map(entries.map(entry => [entry.key, entry])); indexes.set(entries, byKey) }
   const replace = (text: string): string => text.replace(/\[(@[^\]]+)\]/g, (original, content: string) => {
     const keys = content.split(';').map(item => /^\s*@([A-Za-z][A-Za-z0-9_:./-]*)\s*$/.exec(item)?.[1])
     if (keys.some(key => key === undefined)) return original

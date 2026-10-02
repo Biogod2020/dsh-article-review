@@ -2,7 +2,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import ConfigSchema from '@deepseek-ai/schemastery'
 import { z } from 'zod'
-import { pdfThumbnail } from './figure-thumbnail.ts'
+import { PdfPreviewCache } from './pdf-preview-cache.ts'
 import { realpath } from 'node:fs/promises'
 import { relative, sep, isAbsolute } from 'node:path'
 import type {} from '@deepseek-ai/dsh-client-connection'
@@ -15,6 +15,7 @@ import type { Proposal } from './schema.ts'
 import { PaperStore, reviewSessions } from './store.ts'
 import { revisionId } from './document.ts'
 import { readManuscriptPage } from './manuscript-read.ts'
+import { workbenchView } from './workbench-view.ts'
 import { pickNativeBibliography, pickNativeFigure, pickNativeManuscript } from './native-file-picker.ts'
 
 /** Cordis plugin identity. */
@@ -29,11 +30,17 @@ export interface Config {
   maxBytes: number
   /** Maximum bytes retained for one replacement figure. */
   maxFigureBytes?: number
+  /** Maximum retained encoded PDF-preview bytes; zero disables reuse. */
+  previewCacheBytes: number
+  /** Maximum simultaneous PDF converter processes for this plugin. */
+  previewConcurrency: number
 }
 /** Loader validation; workspace selection is explicit. */
 export const Config: ConfigSchema<Config> = ConfigSchema.object({
   workspaceRoot: ConfigSchema.string(), maxBytes: ConfigSchema.natural().min(1).max(2_000_000).default(1_000_000),
   maxFigureBytes: ConfigSchema.natural().min(1).default(67_108_864),
+  previewCacheBytes: ConfigSchema.natural().default(4_194_304),
+  previewConcurrency: ConfigSchema.natural().min(1).max(8).default(1),
 })
 
 /** Manuscript tools visible after a document opens; ordinary tools remain available. */
@@ -56,6 +63,8 @@ function modelProposal(proposal: Proposal) {
  * @param config - validated local project settings.
  */
 export async function apply(ctx: Context, config: Config): Promise<void> {
+  const previews = new PdfPreviewCache(config.previewCacheBytes, config.previewConcurrency)
+  ctx.effect(() => () => { previews.dispose() })
   const stores = new Map<string, Promise<PaperStore>>()
   const enabled = new Set<SessionId>()
   const scopes = new Map<Agent, () => void>()
@@ -371,7 +380,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   // They coexist with the native session RPC interceptor without replacing it.
   const methods = ['paper-review/command', 'paper-review/list-files', 'paper-review/pick-file', 'paper-review/current', 'paper-review/figure-path', 'paper-review/figure-thumbnail', 'paper-review/leave',
     'paper-review/bibliography', 'paper-review/bind-bibliography', 'paper-review/pick-bibliography',
-    'paper-review/list-figures', 'paper-review/pick-figure', 'paper-review/replace-figure'] as const
+    'paper-review/list-figures', 'paper-review/pick-figure', 'paper-review/replace-figure', 'paper-review/revision'] as const
   const envelope = z.object({ type: z.literal('client-request'), rpcId: z.string(), method: z.enum(methods), payload: z.unknown() })
   for (const method of methods) ctx.effect(() => ctx.connection.fetch.register({
     path: `/api/${method}`, methods: ['POST'], requestBody: 'buffered',
@@ -382,10 +391,18 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       let result
       try {
         request.signal.throwIfAborted()
-        const payload = z.object({ sessionId: z.string().min(1) }).parse(parsed.data.payload)
+        const payload = z.object({ sessionId: z.string().min(1), projection: z.literal('workbench').optional() }).parse(parsed.data.payload)
         const sessionId = SessionId(payload.sessionId)
         const store = await storeFor(sessionId)
-        if (parsed.data.method === 'paper-review/list-files') {
+        if (parsed.data.method === 'paper-review/revision') {
+          if (!enabled.has(sessionId)) throw new Error('Open a manuscript before comparing versions')
+          const input = z.object({ path: z.string().min(1), revision: z.string().min(1).max(160) }).parse(parsed.data.payload)
+          const { document } = await store.read(input.path)
+          const revision = document.revisions.find(version => version.id === input.revision)
+            ?? (document.current.id === input.revision ? document.current : undefined)
+          if (!revision) throw new Error('Manuscript version not found')
+          result = { ok: true, value: revision }
+        } else if (parsed.data.method === 'paper-review/list-files') {
           const listing = z.object({ path: z.string(), extension: z.enum(['md', 'bib', 'figure']).default('md') }).parse(parsed.data.payload)
           result = { ok: true, value: await store.listFiles(listing.path, listing.extension) }
         } else if (parsed.data.method === 'paper-review/list-figures') {
@@ -394,7 +411,8 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
         } else if (parsed.data.method === 'paper-review/replace-figure') {
           const input = FigureReplacementSchema.extend({ path: z.string() }).parse(parsed.data.payload)
           if (!enabled.has(sessionId)) throw new Error('Open a manuscript before replacing a figure')
-          result = { ok: true, value: await store.replaceFigure(input.path, input) }
+          const view = await store.replaceFigure(input.path, input)
+          result = { ok: true, value: payload.projection === 'workbench' ? workbenchView(view) : view }
         } else if (parsed.data.method === 'paper-review/pick-figure') {
           const root = await realpath(await rootFor(sessionId))
           const selected = await pickNativeFigure(root, request.signal)
@@ -440,7 +458,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
           const source = await store.figurePath(figure.path)
           if (!source.toLowerCase().endsWith('.pdf')) throw new Error('PDF thumbnail requires a PDF figure')
           const size = z.object({ size: z.enum(['thumb', 'full']).default('thumb') }).parse(parsed.data.payload).size
-          result = { ok: true, value: { url: await pdfThumbnail(source, request.signal, size) } }
+          result = { ok: true, value: { url: await previews.get(source, request.signal, size) } }
         } else if (parsed.data.method === 'paper-review/leave') {
           const agent = ctx.agents.get(sessionId)
           if (agent?.status === 'running') throw new Error('Wait for the current response to finish before leaving Paper mode')
@@ -465,7 +483,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
           }
           const view = await store.command(request)
           if (request.action === 'open') await store.selectPath(sessionId, view.document.path)
-          result = { ok: true, value: view }
+          result = { ok: true, value: payload.projection === 'workbench' ? workbenchView(view) : view }
         }
       } catch (error) {
         result = { ok: false, error: { code: 'paper-review/refused', message: error instanceof Error ? error.message : String(error), details: {} } }

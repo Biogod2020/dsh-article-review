@@ -21,7 +21,8 @@ import WebServer from '@deepseek-ai/dsh-host-webserver'
 import * as Connection from '@deepseek-ai/dsh-client-connection'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import * as PaperReview from '../src/index.ts'
-import { ViewSchema } from '../src/schema.ts'
+import { WorkbenchViewSchema } from '../src/workbench-view.ts'
+import { ViewSchema, RevisionSchema } from '../src/schema.ts'
 import { revisionId } from '../src/document.ts'
 
 let root = ''
@@ -70,7 +71,7 @@ it('boots from a composition, keeps ordinary tools, and lets agents and operator
     })
     return response
   }
-  const control = (method: 'paper-review/list-files' | 'paper-review/current' | 'paper-review/leave', payload: object, sessionId = 'paper-review-recording') => fetch(`${origin}/api/${method}`, {
+  const control = (method: 'paper-review/list-files' | 'paper-review/current' | 'paper-review/leave' | 'paper-review/command' | 'paper-review/revision', payload: object, sessionId = 'paper-review-recording') => fetch(`${origin}/api/${method}`, {
     method: 'POST', headers: { 'content-type': 'application/json', origin, cookie },
     body: JSON.stringify({ type: 'client-request', rpcId: 'control-test', method, payload: { sessionId, ...payload } }),
   })
@@ -190,6 +191,19 @@ it('boots from a composition, keeps ordinary tools, and lets agents and operator
   expect(acceptedByAgent.isError).not.toBe(true)
   expect(await readFile(join(root, 'article.md'), 'utf8')).toContain('## Findings')
   const insertionBase = z.object({ result: z.object({ value: ViewSchema }) }).parse(await (await rpc({ action: 'open', path: 'article.md' })).json()).result.value
+  const light = z.object({ result: z.object({ value: WorkbenchViewSchema }) }).parse(await (await control('paper-review/command',
+    { command: { action: 'open', path: 'article.md' }, projection: 'workbench' })).json()).result.value
+  expect(light.document.current).toEqual(insertionBase.document.current)
+  expect(light.document.revisions).toEqual(insertionBase.document.revisions.map(({ id, createdAt }) => ({ id, createdAt })))
+  const oldRevision = z.object({ result: z.object({ value: RevisionSchema }) }).parse(await (await control('paper-review/revision',
+    { path: 'article.md', revision: view.document.current.id })).json()).result.value
+  expect(oldRevision).toEqual(view.document.current)
+  expect((await (await control('paper-review/revision', { path: 'article.md', revision: 'missing' })).json()).result.ok).toBe(false)
+  expect((await (await control('paper-review/revision', { path: 'article.md', revision: view.document.current.id }, 'ordinary-session')).json()).result.ok).toBe(false)
+  const unauthenticatedRevision = await fetch(`${origin}/api/paper-review/revision`, { method: 'POST',
+    headers: { 'content-type': 'application/json', origin }, body: JSON.stringify({ type: 'client-request', rpcId: 'test',
+      method: 'paper-review/revision', payload: { sessionId: 'paper-review-recording', path: 'article.md', revision: view.document.current.id } }) })
+  expect(unauthenticatedRevision.status).toBe(401)
   const insertionAnchor = insertionBase.document.current.blocks[1]!
   const inserted = await ctx.tools.execute({ agent, callId: ToolCallId('insert-proposal'), name: 'paper_propose', arguments: {
     path: 'article.md', baseRevision: insertionBase.document.current.id, annotationIds: [], reason: 'Add context.', meaning: 'structure',

@@ -11,7 +11,7 @@ import { en } from './locales.ts'
  * @param copy - localized context labels and rules.
  * @returns editable composer text.
  */
-export function reviewContext(document: PaperDocument, annotations: Annotation[], selected?: PaperBlock, intent = en.batchIntent, copy: Pick<typeof en, 'contextPath' | 'contextRevision' | 'contextRules' | 'contextData'> = en): string {
+export function reviewContext(document: Pick<PaperDocument, 'path' | 'current'>, annotations: Annotation[], selected?: PaperBlock, intent = en.batchIntent, copy: Pick<typeof en, 'contextPath' | 'contextRevision' | 'contextRules' | 'contextData'> = en): string {
   const ids = new Set(annotations.map(a => a.blockId))
   if (selected) ids.add(selected.id)
   const blocks = document.current.blocks.filter(b => ids.has(b.id)).map((block) => {

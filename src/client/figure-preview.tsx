@@ -1,6 +1,7 @@
 /** Lazy caption-local thumbnails shared by the reader and proposal comparison. */
 import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
+import { useNearViewport } from './near-viewport.ts'
 import type { PaperFigure } from '../figures.ts'
 import type { PaperReviewKey } from './locales.ts'
 import css from './panel.module.css'
@@ -28,16 +29,8 @@ export function FigurePreview({ figure, file, media, t, onOpen, onReplace }: {
 }): ReactNode {
   const root = useRef<HTMLDivElement>(null)
   const [expanded, setExpanded] = useState(true)
-  const [visible, setVisible] = useState(() => typeof IntersectionObserver === 'undefined')
+  const visible = useNearViewport(root, expanded, '200px 0px')
   const [result, setResult] = useState<{ url?: string; failed?: boolean }>({})
-  useEffect(() => {
-    if (visible || !expanded || !root.current) return
-    const observer = new IntersectionObserver((entries) => {
-      if (entries.some(entry => entry.isIntersecting)) { setVisible(true); observer.disconnect() }
-    }, { root: root.current.closest('[data-paper-scroll]'), rootMargin: '200px 0px' })
-    observer.observe(root.current)
-    return () => { observer.disconnect() }
-  }, [visible, expanded])
   useEffect(() => {
     if (!visible || !expanded) return
     const controller = new AbortController()

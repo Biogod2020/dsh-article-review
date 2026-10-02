@@ -1,8 +1,9 @@
 /** Paint persisted selections without rewriting Markdown or React-owned text nodes. */
-import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef } from 'react'
 import type { MouseEvent, ReactNode } from 'react'
 import { MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { Annotation, BibliographyView, PaperBlock, PaperHighlight } from '../schema.ts'
+import { useNearViewport } from './near-viewport.ts'
 import { displayCitations } from './citation-display.ts'
 import { normalizeLegacyTableDividers } from './legacy-tables.ts'
 import { anchorRange, captureSelection } from './selection.ts'
@@ -27,20 +28,12 @@ export function ReaderText({ block, highlights, annotations, labels, bibliograph
   const root = useRef<HTMLDivElement>(null)
   const name = `paper-${useId().replace(/[^a-zA-Z0-9]/g, '')}`
   const highlightCSS = `::highlight(${name}-yellow){background:var(--paper-highlight-yellow);color:var(--paper-highlight-text)}::highlight(${name}-green){background:var(--paper-highlight-green);color:var(--paper-highlight-text)}::highlight(${name}-blue){background:var(--paper-highlight-blue);color:var(--paper-highlight-text)}::highlight(${name}-underline){text-decoration:underline 2px var(--paper-underline)}::highlight(${name}-note){text-decoration:underline dotted var(--paper-note) 2px}`
-  const [rendered, setRendered] = useState(() => typeof IntersectionObserver === 'undefined')
-  const displayText = useMemo(() => block.kind === 'code' || block.kind === 'html'
+  const rendered = useNearViewport(root)
+  const displayText = useMemo(() => !rendered ? '' : block.kind === 'code' || block.kind === 'html'
     ? block.text : normalizeLegacyTableDividers(displayCitations(block.text, bibliography?.entries ?? [])),
-  [block.kind, block.text, bibliography?.entries])
+  [rendered, block.kind, block.text, bibliography?.entries])
   const diffCSS = useRenderedChange(root, block.text, comparison?.opposite, comparison?.side ?? 'before', rendered)
   const marked = highlights.some(h => !h.removed && h.anchor === 'attached') || annotations.some(a => a.anchor === 'attached' && a.status === 'open')
-  useEffect(() => {
-    if (rendered || !root.current) return
-    const observer = new IntersectionObserver((entries) => {
-      if (entries.some(entry => entry.isIntersecting)) { setRendered(true); observer.disconnect() }
-    }, { root: root.current.closest('[data-paper-scroll]'), rootMargin: '600px 0px' })
-    observer.observe(root.current)
-    return () => { observer.disconnect() }
-  }, [rendered])
   useEffect(() => {
     if (!rendered || !marked || !root.current || typeof Highlight === 'undefined') return
     const registered: string[] = []

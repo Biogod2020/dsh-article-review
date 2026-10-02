@@ -8,7 +8,8 @@ import type {} from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-api-workspace-files/client'
 import { z } from 'zod'
-import { BibliographyViewSchema, FileListingSchema, ViewSchema } from '../schema.ts'
+import { BibliographyViewSchema, FileListingSchema, RevisionSchema } from '../schema.ts'
+import { WorkbenchViewSchema } from '../workbench-view.ts'
 import { PaperPanel, type PaperPanelActions } from './panel.tsx'
 import { en, zh } from './locales.ts'
 
@@ -35,9 +36,14 @@ export function apply(ctx: Context): void {
   }
   const actions: PaperPanelActions = {
     async command(command, signal, sessionId) {
-      const result = await connection.rpc.call('/api', 'paper-review/command', { sessionId, command }, signal)
+      const result = await connection.rpc.call('/api', 'paper-review/command', { sessionId, command, projection: 'workbench' }, signal)
       if (!result.ok) throw new Error(result.error.message)
-      return ViewSchema.parse(result.value)
+      return WorkbenchViewSchema.parse(result.value)
+    },
+    async readRevision(path, revision, signal, sessionId) {
+      const result = await connection.rpc.call('/api', 'paper-review/revision', { sessionId, path, revision }, signal)
+      if (!result.ok) throw new Error(result.error.message)
+      return RevisionSchema.parse(result.value)
     },
     async listFiles(path, signal, sessionId, extension = 'md') {
       const result = await connection.rpc.call('/api', 'paper-review/list-files', { sessionId, path, extension }, signal)
@@ -80,9 +86,9 @@ export function apply(ctx: Context): void {
       return FileListingSchema.parse(result.value)
     },
     async replaceFigure(path, input, signal, sessionId) {
-      const result = await connection.rpc.call('/api', 'paper-review/replace-figure', { sessionId, path, ...input }, signal)
+      const result = await connection.rpc.call('/api', 'paper-review/replace-figure', { sessionId, path, ...input, projection: 'workbench' }, signal)
       if (!result.ok) throw new Error(result.error.message)
-      return ViewSchema.parse(result.value)
+      return WorkbenchViewSchema.parse(result.value)
     },
     figurePath: resolveFigure,
     async figureThumbnail(path, signal, sessionId) {

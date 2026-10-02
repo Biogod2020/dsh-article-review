@@ -1,9 +1,11 @@
 /** Read-only, independently selected historical revisions with exact source-level visual differences. */
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { diffWordsWithSpace } from 'diff'
-import type { BibliographyView, PaperBlock, PaperDocument, PaperRevision } from '../schema.ts'
+import type { BibliographyView, PaperBlock, PaperRevision } from '../schema.ts'
 import type { PaperReviewKey } from './locales.ts'
+import type { WorkbenchDocument } from '../workbench-view.ts'
+import { useNearViewport } from './near-viewport.ts'
 import { ReaderText } from './reader-text.tsx'
 import { pairRevisionBlocks } from './block-pairing.ts'
 import css from './panel.module.css'
@@ -21,7 +23,7 @@ export type VersionSelection = {
  * @param selection - previously selected IDs and display layout, when available.
  * @returns available comparison choices without mutating persisted review state.
  */
-export function resolveVersionSelection(document: PaperDocument, selection?: VersionSelection): VersionSelection {
+export function resolveVersionSelection(document: WorkbenchDocument, selection?: VersionSelection): VersionSelection {
   const latest = document.revisions.at(-1) ?? document.current
   const preceding = document.revisions.at(-2) ?? latest
   return {
@@ -43,15 +45,7 @@ function VersionBlock({ block, revision, compared, side, labels, figurePreview, 
   bibliography: BibliographyView | undefined
 }): ReactNode {
   const root = useRef<HTMLDivElement>(null)
-  const [visible, setVisible] = useState(() => typeof IntersectionObserver === 'undefined')
-  useEffect(() => {
-    if (visible || !root.current) return
-    const observer = new IntersectionObserver((entries) => {
-      if (entries.some(entry => entry.isIntersecting)) { setVisible(true); observer.disconnect() }
-    }, { root: root.current.closest('[data-paper-scroll]'), rootMargin: '600px 0px' })
-    observer.observe(root.current)
-    return () => { observer.disconnect() }
-  }, [visible])
+  const visible = useNearViewport(root)
   return <div ref={root} data-find-id={`version:${side === 'before' ? 'left' : 'right'}:${block.id}`}
     className={`${css.versionRenderedBlock} ${compared === block.text ? '' : side === 'before' ? css.versionRemoved : css.versionAdded}`}>
     {visible ? <><ReaderText block={block} highlights={[]} annotations={[]} labels={labels} bibliography={bibliography}
@@ -67,8 +61,12 @@ function VersionBlock({ block, revision, compared, side, labels, figurePreview, 
  * @param props - complete saved history and localized labels.
  * @returns read-only visual comparison.
  */
-export function Versions({ document, t, figurePreview, selection, onSelectionChange, bibliography }: {
-  document: PaperDocument
+export function Versions({ document, revisions, loading = false, error = '', onRetry, t, figurePreview, selection, onSelectionChange, bibliography }: {
+  document: WorkbenchDocument
+  revisions?: PaperRevision[] | undefined
+  loading?: boolean | undefined
+  error?: string | undefined
+  onRetry?: (() => void) | undefined
   t: (key: PaperReviewKey) => string
   figurePreview?: (revision: PaperRevision, block: PaperBlock) => ReactNode
   selection?: VersionSelection | undefined
@@ -78,8 +76,10 @@ export function Versions({ document, t, figurePreview, selection, onSelectionCha
   const [localSelection, setLocalSelection] = useState(() => resolveVersionSelection(document))
   const selected = resolveVersionSelection(document, selection ?? localSelection)
   const { leftRevisionId, rightRevisionId, layout } = selected
-  const before = document.revisions.find(revision => revision.id === leftRevisionId) ?? document.current
-  const after = document.revisions.find(revision => revision.id === rightRevisionId) ?? document.current
+  const bodies = revisions ?? document.revisions.filter((revision): revision is PaperRevision => 'text' in revision && 'blocks' in revision)
+  const before = bodies.find(revision => revision.id === leftRevisionId) ?? document.current
+  const after = bodies.find(revision => revision.id === rightRevisionId) ?? document.current
+  const ready = !loading && !error && [leftRevisionId, rightRevisionId].every(id => id === document.current.id || bodies.some(revision => revision.id === id))
   const select = (update: Partial<VersionSelection>): void => {
     const next = { ...selected, ...update }
     setLocalSelection(next)
@@ -123,8 +123,10 @@ export function Versions({ document, t, figurePreview, selection, onSelectionCha
       <button aria-pressed={layout === 'inline'} onClick={() => { select({ layout: 'inline' }) }}>{t('inlineDiff')}</button>
       <span>{t(layout === 'rendered' ? 'renderedHelp' : 'diffLegend')}</span>
     </div>
-    {before.text === after.text && <p role="status">{t('identicalVersions')}</p>}
-    {layout === 'rendered' ? <div className={css.versionRendered}>{renderRevision(before, after, 'before', leftToRight)}{renderRevision(after, before, 'after', rightToLeft)}</div>
+    {loading && <p role="status">{t('loading')}</p>}
+    {error && <div role="alert"><p>{error}</p><button onClick={onRetry}>{t('retry')}</button></div>}
+    {ready && before.text === after.text && <p role="status">{t('identicalVersions')}</p>}
+    {ready && (layout === 'rendered' ? <div className={css.versionRendered}>{renderRevision(before, after, 'before', leftToRight)}{renderRevision(after, before, 'after', rightToLeft)}</div>
       : layout === 'inline' ? <div className={css.diff} data-version-inline data-find-id="version:inline:source">{parts.map((part, index) => part.added
         ? <ins key={index}>{part.value}</ins>
         : part.removed ? <del key={index}>{part.value}</del> : <span key={index}>{part.value}</span>)}</div>
@@ -133,6 +135,6 @@ export function Versions({ document, t, figurePreview, selection, onSelectionCha
             : part.removed ? <del key={index}>{part.value}</del> : <span key={index}>{part.value}</span>)}</div></section>
           <section><h4>{label(after.id)}</h4><div className={css.diff} data-version-after data-find-id="version:right:source">{parts.map((part, index) => part.removed ? null
             : part.added ? <ins key={index}>{part.value}</ins> : <span key={index}>{part.value}</span>)}</div></section>
-        </div>}
+        </div>)}
   </div>
 }

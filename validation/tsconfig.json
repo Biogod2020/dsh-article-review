@@ -50,6 +50,10 @@
     "../tests/document.spec.ts",
     "../tests/document-properties.spec.ts",
     "../tests/review-queue.spec.ts",
-    "../tests/manuscript-read.spec.ts"
+    "../tests/manuscript-read.spec.ts",
+    "../src/workbench-view.ts",
+    "../tests/workbench-view.spec.ts",
+    "../src/pdf-preview-cache.ts",
+    "../tests/pdf-preview-cache.spec.ts"
   ]
 }

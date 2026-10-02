@@ -136,3 +136,18 @@ it.each([en, zh])('renders readable Markdown by default and retains source compa
     expect(html.replace(/ class="[^"]*"/g, '')).toMatchSnapshot()
   } finally { date.mockRestore() }
 })
+
+it('keeps version choices available while loading and never substitutes current source for a failed historical read', () => {
+  const original = fixture()
+  const light = { ...original, revisions: original.revisions.map(({ id, createdAt }) => ({ id, createdAt })) }
+  const retry = vi.fn()
+  const { rerender, container } = render(<Versions document={light} revisions={[]} loading t={key => en[key]} />)
+  expect(screen.getByRole('status').textContent).toBe(en.loading)
+  expect(screen.getAllByRole('option')).toHaveLength(6)
+  expect(container.querySelector('[data-version-rendered]')).toBeNull()
+  rerender(<Versions document={light} revisions={[]} error="Version unavailable" onRetry={retry} t={key => en[key]} />)
+  expect(screen.getByRole('alert').textContent).toContain('Version unavailable')
+  expect(container.textContent).not.toContain('Qualified')
+  fireEvent.click(screen.getByRole('button', { name: en.retry }))
+  expect(retry).toHaveBeenCalledTimes(1)
+})

@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-experimental-paper-review",
-  "version": "0.2.0-rc.1",
+  "version": "0.2.0-rc.2",
   "description": "Annotation-driven Markdown manuscript review with proposals and human review baselines",
   "keywords": [
     "deepseek-harness",
@@ -63,7 +63,8 @@
     "test:setup": "npm ci --prefix validation",
     "test": "npm --prefix validation test",
     "typecheck:core": "npm --prefix validation run typecheck",
-    "test:harness": "node scripts/test-harness.mjs"
+    "test:harness": "node scripts/test-harness.mjs",
+    "measure:workbench": "node validation/node_modules/tsx/dist/cli.mjs --tsconfig validation/tsconfig.json scripts/measure-workbench.ts"
   },
   "dependencies": {
     "@deepseek-ai/node-addon-system": "workspace:~",

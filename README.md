@@ -30,7 +30,7 @@ Across multiple revision rounds, each paragraph stays compared with **the last v
 Requires DSH Web `0.2.0-rc.2` and Node.js 22 (≥22.19) or 24+. Uses your existing model configuration.
 
 ```sh
-dsh plugin --profile web add 'github:Biogod2020/dsh-article-review#v0.2.0-rc.1'
+dsh plugin --profile web add 'github:Biogod2020/dsh-article-review#v0.2.0-rc.2'
 dsh web
 ```
 

@@ -200,3 +200,39 @@ it('locates citations without labelling them as changed review baselines', async
   fireEvent.click(screen.getByRole('button', { name: en.backToReferences }))
   await screen.findByRole('button', { name: en.locateCitation })
 })
+
+it('moves directly to the next unreviewed block and exposes focused reading without marking paragraphs reviewed', async () => {
+  const { view, command } = fixture()
+  await screen.findByText('An exact source anchor.')
+  fireEvent.click(screen.getByRole('button', { name: en.nextReview }))
+  expect(document.querySelector('[data-block][aria-current="true"]')?.getAttribute('data-block')).toBe(view.document.current.blocks[0]?.id)
+  fireEvent.click(screen.getByRole('button', { name: en.nextReview }))
+  expect(document.querySelector('[data-block][aria-current="true"]')?.getAttribute('data-block')).toBe(view.document.current.blocks[1]?.id)
+  fireEvent.click(screen.getByRole('button', { name: en.focusReading }))
+  expect(screen.getByRole('button', { name: en.exitFocus }).getAttribute('aria-pressed')).toBe('true')
+  expect(command.mock.calls.every(([request]) => ['open', 'position'].includes(request.action))).toBe(true)
+})
+
+it('measures a review jump after the previous selection actions leave the layout', async () => {
+  const { block, view } = fixture()
+  await screen.findByText(block.text)
+  const viewport = document.querySelector<HTMLElement>('[data-paper-scroll]')
+  const first = document.querySelector<HTMLElement>(`[data-block="${view.document.current.blocks[0]?.id}"]`)
+  const second = document.querySelector<HTMLElement>(`[data-block="${view.document.current.blocks[1]?.id}"]`)
+  if (!viewport || !first || !second) throw new Error('Reader targets missing')
+  const frames = new Map<number, FrameRequestCallback>()
+  let frameId = 0
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { frames.set(++frameId, callback); return frameId })
+  vi.stubGlobal('cancelAnimationFrame', (id: number) => { frames.delete(id) })
+  vi.spyOn(viewport, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 500, 600))
+  vi.spyOn(first, 'getBoundingClientRect').mockImplementation(() => new DOMRect(0, 100 - viewport.scrollTop, 500, 100))
+  vi.spyOn(second, 'getBoundingClientRect').mockImplementation(() =>
+    new DOMRect(0, 600 + (first.hasAttribute('aria-current') ? 88 : 0) - viewport.scrollTop, 500, 100))
+  const flush = () => { for (const [id, callback] of frames) { frames.delete(id); callback(0) } }
+  fireEvent.click(screen.getByRole('button', { name: en.nextReview }))
+  flush()
+  fireEvent.click(screen.getByRole('button', { name: en.nextReview }))
+  expect(first.hasAttribute('aria-current')).toBe(false)
+  flush()
+  expect(second.getBoundingClientRect().top).toBe(120)
+})

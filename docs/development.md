@@ -8,6 +8,8 @@ This document covers local builds, manuscript tools, persistence and platform co
 
 For installation commands, see the [project README](../README.md#installation). The installer adds the package's [bundle patch](../cordis.patch.yml) after the Web layer; no separate launcher or model configuration is needed. This independent add-on was smoke-tested on macOS with DSH `0.2.0-rc.2`. Host/client types and integration tests use the pinned upstream tag `dsh-v0.2.0-rc.2` (`639ed015`). For other hosts, see [scope and compatibility](#scope-and-compatibility).
 
+The browser receives the current manuscript plus a revision index; historical bodies load only for the selected comparison pair. Reader blocks share viewport observers. PDF previews share a byte-bounded cache and converter queue (`previewCacheBytes`, default 4194304; `previewConcurrency`, default 1). See the [performance measurements](performance.zh.md).
+
 ## Local development
 
 Build the plugin inside a compatible [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) checkout, then install the built local directory:
