@@ -1,5 +1,5 @@
 /** Compact review minimap with a progressively disclosed manuscript outline. */
-import { useId, useMemo, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { PaperBlock, PaperDocument } from '../schema.ts'
 import type { PaperReviewKey } from './locales.ts'
@@ -15,7 +15,20 @@ export function ReviewProgress({ blocks, baselines, jump, t }: {
   t: (key: PaperReviewKey) => string
 }): ReactNode {
   const detailsId = useId()
+  const root = useRef<HTMLElement>(null)
   const [expanded, setExpanded] = useState(false)
+  useEffect(() => {
+    if (!expanded) return
+    const outside = (event: PointerEvent): void => {
+      if (!root.current?.contains(event.target as Node)) setExpanded(false)
+    }
+    const escape = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') { setExpanded(false); root.current?.querySelector('button')?.focus() }
+    }
+    document.addEventListener('pointerdown', outside)
+    document.addEventListener('keydown', escape)
+    return () => { document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', escape) }
+  }, [expanded])
   const items = useMemo(() => {
     const byId = new Map(baselines.filter(base => !base.archivedAt).map(base => [base.blockId, base]))
     return blocks.map(block => ({ block, status: !byId.has(block.id) ? 'unread' as const
@@ -69,13 +82,15 @@ export function ReviewProgress({ blocks, baselines, jump, t }: {
       {open && entry.entries.length > 0 && <div className={css.progressChildren}>{renderEntries(entry.entries, depth + 1)}</div>}
     </div>
   })
-  return <aside className={`${css.progressDock} ${expanded ? css.progressExpanded : ''}`} aria-label={t('progressTitle')}>
-    {!expanded && <button className={css.progressToggle} aria-expanded={false} aria-controls={detailsId}
-      aria-label={t('progressExpand')} title={t('progressExpand')} onClick={() => { setExpanded(true) }}>
+  return <aside ref={root} className={`${css.progressDock} ${expanded ? css.progressExpanded : ''}`} aria-label={t('progressTitle')}>
+    <button className={css.progressToggle} aria-expanded={expanded} aria-controls={detailsId}
+      aria-label={t(expanded ? 'progressTitle' : 'progressExpand')} title={t('progressTitle')}
+      onClick={() => { setExpanded(!expanded) }}>
+      <span>{t('reviewedLabel')}</span>
       <span className={css.progressPercent}>{percent}%</span>
       <span className={css.progressTrack} data-progress-track aria-hidden="true">{items.map(({ block, status }) =>
         <span key={block.id} className={css[`progress-${status}`]} />)}</span>
-    </button>}
+    </button>
     {expanded && <div id={detailsId} className={css.progressDetails}>
       <div className={css.progressHeading}><strong>{t('progressTitle')}</strong><span>{reviewed} / {items.length}</span>
         <button className={css.progressClose} aria-label={t('progressCollapse')} title={t('progressCollapse')}

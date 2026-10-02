@@ -39,8 +39,8 @@ export function apply(ctx: Context): void {
       if (!result.ok) throw new Error(result.error.message)
       return ViewSchema.parse(result.value)
     },
-    async listFiles(path, signal, sessionId) {
-      const result = await connection.rpc.call('/api', 'paper-review/list-files', { sessionId, path }, signal)
+    async listFiles(path, signal, sessionId, extension = 'md') {
+      const result = await connection.rpc.call('/api', 'paper-review/list-files', { sessionId, path, extension }, signal)
       if (!result.ok) throw new Error(result.error.message)
       return FileListingSchema.parse(result.value)
     },

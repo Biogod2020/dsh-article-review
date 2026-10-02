@@ -7,6 +7,9 @@ import { fileAddressFor } from '@deepseek-ai/dsh-util-workspace-path'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
 import type { Annotation, BibliographyView, FigureReplacement, FileListing, PaperCommand, PaperBlock, PaperView, Proposal } from '../schema.ts'
+import { ChangeEvidence } from './change-evidence.tsx'
+import { pendingReviewQueue, filterReviewQueue, needsJudgment } from '../review-queue.ts'
+import type { QueueFilter } from '../review-queue.ts'
 import { reviewContext } from './context.ts'
 import { attachContext } from './composer.ts'
 import { ReaderText } from './reader-text.tsx'
@@ -47,7 +50,7 @@ export interface PaperPanelActions {
    * @param sessionId - native conversation.
    * @returns bounded Markdown listing.
    */
-  listFiles: (path: string, signal: AbortSignal, sessionId: string) => Promise<FileListing>
+  listFiles: (path: string, signal: AbortSignal, sessionId: string, extension?: 'md' | 'bib') => Promise<FileListing>
   /** @returns selected workspace-relative Markdown path, or null when Finder is canceled. */
   pickFile: (signal: AbortSignal, sessionId: string) => Promise<string | null>
   /** @returns manuscript selected by the operator or agent in this conversation. */
@@ -169,9 +172,12 @@ export function PaperPanel({
   const [error, setError] = useState('')
   const [failedRequest, setFailedRequest] = useState<{ request: PaperCommand; adopt: boolean; uncertain: boolean }>()
   const [notice, setNotice] = useState('')
+  const [queueFilter, setQueueFilter] = useState<QueueFilter>('all')
+  useEffect(() => { setQueueFilter('all') }, [view?.document.path])
   const [source, setSource] = useState(false)
   const [listing, setListing] = useState<FileListing>()
   const [pickerOpen, setPickerOpen] = useState(false)
+  const [pickerKind, setPickerKind] = useState<'md' | 'bib'>('md')
   const [controlsOpen, setControlsOpen] = useState(false)
   const [headerCollapsed, setHeaderCollapsed] = useState(() => preference('paper-review:toolbar-collapsed') === 'true')
   const [previewFigure, setPreviewFigure] = useState<PaperFigure>()
@@ -181,7 +187,7 @@ export function PaperPanel({
   const figureDialog = useRef<HTMLDialogElement>(null)
   const baselineDialog = useRef<HTMLDialogElement>(null)
   const figurePickController = useRef<AbortController>()
-  const [locatedEdit, setLocatedEdit] = useState<{ blockId: string; proposalId?: string; operation?: 'insert-before' | 'insert-after' }>()
+  const [locatedEdit, setLocatedEdit] = useState<{ blockId: string; proposalId?: string; operation?: 'insert-before' | 'insert-after'; returnTo?: 'references' }>()
   const [pickerBusy, setPickerBusy] = useState(false)
   const [pickerError, setPickerError] = useState('')
   const content = useRef<HTMLDivElement>(null)
@@ -242,6 +248,7 @@ export function PaperPanel({
     saveWorkbench({ mode: next }, false)
     releaseNavigation.current()
     if (!keepLocation) setLocatedEdit(undefined)
+    setNotice('')
     setMode(next)
   }
 
@@ -327,7 +334,7 @@ export function PaperPanel({
     } catch (caught) {
       if (!tab.signal.aborted && seq === generation.current) {
         const message = caught instanceof Error ? caught.message : String(caught)
-        setError(message)
+        setError(request.action === 'open' && /ENOENT/.test(message) ? `${t('fileMissing')} ${request.path}` : message)
         setFailedRequest({ request, adopt, uncertain: request.action !== 'open'
           && /fetch|network|connection|disconnect|timeout|timed out/i.test(message) })
       }
@@ -359,11 +366,11 @@ export function PaperPanel({
     finally { if (!tab.signal.aborted) setBusy(false) }
   }
 
-  const browse = async (directory: string): Promise<void> => {
+  const browse = async (directory: string, kind = pickerKind): Promise<void> => {
     const seq = ++pickerGeneration.current
     setPickerBusy(true); setPickerError('')
     try {
-      const next = await listFiles(directory, tab.signal, sessionId)
+      const next = await listFiles(directory, tab.signal, sessionId, kind)
       if (seq === pickerGeneration.current && !tab.signal.aborted) setListing(next)
     } catch (caught) {
       if (seq === pickerGeneration.current && !tab.signal.aborted) setPickerError(caught instanceof Error ? caught.message : String(caught))
@@ -375,13 +382,12 @@ export function PaperPanel({
     try {
       const selected = await pickFile(tab.signal, sessionId)
       if (!selected || tab.signal.aborted) return
-      setPath(selected)
+      setPath(selected); setPickerOpen(false)
       void run({ action: 'open', path: selected })
     } catch (caught) {
       if (tab.signal.aborted) return
       const message = caught instanceof Error ? caught.message : String(caught)
-      if (message.includes('requires macOS')) { setPickerOpen(true); void browse('') }
-      else setError(message)
+      setPickerError(message)
     } finally { setPickerBusy(false) }
   }
 
@@ -450,11 +456,13 @@ export function PaperPanel({
   }
 
   const chooseBib = async (): Promise<void> => {
-    setBibBusy(true); setBibError('')
+    setBibBusy(true); setBibError(''); setPickerError('')
     try {
       const selected = await pickBibliography(tab.signal, sessionId)
-      if (selected && !tab.signal.aborted && !bib?.files.includes(selected)) await updateBib([...(bib?.files ?? []), selected])
-    } catch (caught) { if (!tab.signal.aborted) setBibError(caught instanceof Error ? caught.message : String(caught)) }
+      if (selected && !tab.signal.aborted && !bib?.files.includes(selected)) {
+        setPickerOpen(false); await updateBib([...(bib?.files ?? []), selected])
+      }
+    } catch (caught) { if (!tab.signal.aborted) setPickerError(caught instanceof Error ? caught.message : String(caught)) }
     finally { setBibBusy(false) }
   }
 
@@ -587,7 +595,8 @@ export function PaperPanel({
   const progressBlocks = useMemo(() => reviewableBlocks(doc?.current.blocks ?? []), [doc?.current.blocks])
   const locations = useMemo(() => reviewNavigation(progressBlocks).locations, [progressBlocks])
   const notesFor = (blockId: string): Annotation[] => annotationsByBlock.get(blockId) ?? []
-  const pending = doc?.proposals.filter(p => p.status === 'pending') ?? []
+  const pending = useMemo(() => pendingReviewQueue(doc?.proposals ?? []), [doc?.proposals])
+  const visiblePending = useMemo(() => filterReviewQueue(pending, queueFilter), [pending, queueFilter])
   const conflict = (proposal: Proposal): boolean => view?.diskChanged === true || incoming !== undefined
     || proposal.edits.some(edit =>
       doc?.current.blocks.find(b => b.id === edit.blockId)?.text !== edit.before
@@ -609,7 +618,7 @@ export function PaperPanel({
       return [...searchableBlocks(before.blocks, bib).map(block => ({ ...block, id: `version:left:${block.id}` })),
         ...searchableBlocks(after.blocks, bib).map(block => ({ ...block, id: `version:right:${block.id}` }))]
     }
-    return [...pending.flatMap(proposal => [{ id: `proposal:${proposal.id}`, text: `${proposal.id} ${proposal.reason}` },
+    return [...visiblePending.flatMap(proposal => [{ id: `proposal:${proposal.id}`, text: `${proposal.id} ${proposal.reason}` },
       ...proposal.edits.flatMap((edit, index) => {
         const targetId = `proposal:${proposal.id}:${index}`
         return [{ id: `${targetId}:before`, targetId, text: edit.operation ? '' : plain(edit.before) },
@@ -620,7 +629,7 @@ export function PaperPanel({
       return [{ id: `${targetId}:before`, targetId, text: plain(base.text) },
         { id: `${targetId}:after`, targetId, text: currentBlock ? plain(currentBlock.text) : t('baselineMissing') }]
     })]
-  }, [doc, mode, bib, visibleBlocks, workbench.versions, t])
+  }, [doc, mode, bib, visibleBlocks, visiblePending, workbench.versions, t])
   const findTarget = useCallback((id: string): void => {
     if (id.startsWith('bib:')) setFocusedReference(id.slice(4))
   }, [])
@@ -663,14 +672,14 @@ export function PaperPanel({
       {!compactHeader && (!doc || controlsOpen) && <div id={controlsId} className={css.fileControls}>
         <form className={css.open} onSubmit={(event) => { event.preventDefault(); setSelectedId(''); setQuote(''); setAnchor(undefined); setEditing(false); void run({ action: 'open', path }) }}>
           <input aria-label={t('path')} placeholder={t('pathHint')} value={path} onChange={(event) =>{  setPath(event.target.value) }} />
-          <button type="button" disabled={busy || pickerBusy} onClick={() => { void chooseFile() }}><PaperIcon kind="folder" size={15} />{t('browse')}</button>
+          <button type="button" disabled={busy || pickerBusy} onClick={() => { setPickerKind('md'); setPickerOpen(true); void browse('', 'md') }}><PaperIcon kind="folder" size={15} />{t('browse')}</button>
           <button disabled={busy || !path.trim()}><PaperIcon kind="read" size={15} />{t('open')}</button>
         </form>
         {doc && <button className={css.leave} disabled={busy || running} onClick={() => { void exitMode() }}>{t('leave')}</button>}
       </div>}
       {doc && !compactHeader && <nav className={css.tabs} aria-label={t('reviewSections')}>{(['read', 'changes', 'versions', 'history', 'references'] as const).map((item) => {
         return <button key={item} aria-label={t(item)} title={t(item)} aria-pressed={mode === item} onClick={() => { changeMode(item) }}>
-          <PaperIcon kind={item} size={15} /><span className={css.tabLabel}>{t(item)}</span>
+          <PaperIcon kind={item} size={15} /><span className={css.tabLabel}>{t(`tab${item}`)}</span>
           {item === 'changes' && pending.length > 0 && <span className={css.count}>{pending.length}</span>}
         </button>
       })}
@@ -685,9 +694,9 @@ export function PaperPanel({
     </div>}
     {notice && <div className={css.notice} role="status">{notice}</div>}
     {pickerOpen && <div className={css.pickerBackdrop} role="presentation" onClick={() => { setPickerOpen(false) }}>
-      <div className={css.picker} ref={picker} role="dialog" aria-modal="true" aria-label={t('browse')}
+      <div className={css.picker} ref={picker} role="dialog" aria-modal="true" aria-label={t(pickerKind === 'md' ? 'browse' : 'bibChoose')}
         onClick={(event) => { event.stopPropagation() }}>
-        <div className={css.pickerHeading}><strong>{t('browse')}</strong><button className={css.iconOnly} aria-label={t('close')}
+        <div className={css.pickerHeading}><strong>{t(pickerKind === 'md' ? 'browse' : 'bibChoose')}</strong><button className={css.iconOnly} aria-label={t('close')}
           title={t('close')} onClick={() => { setPickerOpen(false) }}><PaperIcon kind="close" /></button></div>
         <div className={css.pickerCrumbs}><button disabled={pickerBusy || listing?.path === ''} onClick={() => { void browse('') }}>{t('workspace')}</button>
           {listing?.path.split('/').filter(Boolean).map((part, index, parts) => <button key={index} disabled={pickerBusy || index === parts.length - 1}
@@ -696,14 +705,16 @@ export function PaperPanel({
         {pickerBusy && <p>{t('loading')}</p>}
         {pickerError && <p className={css.error} role="alert">{pickerError}</p>}
         {!pickerBusy && listing && <div className={css.pickerEntries}>
-          {listing.entries.length === 0 && <p>{t('noMarkdown')}</p>}
+          {listing.entries.length === 0 && <p>{t(pickerKind === 'bib' ? 'noBibFiles' : 'noMarkdown')}</p>}
           {listing.entries.map(entry => <button key={entry.name} onClick={() => {
             const selected = [listing.path, entry.name].filter(Boolean).join('/')
             if (entry.type === 'directory') void browse(selected)
+            else if (pickerKind === 'bib') { setPickerOpen(false); void updateBib([...new Set([...(bib?.files ?? []), selected])]) }
             else { setPath(selected); setPickerOpen(false); void run({ action: 'open', path: selected }) }
           }}>{entry.type === 'directory' ? '▸' : '▤'} {entry.name}</button>)}
           {listing.truncated && <p>{t('truncated')}</p>}
         </div>}
+        <button disabled={pickerBusy || bibBusy} onClick={() => { void (pickerKind === 'md' ? chooseFile() : chooseBib()) }}>{t('hostPicker')}</button>
       </div>
     </div>}
     {(view?.diskChanged || incoming) && <div className={css.banner} role="status"><span>{t(incoming ? 'newVersion' : 'external')}</span>
@@ -715,14 +726,14 @@ export function PaperPanel({
     <div className={css.content} ref={content} data-paper-scroll>
       {doc && <PaperFind key={`find:${doc.path}`} panel={panel} content={content} blocks={visibleBlocks} bibliography={bib}
         mode={mode} entries={findEntries} onTarget={findTarget} onRead={() => { changeMode('read') }} onNavigate={cancelNavigation} t={t} />}
-      {doc && mode === 'read' && <div className={css.progressAnchor}><ReviewProgress key={`progress:${doc.path}`} blocks={progressBlocks} baselines={activeBaselines} t={t}
+      {!doc && <div className={css.welcome}><span className={css.monogram}>¶</span><h2>{t('title')}</h2><p>{t('empty')}</p><p>{t('intro')}</p></div>}
+      {doc && mode === 'read' && <>
+        <div className={css.readToolbar}>
+          {doc && mode === 'read' && <div className={css.progressAnchor}><ReviewProgress key={`progress:${doc.path}`} blocks={progressBlocks} baselines={activeBaselines} t={t}
         jump={(block) => {
           focusBlock(block)
           revealTarget(`[data-block="${CSS.escape(block.id)}"]`)
         }} /></div>}
-      {!doc && <div className={css.welcome}><span className={css.monogram}>¶</span><h2>{t('title')}</h2><p>{t('empty')}</p><p>{t('intro')}</p></div>}
-      {doc && mode === 'read' && <>
-        <div className={css.readToolbar}>
           <button aria-pressed={showHighlights} onClick={() => { setShowHighlights(!showHighlights) }}><PaperIcon kind="edit" size={15} />{t('highlights')} ({doc.highlights.filter(h => !h.removed).length})</button>
           <button aria-pressed={showNotes} onClick={() =>{  setShowNotes(!showNotes) }}><PaperIcon kind="changes" size={15} />{t('allNotes')}</button>
           {Object.keys(drafts).length > 0 && <button aria-pressed={showDrafts} onClick={() => { setShowDrafts(!showDrafts) }}>{t('drafts')} ({Object.keys(drafts).length})</button>}
@@ -765,9 +776,8 @@ export function PaperPanel({
               {notesFor(block.id).length > 0 && <button onClick={() => { focusBlock(block); setQuote(''); setAnchor(undefined); setEditing(true) }}>{notesFor(block.id).length}</button>}
               {baseline?.locked && <span title={t('locked')}>▣</span>}</div>
             {positioned && positioned.operation !== 'insert-after' && <div className={css.locationMarker} data-location-marker={positioned.operation ?? 'replace'}>
-              <span>{positioned.proposalId ?? t('baseline')} · {t(positioned.operation === 'insert-before' ? 'locationBeforeHere'
-                : 'locationReplaceHere')}</span>
-              <button onClick={() => { changeMode('changes', true) }}><PaperIcon kind="changes" size={13} />{t(positioned.proposalId ? 'backToProposal' : 'backToReview')}</button>
+              <span>{positioned.returnTo === 'references' ? t('citationLocated') : `${positioned.proposalId ?? t('baseline')} · ${t(positioned.operation === 'insert-before' ? 'locationBeforeHere' : 'locationReplaceHere')}`}</span>
+              <button onClick={() => { changeMode(positioned.returnTo ?? 'changes', true) }}><PaperIcon kind={positioned.returnTo ?? 'changes'} size={13} />{t(positioned.returnTo === 'references' ? 'backToReferences' : positioned.proposalId ? 'backToProposal' : 'backToReview')}</button>
             </div>}
             {provenance
               ? <pre className={css.raw} onMouseUp={() => { selectText(block) }}>{block.text}</pre>
@@ -800,7 +810,7 @@ export function PaperPanel({
             })}
             {positioned?.operation === 'insert-after' && <div className={css.locationMarker} data-location-marker="insert-after">
               <span>{positioned.proposalId ?? t('baseline')} · {t('locationAfterHere')}</span>
-              <button onClick={() => { changeMode('changes', true) }}><PaperIcon kind="changes" size={13} />{t(positioned.proposalId ? 'backToProposal' : 'backToReview')}</button>
+              <button onClick={() => { changeMode(positioned.returnTo ?? 'changes', true) }}><PaperIcon kind={positioned.returnTo ?? 'changes'} size={13} />{t(positioned.returnTo === 'references' ? 'backToReferences' : positioned.proposalId ? 'backToProposal' : 'backToReview')}</button>
             </div>}
             {active && <div className={css.actions}>
               <button onClick={() =>{  setEditing(!editing) }}><PaperIcon kind="edit" size={14} />{t('annotate')}</button>
@@ -862,7 +872,16 @@ export function PaperPanel({
         }}><PaperIcon kind="down" size={15} />{t('nextRisk')}</button></div>
         <p className={css.help}>{t('riskNote')}</p>
         {pending.length === 0 && <p className={css.empty}>{t('noProposals')}</p>}
-        {pending.map(proposal => <section className={css.proposal} key={proposal.id} data-proposal={proposal.id} data-risk={proposal.flags.length > 0 || proposal.meaning !== 'style'}>
+        {pending.length > 0 && <div className={css.queueControls}>
+          <label>{t('queueFilter')} <select value={queueFilter} onChange={event => { setQueueFilter(event.target.value as QueueFilter) }}>
+            {(['all', 'attention', 'style', 'structure', 'claim', 'evidence'] as const).map(filter =>
+              <option key={filter} value={filter}>{t(filter === 'all' ? 'allProposals' : filter === 'attention' ? 'needsJudgment' : filter)} ({filterReviewQueue(pending, filter).length})</option>)}
+          </select></label>
+          <span role="status">{t('showing')} {visiblePending.length}/{pending.length}</span>
+          {queueFilter !== 'all' && <button onClick={() => { setQueueFilter('all') }}>{t('clearFilter')}</button>}
+        </div>}
+        {pending.length > 0 && visiblePending.length === 0 && <p>{t('queueEmpty')}</p>}
+        {visiblePending.map(proposal => <section className={css.proposal} key={proposal.id} data-proposal={proposal.id} data-risk={needsJudgment(proposal)}>
           <div data-find-id={`proposal:${proposal.id}`} data-find-text><div className={css.proposalTitle}><strong>{proposal.id}</strong><span>{proposal.annotationIds.join(' · ')}</span><span>{t('modelLabel')} {t(proposal.meaning)}</span></div>
             <p>{proposal.reason}</p></div>
           {proposal.flags.length > 0 && <div className={css.flags}>{proposal.flags.map(flag => <span key={flag}>{t(flag)}</span>)}</div>}
@@ -880,6 +899,7 @@ export function PaperPanel({
                 <button disabled={!location} onClick={() => { locateProposalEdit(proposal.id, edit) }}>
                   <PaperIcon kind="read" size={14} />{t('viewInArticle')}</button></div>
               </div>
+              <ChangeEvidence before={edit.operation ? '' : edit.before} after={edit.after} t={t} />
               <LazyWordDiff before={edit.operation ? '' : edit.before} after={edit.after} labels={diffLabels} markdownLabels={labels} findId={`proposal:${proposal.id}:${editIndex}`} />
               {(() => {
                 const retained = proposal.figureChanges?.filter(change => change.blockId === edit.blockId) ?? []
@@ -948,7 +968,7 @@ export function PaperPanel({
               onOpen={setPreviewFigure} />
           })} />}
       {doc && mode === 'references' && <References bibliography={bib} blocks={visibleBlocks} busy={bibBusy} error={bibError}
-        path={bibPath} onPathChange={setBibPath} onBind={(files) => { void updateBib(files) }} onChoose={() => { void chooseBib() }}
+        path={bibPath} onPathChange={setBibPath} onBind={(files) => { void updateBib(files) }} onChoose={() => { setPickerKind('bib'); setPickerOpen(true); void browse('', 'bib') }}
         onRetry={() => { setBibBusy(true); setBibError('')
           const targetPath = doc.path
           const live = (): boolean => !tab.signal.aborted && current.current?.document.path === targetPath
@@ -957,7 +977,7 @@ export function PaperPanel({
             .finally(() => { if (live()) setBibBusy(false) }) }}
         onLocate={(blockId, key) => {
           const block = doc.current.blocks.find(candidate => candidate.id === blockId)
-          if (block) { focusBlock(block); setLocatedEdit({ blockId }); changeMode('read', true); setNotice(`${t('citationLocated')} [@${key}]`) }
+          if (block) { focusBlock(block); setLocatedEdit({ blockId, returnTo: 'references' }); changeMode('read', true); setNotice(`${t('citationLocated')} [@${key}]`) }
         }} state={workbench.references ?? { query: '', page: 0, nextCitation: {} }}
         onStateChange={(references) => { saveWorkbench({ references }) }} focusedKey={focusedReference}
         labels={{ title: t('references'), help: t('bibHelp'), sources: t('bibSources'), none: t('bibNone'), unbind: t('bibUnbind'),
@@ -1006,8 +1026,8 @@ export function PaperPanel({
       <h3>{t('replaceFigure')} · {figureReplacement.figure.label}</h3><p>{t('figureCaptionCheck')}</p>
       <label>{t('figureReplacementPath')}<input value={figureReplacement.path} placeholder={t('figureReplacementPath')}
         onChange={(event) => { setFigureReplacement({ ...figureReplacement, path: event.target.value }) }} /></label>
-      <button disabled={figureBusy} onClick={() => { void chooseReplacement() }}><PaperIcon kind="folder" />{t('figureReplacement')}</button>
-      <button disabled={figureBusy} onClick={() => { setError(''); void browseFigures('') }}>{t('figureBrowseWorkspace')}</button>
+      <button disabled={figureBusy} onClick={() => { void browseFigures('') }}><PaperIcon kind="folder" />{t('figureBrowseWorkspace')}</button>
+      <button disabled={figureBusy} onClick={() => { void chooseReplacement() }}>{t('hostPicker')}</button>
       {figureListing && <div className={css.figureFileList}><code>{figureListing.path || t('workspace')}</code>
         {figureListing.path && <button onClick={() => { void browseFigures(figureListing.path.split('/').slice(0, -1).join('/')) }}>{t('progressStart')}</button>}
         {figureListing.entries.map(entry => <button key={entry.name} disabled={figureBusy} onClick={() => {

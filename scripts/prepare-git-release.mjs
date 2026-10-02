@@ -42,10 +42,10 @@ if (await copyDeclarations('lib/types') === 0) throw new Error('Build the declar
 const dependencies = { ...releaseManifest.dependencies }
 for (const [name, version] of Object.entries({
   '@deepseek-ai/node-addon-system': '^0.1.2',
-  '@deepseek-ai/dsh-native-command': '0.0.1-rc.1',
-  '@deepseek-ai/schemastery': '^3.18.3',
+  '@deepseek-ai/dsh-native-command': '0.2.0-rc.2',
+  '@deepseek-ai/schemastery': '~3.18.4',
 })) {
-  if (dependencies[name] !== 'workspace:^' && dependencies[name] !== version) {
+  if (!/^workspace:(?:\^|~|\*)$/.test(dependencies[name] ?? '') && dependencies[name] !== version) {
     throw new Error(`Unexpected source dependency: ${name}`)
   }
   dependencies[name] = version
@@ -55,7 +55,7 @@ if (dependencies.koffi !== '^3.1.0' && !(dependencies.koffi === undefined && rel
 }
 delete dependencies.koffi
 releaseManifest.dependencies = dependencies
-releaseManifest.peerDependencies = { '@deepseek-ai/cordis': '^4.0.3', koffi: '^3.1.0' }
+releaseManifest.peerDependencies = { '@deepseek-ai/cordis': '~4.0.4', koffi: '^3.1.0' }
 releaseManifest.peerDependenciesMeta = { koffi: { optional: true } }
 releaseManifest.engines = { node: '^22.19.0 || >=24' }
 delete releaseManifest.devDependencies

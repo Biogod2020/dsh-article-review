@@ -5,6 +5,7 @@ import { isAbsolute, relative, resolve, sep } from 'node:path'
 import { createHash, randomUUID } from 'node:crypto'
 import { authoredFigureBase, collectFigures, figureFilePath, pinnedFigure, replaceFigureReference } from './figures.ts'
 import { z } from 'zod'
+import { auditTextChanges } from './change-audit.ts'
 import { checkChanges, migrateAnnotations, parseRevision, revisionId } from './document.ts'
 import { assertNewCitations, citationsIn, parseBibtex, possibleBareCitationKeys, reviewableBlocks } from './bibliography.ts'
 import type { BibEntry } from './bibliography.ts'
@@ -692,6 +693,81 @@ export class PaperStore {
     })
   }
 
+  /** The same mechanical preflight is used by paper_check and the actual write path. */
+  private async prepareAcceptance(document: PaperDocument, proposal: Proposal, disk: string): Promise<{ output: string; flags: Proposal['flags'] }> {
+    if (revisionId(disk) !== document.current.id) throw new Error('Source changed outside paper review; acceptance was refused')
+    const figureDirectory = authoredFigureBase(document.current.text) || document.path.slice(0, Math.max(0, document.path.lastIndexOf('/')))
+    for (const change of proposal.figureChanges ?? []) for (const asset of [change.before, change.after]) {
+      const file = figureFilePath(document.path, figureDirectory, asset.snapshot)
+      if (!file || createHash('sha256').update(await this.figureData(file)).digest('hex') !== asset.hash) {
+        throw new Error('Retained figure bytes changed; regenerate the figure proposal before accepting it')
+      }
+    }
+    const changes = proposal.edits.map((edit) => {
+      const block = document.current.blocks.find(b => b.id === edit.blockId)
+      if (!block || block.text !== edit.before) throw new Error('This proposal overlaps an accepted or external edit. Ask for a new proposal.')
+      if (document.baselines.some(b => !b.archivedAt && b.blockId === edit.blockId && b.locked)) throw new Error('Unlock the reviewed block before accepting a change')
+      return { block, edit }
+    })
+    const bibliography = await this.bibEntries(document.path)
+    const keys = bibliography.files.length ? new Set(bibliography.entries.map(entry => entry.key)) : null
+    for (const { edit } of changes) {
+      assertNewCitations(edit.operation ? '' : citationSource(edit.before), citationSource(edit.after), keys)
+    }
+    const flags = await this.proposalFlags(document, proposal)
+    const sourceText = document.current.text
+    let output = sourceText
+    const blocks = document.current.blocks
+    const newline = sourceText.includes('\r\n') ? '\r\n' : '\n'
+    const separator = newline + newline
+    const operations = changes.map(({ block, edit }, index) => {
+      if (!edit.operation) return { start: block.start, end: block.end, content: edit.after, index }
+      const anchorIndex = blocks.findIndex(candidate => candidate.id === block.id)
+      const adjacent = edit.operation === 'insert-before' ? blocks[anchorIndex - 1] : blocks[anchorIndex + 1]
+      const gap = edit.operation === 'insert-before'
+        ? sourceText.slice(adjacent?.end ?? block.start, block.start)
+        : sourceText.slice(block.end, adjacent?.start ?? block.end)
+      const missingBreaks = adjacent ? newline.repeat(Math.max(0, 2 - (gap.match(/\r?\n/g)?.length ?? 0))) : ''
+      return edit.operation === 'insert-before'
+        ? { start: block.start, end: block.start, content: missingBreaks + edit.after + separator, index }
+        : { start: block.end, end: block.end, content: separator + edit.after + missingBreaks, index }
+    })
+    for (const operation of operations.sort((a, b) => b.start - a.start || b.end - a.end || b.index - a.index)) {
+      output = output.slice(0, operation.start) + operation.content + output.slice(operation.end)
+    }
+    if (Buffer.byteLength(output) > this.maxBytes) throw new Error('Accepted manuscript would exceed configured size limit')
+    return { output, flags }
+  }
+
+  /**
+   * Revalidate pending proposals without writing manuscript bytes. Applicability is a snapshot,
+   * not an authorization or a claim of scientific validity; acceptance always checks again.
+   * @param path - exact workspace-relative manuscript.
+   * @returns blockers, fresh flags and source-grounded lexical evidence for every pending proposal.
+   */
+  check(path: string, proposalId?: string) {
+    return this.serial(async () => {
+      const { document, disk } = await this.load(path)
+      const selected = proposalId === undefined ? undefined : document.proposals.find(item => item.id === proposalId && item.status === 'pending')
+      if (proposalId !== undefined && !selected) throw new Error('Pending proposal not found')
+      const proposals = []
+      for (const proposal of document.proposals.filter(item => item.status === 'pending')) {
+        let flags = proposal.flags
+        const blockers: string[] = []
+        try { flags = (await this.prepareAcceptance(document, proposal, disk)).flags } catch (error) {
+          blockers.push(error instanceof Error ? error.message : String(error))
+        }
+        proposals.push({ id: proposal.id, flags, authorDeclaredMeaning: proposal.meaning,
+          applicable: blockers.length === 0, blockers,
+          evidence: proposal.edits.map((edit, editIndex) => ({ blockId: edit.blockId, editIndex,
+            changes: auditTextChanges(edit.operation ? '' : edit.before, edit.after) })).filter(edit => edit.changes.length),
+        })
+      }
+      return { revision: document.current.id, diskChanged: revisionId(disk) !== document.current.id,
+        scientificallyVerified: false as const, proposals, ...(selected ? { proposal: selected } : {}) }
+    })
+  }
+
   /**
    * Apply an authenticated operator gesture. Acceptance checks current source and preserves a recovery journal.
    * @param command - validated browser action.
@@ -765,46 +841,9 @@ export class PaperStore {
           const proposal = document.proposals.find(p => p.id === command.proposalId)
           if (!proposal || proposal.status !== 'pending') throw new Error('Proposal is no longer pending')
           if (command.accept) {
-            if (revisionId(disk) !== document.current.id) throw new Error('Source changed outside paper review; acceptance was refused')
-            const figureDirectory = authoredFigureBase(document.current.text) || document.path.slice(0, Math.max(0, document.path.lastIndexOf('/')))
-            for (const change of proposal.figureChanges ?? []) for (const asset of [change.before, change.after]) {
-              const file = figureFilePath(document.path, figureDirectory, asset.snapshot)
-              if (!file || createHash('sha256').update(await this.figureData(file)).digest('hex') !== asset.hash) {
-                throw new Error('Retained figure bytes changed; regenerate the figure proposal before accepting it')
-              }
-            }
-            const changes = proposal.edits.map((edit) => {
-              const block = document.current.blocks.find(b => b.id === edit.blockId)
-              if (!block || block.text !== edit.before) throw new Error('This proposal overlaps an accepted or external edit. Ask for a new proposal.')
-              if (document.baselines.some(b => !b.archivedAt && b.blockId === edit.blockId && b.locked)) throw new Error('Unlock the reviewed block before accepting a change')
-              return { block, edit }
-            })
-            const bibliography = await this.bibEntries(document.path)
-            const keys = bibliography.files.length ? new Set(bibliography.entries.map(entry => entry.key)) : null
-            for (const { edit } of changes) {
-              assertNewCitations(edit.operation ? '' : citationSource(edit.before), citationSource(edit.after), keys)
-            }
-            const sourceText = document.current.text
-            output = sourceText
-            const blocks = document.current.blocks
-            const newline = sourceText.includes('\r\n') ? '\r\n' : '\n'
-            const separator = newline + newline
-            const operations = changes.map(({ block, edit }, index) => {
-              if (!edit.operation) return { start: block.start, end: block.end, content: edit.after, index }
-              const anchorIndex = blocks.findIndex(candidate => candidate.id === block.id)
-              const adjacent = edit.operation === 'insert-before' ? blocks[anchorIndex - 1] : blocks[anchorIndex + 1]
-              const gap = edit.operation === 'insert-before'
-                ? sourceText.slice(adjacent?.end ?? block.start, block.start)
-                : sourceText.slice(block.end, adjacent?.start ?? block.end)
-              const missingBreaks = adjacent ? newline.repeat(Math.max(0, 2 - (gap.match(/\r?\n/g)?.length ?? 0))) : ''
-              return edit.operation === 'insert-before'
-                ? { start: block.start, end: block.start, content: missingBreaks + edit.after + separator, index }
-                : { start: block.end, end: block.end, content: separator + edit.after + missingBreaks, index }
-            })
-            for (const operation of operations.sort((a, b) => b.start - a.start || b.end - a.end || b.index - a.index)) {
-              output = output.slice(0, operation.start) + operation.content + output.slice(operation.end)
-            }
-            if (Buffer.byteLength(output) > this.maxBytes) throw new Error('Accepted manuscript would exceed configured size limit')
+            const prepared = await this.prepareAcceptance(document, proposal, disk)
+            output = prepared.output
+            proposal.flags = prepared.flags
             const replacements = new Map(proposal.edits.filter(edit => !edit.operation).map(edit => [edit.blockId, edit.after]))
             document.current = parseRevision(output, document.current, replacements)
             document.revisions.push(document.current)

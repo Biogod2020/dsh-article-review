@@ -41,7 +41,7 @@ exports[`boots from a composition, keeps ordinary tools, and lets agents and ope
     },
   },
   {
-    "description": "Read manuscript blocks and their exact ids and revision. Optionally read one block plus its neighbors; a selected block also returns beforeHash for paper_delete, so LaTeX or table Markdown need not be retyped. Preserve scientific claims; never strengthen causality, generalizability, novelty, significance or superiority without explicit author instruction.",
+    "description": "Read manuscript blocks and their exact ids and revision. For long manuscripts, set startBlock=0 and maxBlocks (1–200). Follow page.nextStartBlock using the returned revision; never mix revisions. maxCharacters is a soft budget: an oversized first block is returned whole and explicitly flagged, never truncated. Optionally read one block plus its neighbors; a selected block also returns beforeHash for paper_delete, so LaTeX or table Markdown need not be retyped. Preserve scientific claims; never strengthen causality, generalizability, novelty, significance or superiority without explicit author instruction.",
     "name": "paper_read",
     "parameters": {
       "properties": {
@@ -49,9 +49,25 @@ exports[`boots from a composition, keeps ordinary tools, and lets agents and ope
           "description": "Optional exact block id returned by paper_read.",
           "type": "string",
         },
+        "maxBlocks": {
+          "description": "Maximum whole blocks per page, integer 1–200; default 40.",
+          "type": "number",
+        },
+        "maxCharacters": {
+          "description": "Soft UTF-16 character budget, 1000–200000; default 32000. The first block remains whole.",
+          "type": "number",
+        },
         "path": {
           "description": "Workspace-relative Markdown manuscript path, for example article.md.",
           "type": "string",
+        },
+        "revision": {
+          "description": "Required for continuation pages; exact revision returned by the first page.",
+          "type": "string",
+        },
+        "startBlock": {
+          "description": "Zero-based block index for whole-block pagination; incompatible with blockId.",
+          "type": "number",
         },
       },
       "required": [
@@ -81,7 +97,7 @@ exports[`boots from a composition, keeps ordinary tools, and lets agents and ope
     },
   },
   {
-    "description": "Check pending proposals against current text, author locks and external source changes. Pass proposalId to read one pending proposal in full before revising it. Mechanical flags are review hints, not scientific verification.",
+    "description": "Revalidate pending proposals using the actual acceptance preflight: exact source, author locks, citation bindings, retained figure hashes and size limits. Returns actionable blockers and source-offset lexical evidence without writing the manuscript. Pass proposalId to read one pending proposal in full before revising it. Mechanical flags are review hints, not scientific verification.",
     "name": "paper_check",
     "parameters": {
       "properties": {
@@ -167,6 +183,7 @@ exports[`boots from a composition, keeps ordinary tools, and lets agents and ope
     "parameters": {
       "properties": {
         "annotationIds": {
+          "description": "Attached author annotation ids. Omit when proposing a change without annotations.",
           "items": {
             "type": "string",
           },
@@ -226,7 +243,6 @@ exports[`boots from a composition, keeps ordinary tools, and lets agents and ope
       "required": [
         "path",
         "baseRevision",
-        "annotationIds",
         "reason",
         "meaning",
         "edits",

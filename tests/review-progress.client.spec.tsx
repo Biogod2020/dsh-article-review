@@ -48,3 +48,14 @@ it('opens from a click anywhere on the minimap and progressively discloses parag
   fireEvent.click(screen.getByRole('button', { name: en.progressCollapseAll }))
   expect(screen.queryByRole('button', { name: /Class A uses direct imaging/ })).toBeNull()
 })
+
+
+it('dismisses the toolbar outline with Escape and outside pointer input', () => {
+  render(<ReviewProgress blocks={blocks} baselines={[]} jump={vi.fn()} t={key => en[key]} />)
+  fireEvent.click(screen.getByRole('button', { name: en.progressExpand }))
+  fireEvent.keyDown(document, { key: 'Escape' })
+  expect(screen.queryByRole('navigation')).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: en.progressExpand }))
+  fireEvent.pointerDown(document.body)
+  expect(screen.queryByRole('navigation')).toBeNull()
+})

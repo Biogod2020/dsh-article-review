@@ -13,7 +13,7 @@ Across multiple revision rounds, each paragraph stays compared with **the last v
 
 ![Review an AI proposal with rendered and source differences](docs/screenshots/review-proposal.png)
 
-*Example uses a fictional manuscript and scripted proposal.*
+*Screenshots use fictional manuscripts; proposals include real model runs.*
 
 ## Features
 
@@ -27,10 +27,10 @@ Across multiple revision rounds, each paragraph stays compared with **the last v
 <a id="installation"></a>
 ## Install
 
-Requires DSH Web and Node.js 22 (≥22.19) or 24+. Uses your existing model configuration.
+Requires DSH Web `0.2.0-rc.2` and Node.js 22 (≥22.19) or 24+. Uses your existing model configuration.
 
 ```sh
-dsh plugin --profile web add 'github:Biogod2020/dsh-article-review#v0.1.7-alpha.8'
+dsh plugin --profile web add 'github:Biogod2020/dsh-article-review#v0.2.0-rc.1'
 dsh web
 ```
 
@@ -56,11 +56,23 @@ Save annotations and attach revision requests to the conversation.
 
 Check review progress and jump to sections or paragraphs.
 
-![Review progress and navigation](docs/screenshots/review-progress.png)
+![Review progress and navigation](docs/screenshots/review-outline.jpg)
 
 Compare two versions and see changed words directly.
 
-![Version comparison](docs/screenshots/compare-versions.png)
+![Version comparison](docs/screenshots/versions-rendered.jpg)
+
+Preview PDFs, review figure replacements and browse references.
+
+![PDF preview](docs/screenshots/figure-pdf.jpg)
+
+![Figure replacement](docs/screenshots/figure-replacement.jpg)
+
+![Reference browser](docs/screenshots/references.jpg)
+
+Compact reading on narrow screens.
+
+<img src="docs/screenshots/narrow-zh-light.jpg" alt="Narrow-screen reading" width="360">
 
 ## Documentation
 

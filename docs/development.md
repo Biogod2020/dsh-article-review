@@ -6,7 +6,7 @@ This document covers local builds, manuscript tools, persistence and platform co
 
 ## Git installation
 
-For installation commands, see the [project README](../README.md#installation). The installer adds the package's [bundle patch](../cordis.patch.yml) after the Web layer; no separate launcher or model configuration is needed. This independent add-on was smoke-tested on macOS with DSH `0.1.6-alpha.2`. For other hosts, see [scope and compatibility](#scope-and-compatibility).
+For installation commands, see the [project README](../README.md#installation). The installer adds the package's [bundle patch](../cordis.patch.yml) after the Web layer; no separate launcher or model configuration is needed. This independent add-on was smoke-tested on macOS with DSH `0.2.0-rc.2`. Host/client types and integration tests use the pinned upstream tag `dsh-v0.2.0-rc.2` (`639ed015`). For other hosts, see [scope and compatibility](#scope-and-compatibility).
 
 ## Local development
 
@@ -16,7 +16,18 @@ Build the plugin inside a compatible [DeepSeek Harness](https://github.com/deeps
 dsh plugin --profile web add /absolute/path/to/deepseek-harness/packages/experimental/paper-review
 ```
 
-The installation links to the local directory, so keep the checkout in place. Rebuild after source changes; refresh the page for client changes and reload the plugin or restart DSH for host changes. The `main` branch uses `workspace:^` dependencies; for direct Git installation, use the prebuilt tag in the project README.
+The installation links to the local directory, so keep the checkout in place. Rebuild after source changes; refresh the page for client changes and reload the plugin or restart DSH for host changes. The `main` branch uses `workspace:*` / `workspace:~` dependencies; for direct Git installation, use the prebuilt tag in the project README.
+
+## Validation
+
+```sh
+npm run test:setup
+npm test
+npm run typecheck:core
+DSH_HARNESS_ROOT=/absolute/path/to/deepseek-harness npm run test:harness
+```
+
+The full lane checks host/client types separately and runs the native composition tests against the installed upstream checkout. It never edits that checkout. See the [hands-on review](experience-review.zh.md) for the DSH 0.2 test matrix and remaining issues.
 
 <a id="understand-the-implementation"></a>
 ## Understand the implementation
@@ -53,7 +64,7 @@ The model receives `paper_list` and `paper_open` before a manuscript opens. An e
 
 #### Token effect
 
-Two discovery schemas remain available before opening a manuscript; fifteen active schemas join the ordinary model tool list afterward. Exiting hides those fifteen schemas for the next turn without removing earlier results. A full read may include the manuscript up to its byte cap; a block read includes neighbors. Proposal inspection and revision return the full edit group. Figure tools return paths and hashes, not image bytes, so the model must inspect the artwork separately. BibTeX indexes return all bound metadata. Large libraries, proposals and histories increase tool-result size; local histories have no pruning limit.
+Two discovery schemas remain available before opening a manuscript; fifteen active schemas join the ordinary model tool list afterward. Exiting hides those fifteen schemas for the next turn without removing earlier results. Full reads return whole blocks in revision-pinned pages (40 blocks / 32,000 characters by default); a block read includes neighbors. Proposal inspection and revision return the full edit group. Figure tools return paths and hashes, not image bytes, so the model must inspect the artwork separately. BibTeX indexes return all bound metadata. Large libraries, proposals and histories increase tool-result size; local histories have no pruning limit.
 
 #### KV Cache effect
 
@@ -90,7 +101,7 @@ The plugin reviews local Markdown manuscripts with one server process and multip
 - Numeric, citation, figure, Methods and claim-word checks flag lexical changes for author review. Authors assess their scientific meaning and evidence support. Automated integration tests use scripted model responses; real-model revision quality requires separate evaluation.
 - Selections stay within one Markdown block. Cross-block selections receive an explicit message; add separate notes and submit them together. Highlights require a browser with the CSS Custom Highlight API. A changed source block marks its rendered selections **Needs location**, even if the quoted words survive elsewhere. Automatic fuzzy matching and manual reanchoring are not implemented; preserve the old record and create a new one at the intended passage.
 - Locks apply to this plugin, not external editors. A noncooperating writer can race the final check and rename. Atomic replacement and the journal address process interruption, not guaranteed power-loss durability or hostile local filesystem mutation.
-- The Finder chooser opens on the macOS DSH host, not on a remote browser's computer. Remote and unattended host deployments should select a known workspace path with `paper_open`. Ordinary write tools can bypass proposal review, so use DSH's permission mode and explicit instructions when author approval is required.
+- The Finder chooser opens on the macOS DSH host, not on a remote browser's computer. The browser workspace picker is the default on every host; remote deployments can also use `paper_open`. Ordinary write tools can bypass proposal review, so use DSH's permission mode and explicit instructions when author approval is required.
 - The Git release does not install `koffi` automatically because this native dependency is used only for Windows workspace locking. Windows installation and operation are not yet verified; Windows requires `koffi` in the same profile before the plugin can open a manuscript.
 - Full revisions and annotations are retained without pruning or a manuscript restore button. Large histories can consume disk and slow state loading; the reader, review comparisons and rendered version blocks mount near the viewport. The references list shows at most forty entries per page. The workspace lock permits one server process, with multiple browser windows; it is not multi-author synchronization.
 - BibTeX indexing accepts ordinary complete entries but does not expand macros or validate bibliographic truth. New in-text citations are checked in proposed replacements and insertions, not in unrelated direct file writes. The references tab flags possible bare citation keys; scientific terms can also trigger a flag and need contextual review.

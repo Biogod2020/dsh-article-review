@@ -13,7 +13,7 @@ kind: "package-bundle"
 
 ![查看 AI 提案的渲染效果与源码差异](docs/screenshots/review-proposal.png)
 
-*示例使用虚构稿件与脚本化提案。*
+*截图使用虚构稿件，含真实模型提案。*
 
 ## 核心功能
 
@@ -27,10 +27,10 @@ kind: "package-bundle"
 <a id="installation"></a>
 ## 安装
 
-需要 DSH Web、Node.js 22（≥22.19）或 24+，沿用现有模型配置。
+需要 DSH Web `0.2.0-rc.2`、Node.js 22（≥22.19）或 24+，沿用现有模型配置。
 
 ```sh
-dsh plugin --profile web add 'github:Biogod2020/dsh-article-review#v0.1.7-alpha.8'
+dsh plugin --profile web add 'github:Biogod2020/dsh-article-review#v0.2.0-rc.1'
 dsh web
 ```
 
@@ -56,11 +56,23 @@ dsh web
 
 查看已审进度，跳转章节与段落。
 
-![审阅进度与导航](docs/screenshots/review-progress.png)
+![审阅进度与导航](docs/screenshots/review-outline.jpg)
 
 比较两个版本，直接查看字词变化。
 
-![版本对比](docs/screenshots/compare-versions.png)
+![版本对比](docs/screenshots/versions-rendered.jpg)
+
+预览 PDF、审阅换图、浏览文献。
+
+![PDF 预览](docs/screenshots/figure-pdf.jpg)
+
+![换图前后对比](docs/screenshots/figure-replacement.jpg)
+
+![文献浏览](docs/screenshots/references.jpg)
+
+窄屏也能顺畅阅读。
+
+<img src="docs/screenshots/narrow-zh-light.jpg" alt="窄屏阅读" width="360">
 
 ## 文档
 

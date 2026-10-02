@@ -45,7 +45,7 @@ describe('review workspace ownership', () => {
   it('admits exactly one successor after a holder crashes with owner.lock present', { timeout: 30_000 }, async () => {
     const root = await workspace()
     const child = spawn(process.execPath, ['--import', 'tsx/esm', HOLDER, root], {
-      cwd: fileURLToPath(new URL('../../../..', import.meta.url)),
+      cwd: fileURLToPath(new URL('..', import.meta.url)),
       stdio: ['ignore', 'pipe', 'inherit'],
     })
     const ready = new Promise<void>((resolve, reject) => {

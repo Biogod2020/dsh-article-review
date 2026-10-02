@@ -6,7 +6,7 @@
 
 ## Git 安装
 
-安装命令见 [项目首页](../README.zh.md#installation)。安装器将本包的[组合配置](../cordis.patch.yml)加入 Web 层之后；无需额外启动器或模型配置。此独立插件已在 macOS + DSH `0.1.6-alpha.2` 上完成启动检查。其他平台的要求见 [支持范围与兼容性](#scope-and-compatibility)。
+安装命令见 [项目首页](../README.zh.md#installation)。安装器将本包的[组合配置](../cordis.patch.yml)加入 Web 层之后；无需额外启动器或模型配置。此独立插件已在 macOS + DSH `0.2.0-rc.2` 上完成启动检查。宿主/客户端类型与集成测试使用上游 `dsh-v0.2.0-rc.2`（`639ed015`）。其他平台的要求见 [支持范围与兼容性](#scope-and-compatibility)。
 
 ## 本地开发
 
@@ -16,7 +16,18 @@
 dsh plugin --profile web add /absolute/path/to/deepseek-harness/packages/experimental/paper-review
 ```
 
-此安装链接到本地目录，请保留该工作区。源码修改后需重新构建；客户端修改需刷新页面，宿主端修改需重新加载插件或重启 DSH。`main` 使用 `workspace:^` 依赖；直接 Git 安装请使用项目首页的预构建 tag。
+此安装链接到本地目录，请保留该工作区。源码修改后需重新构建；客户端修改需刷新页面，宿主端修改需重新加载插件或重启 DSH。`main` 使用 `workspace:*` / `workspace:~` 依赖；直接 Git 安装请使用项目首页的预构建 tag。
+
+## 验证
+
+```sh
+npm run test:setup
+npm test
+npm run typecheck:core
+DSH_HARNESS_ROOT=/absolute/path/to/deepseek-harness npm run test:harness
+```
+
+完整流程分别检查宿主/客户端类型，并在已安装依赖的上游工作区上运行真实组合测试，不修改该工作区。[使用体验报告](experience-review.zh.md)记录 DSH 0.2 的实测和剩余问题。
 
 <a id="understand-the-implementation"></a>
 ## 理解实现
@@ -53,7 +64,7 @@ dsh plugin --profile web add /absolute/path/to/deepseek-harness/packages/experim
 
 #### Token 影响
 
-打开稿件前可用两个发现 schema；启用后在普通工具之外增加十五个活跃 schema。退出后下一轮隐藏这十五个 schema，不移除早期结果。全文读取受字节上限约束，按区块读取含邻居；提案查看和修改返回完整修改组。图工具返回路径和哈希，不返回图片字节，模型仍需另行查看图像。BibTeX 索引返回全部绑定元数据。大型文献库、提案和历史会增加结果长度；本地历史没有裁剪上限。
+打开稿件前可用两个发现 schema；启用后在普通工具之外增加十五个活跃 schema。退出后下一轮隐藏这十五个 schema，不移除早期结果。全文读取按固定版本分页，默认 40 个完整区块、32,000 字符；按区块读取含邻居；提案查看和修改返回完整修改组。图工具返回路径和哈希，不返回图片字节，模型仍需另行查看图像。BibTeX 索引返回全部绑定元数据。大型文献库、提案和历史会增加结果长度；本地历史没有裁剪上限。
 
 #### KV Cache 影响
 

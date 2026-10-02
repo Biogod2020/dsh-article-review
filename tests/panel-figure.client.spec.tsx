@@ -43,6 +43,7 @@ function fixture(selected: string | null = 'new.pdf') {
     useTabInfo: () => ({ tab: { signal } }), useSession: () => false,
     useInput: () => ({ draft: '', occurrences: [], phase: 'plain' }), inputActions: { setDraft: vi.fn() },
     command, pickFigure, replaceFigure, currentFile: async () => 'article.md',
+    listFigureFiles: async () => ({ path: '', entries: [{ name: 'new.pdf', type: 'file' }], truncated: false }),
     figureThumbnail: async () => 'data:image/png;base64,AAAA', figurePage: vi.fn(), figureBytes: vi.fn(), figurePath: vi.fn(),
     bibliography: async () => ({ files: [], entries: [], missingKeys: [], possibleBareKeys: [],
       canonicalCitationCount: 0, citationStatus: 'no-citations' }),
@@ -54,7 +55,7 @@ function fixture(selected: string | null = 'new.pdf') {
 it('chooses a file, stages a proposal and shows exact old/new snapshot previews', async () => {
   const { replaceFigure, command, revision, block } = fixture()
   fireEvent.click(await screen.findByRole('button', { name: en.replaceFigure }))
-  fireEvent.click(await screen.findByRole('button', { name: en.figureReplacement }))
+  fireEvent.click(await screen.findByRole('button', { name: en.hostPicker }))
   await waitFor(() => { expect(screen.getByLabelText<HTMLInputElement>(en.figureReplacementPath).value).toBe('new.pdf') })
   fireEvent.click(screen.getByRole('button', { name: en.figureReplacementSubmit }))
   await screen.findByText(en.figureOld)
@@ -68,9 +69,9 @@ it('chooses a file, stages a proposal and shows exact old/new snapshot previews'
 it('leaves source and proposals untouched when Finder selection is canceled', async () => {
   const { pickFigure, replaceFigure } = fixture(null)
   fireEvent.click(await screen.findByRole('button', { name: en.replaceFigure }))
-  fireEvent.click(await screen.findByRole('button', { name: en.figureReplacement }))
+  fireEvent.click(await screen.findByRole('button', { name: en.hostPicker }))
   await waitFor(() => { expect(pickFigure).toHaveBeenCalledTimes(1) })
-  await waitFor(() => { expect(screen.getByRole<HTMLButtonElement>('button', { name: en.figureReplacement }).disabled).toBe(false) })
+  await waitFor(() => { expect(screen.getByRole<HTMLButtonElement>('button', { name: en.hostPicker }).disabled).toBe(false) })
   expect(screen.getByLabelText<HTMLInputElement>(en.figureReplacementPath).value).toBe('')
   expect(replaceFigure).not.toHaveBeenCalled()
   fireEvent.click(screen.getByRole('button', { name: en.cancel }))
@@ -81,11 +82,22 @@ it('can cancel an outstanding native chooser from the review pane', async () => 
   const { pickFigure, replaceFigure } = fixture(null)
   pickFigure.mockImplementation(signal => new Promise((resolve) => { signal.addEventListener('abort', () => { resolve(null) }) }))
   fireEvent.click(await screen.findByRole('button', { name: en.replaceFigure }))
-  fireEvent.click(await screen.findByRole('button', { name: en.figureReplacement }))
+  fireEvent.click(await screen.findByRole('button', { name: en.hostPicker }))
   await waitFor(() => { expect(pickFigure).toHaveBeenCalledTimes(1) })
   const signal = pickFigure.mock.calls[0]?.[0]
   fireEvent.click(screen.getByRole('button', { name: en.cancel }))
   await waitFor(() => { expect(signal?.aborted).toBe(true) })
   expect(replaceFigure).not.toHaveBeenCalled()
   expect(screen.queryByRole('dialog')).toBeNull()
+})
+
+
+it('browses replacement files without invoking a host GUI', async () => {
+  const { pickFigure, replaceFigure } = fixture()
+  fireEvent.click(await screen.findByRole('button', { name: en.replaceFigure }))
+  fireEvent.click(await screen.findByRole('button', { name: en.figureBrowseWorkspace }))
+  fireEvent.click(await screen.findByRole('button', { name: 'new.pdf' }))
+  expect(screen.getByLabelText<HTMLInputElement>(en.figureReplacementPath).value).toBe('new.pdf')
+  expect(pickFigure).not.toHaveBeenCalled()
+  expect(replaceFigure).not.toHaveBeenCalled()
 })

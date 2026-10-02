@@ -342,7 +342,7 @@ export function FigureGallery(props: FigureGalleryProps): ReactNode {
               style={{ width: imageSize.width || undefined, height: imageSize.height || undefined,
                 transform: `translate(-50%, -50%) translate3d(${pan.x}px, ${pan.y}px, 0) scale(${currentScale})` }} />}
       </div>
-      <div className={viewerCss.footer}>{selectedPath && mediaType(selectedPath) === 'application/pdf' ? labels.pdfPreview : labels.panHint}</div>
+      {viewer.url && <div className={viewerCss.footer}>{selectedPath && mediaType(selectedPath) === 'application/pdf' ? labels.pdfPreview : labels.panHint}</div>}
     </dialog>, document.body)}
   </>
 }

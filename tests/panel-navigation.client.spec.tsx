@@ -25,8 +25,8 @@ afterEach(() => {
   else Reflect.deleteProperty(HTMLElement.prototype, 'scrollTo')
 })
 
-function fixture(operation?: 'insert-before' | 'insert-after', stale = false, newerRevision = false) {
-  const base = parseRevision('# Paper\n\n## Methods\n\n### Screening\n\nAn exact source anchor.\n\nAnother paragraph.')
+function fixture(operation?: 'insert-before' | 'insert-after', stale = false, newerRevision = false, citation = false) {
+  const base = parseRevision('# Paper\n\n## Methods\n\n### Screening\n\nAn exact source anchor.\n\nAnother paragraph.' + (citation ? ' [@demo2026]' : ''))
   const revision = newerRevision ? parseRevision(base.text.replace('Another paragraph.', 'An unrelated accepted revision.'), base) : base
   const block = revision.blocks.find(candidate => candidate.text === 'An exact source anchor.')
   if (!block) throw new Error('Fixture anchor missing')
@@ -42,7 +42,7 @@ function fixture(operation?: 'insert-before' | 'insert-after', stale = false, ne
     useTabInfo: () => ({ tab: { signal: new AbortController().signal } }),
     useSession: (select: (state: { running: boolean }) => boolean) => select({ running: false }),
     useInput: () => ({ draft: '', occurrences: [], phase: 'plain' }), inputActions: { setDraft: vi.fn() },
-    command, currentFile: async () => 'article.md', bibliography: async () => ({ files: [], entries: [], missingKeys: [],
+    command, currentFile: async () => 'article.md', bibliography: async () => ({ files: [], entries: citation ? [{ key: 'demo2026', type: 'article', file: 'demo.bib', fields: { title: 'A fictional citation', author: 'Example, Ada', year: '2026' }, hash: '' }] : [], missingKeys: [],
       possibleBareKeys: [], canonicalCitationCount: 0, citationStatus: 'no-citations' }),
   } as PaperPanelProps
   vi.stubGlobal('CSS', { escape: (value: string) => value })
@@ -172,4 +172,31 @@ it('returns to the manually scrolled location instead of repeating a previous pr
   fireEvent.click(screen.getByRole('button', { name: en.read, exact: true }))
   expect(viewport.scrollTop).toBe(3600)
   expect(document.querySelector('[data-location-marker]')).toBeNull()
+})
+
+it('filters pending groups without accepting, rejecting or marking any text reviewed', async () => {
+  const { block, command } = fixture()
+  await screen.findByText(block.text)
+  fireEvent.click(screen.getByRole('button', { name: en.changes }))
+  const filter = screen.getByRole('combobox', { name: en.queueFilter })
+  fireEvent.change(filter, { target: { value: 'style' } })
+  expect(document.querySelector('[data-proposal="P7"]')).toBeNull()
+  expect(screen.getByText(en.queueEmpty)).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: en.clearFilter }))
+  expect(document.querySelector('[data-proposal="P7"]')).toBeTruthy()
+  expect(command.mock.calls.every(([request]) => !['decide', 'review'].includes(request.action))).toBe(true)
+})
+
+
+it('locates citations without labelling them as changed review baselines', async () => {
+  fixture(undefined, false, false, true)
+  await screen.findByText('An exact source anchor.')
+  fireEvent.click(screen.getByRole('button', { name: en.references }))
+  fireEvent.click(await screen.findByRole('button', { name: en.locateCitation }))
+  await screen.findByRole('button', { name: en.backToReferences })
+  const marker = document.querySelector('[data-location-marker]')
+  expect(marker?.textContent).toContain(en.citationLocated)
+  expect(marker?.textContent).not.toContain(en.baseline)
+  fireEvent.click(screen.getByRole('button', { name: en.backToReferences }))
+  await screen.findByRole('button', { name: en.locateCitation })
 })

@@ -30,7 +30,7 @@ export async function pickNativeFigure(workspaceRoot: string, signal: AbortSigna
   run: NativeCommandRunner = runNativeCommand, platform: NodeJS.Platform = process.platform): Promise<string | null> {
   if (platform !== 'darwin') throw new Error('Native figure selection requires macOS on the DSH host')
   try {
-    const { stdout } = await run('osascript', ['-e', FIGURE_SCRIPT, workspaceRoot], signal)
+    const { stdout } = await run('osascript', ['-e', FIGURE_SCRIPT, workspaceRoot], signal, 'visible')
     const path = stdout.replace(/[\r\n]+$/, '')
     if (!path) throw new Error('Finder returned no figure path')
     return path
@@ -58,7 +58,7 @@ export async function pickNativeManuscript(
 ): Promise<string | null> {
   if (platform !== 'darwin') throw new Error('Native manuscript selection requires macOS on the DSH host')
   try {
-    const { stdout } = await run('osascript', ['-e', SCRIPT, workspaceRoot], signal)
+    const { stdout } = await run('osascript', ['-e', SCRIPT, workspaceRoot], signal, 'visible')
     const path = stdout.replace(/[\r\n]+$/, '')
     if (!path) throw new Error('Finder returned no manuscript path')
     return path
@@ -86,7 +86,7 @@ export async function pickNativeBibliography(
 ): Promise<string | null> {
   if (platform !== 'darwin') throw new Error('Native bibliography selection requires macOS on the DSH host')
   try {
-    const { stdout } = await run('osascript', ['-e', BIB_SCRIPT, workspaceRoot], signal)
+    const { stdout } = await run('osascript', ['-e', BIB_SCRIPT, workspaceRoot], signal, 'visible')
     const path = stdout.replace(/[\r\n]+$/, '')
     if (!path) throw new Error('Finder returned no BibTeX path')
     return path
