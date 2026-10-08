@@ -4,7 +4,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-slots'
 /** Chinese interface dictionary. */
 export const zh = {
   tabread: '阅读', tabchanges: '修改', tabversions: '版本', tabhistory: '记录', tabreferences: '文献',
-  reviewedLabel: '已审', backToReferences: '返回文献', hostPicker: '在 macOS 主机选择',
+  reviewedLabel: '已审', backToReferences: '返回文献', hostPicker: '选择本地文件',
   queueFilter: '提案类别', allProposals: '全部提案', needsJudgment: '优先判断', queueEmpty: '此类别没有待审提案；其他提案仍保留。',
   changeEvidence: '具体变化依据', evidenceTruncated: '此处仅显示部分变化，请查看完整源码差异',
   citationEtAl: 'et al.',
@@ -87,7 +87,7 @@ export type PaperReviewKey = keyof typeof zh
 /** English interface dictionary. */
 export const en: Record<PaperReviewKey, string> = {
   tabread: 'Read', tabchanges: 'Changes', tabversions: 'Versions', tabhistory: 'History', tabreferences: 'References',
-  reviewedLabel: 'Reviewed', backToReferences: 'Back to references', hostPicker: 'Choose on macOS host',
+  reviewedLabel: 'Reviewed', backToReferences: 'Back to references', hostPicker: 'Choose local file',
   queueFilter: 'Category', allProposals: 'All proposals', needsJudgment: 'Needs judgment', queueEmpty: 'No pending proposals match. Other proposals are retained.',
   changeEvidence: 'Exact change evidence', evidenceTruncated: 'Examples are truncated; inspect the full source diff',
   citationEtAl: 'et al.',

@@ -12,6 +12,7 @@ import { BibliographyViewSchema, FileListingSchema, RevisionSchema } from '../sc
 import { WorkbenchViewSchema } from '../workbench-view.ts'
 import { PaperPanel, type PaperPanelActions } from './panel.tsx'
 import { en, zh } from './locales.ts'
+import { pickDesktopFile } from './desktop-file-picker.ts'
 
 /** Browser dependencies supplied by the Web profile. */
 export const inject = ['slots', 'locale', 'sidebarRightTabs', 'connection', 'remote', 'remote.workspaceFiles']
@@ -23,6 +24,14 @@ export function apply(ctx: Context): void {
   const id = '@deepseek-ai/dsh-experimental-paper-review'
   const t = ctx.locale.bind('paperReview')
   const connection = ctx.get('connection') as ConnectionHandle
+  const pick = async (method: string, accept: string, signal: AbortSignal, sessionId: string): Promise<string | null> => {
+    const desktop = pickDesktopFile(accept, signal)
+    const selectedPath = desktop === undefined ? undefined : await desktop
+    if (selectedPath === null || signal.aborted) return null
+    const result = await connection.rpc.call('/api', method, { sessionId, ...(selectedPath === undefined ? {} : { selectedPath }) }, signal)
+    if (!result.ok) throw new Error(result.error.message)
+    return z.object({ path: z.string().nullable() }).parse(result.value).path
+  }
   ctx.effect(() => ctx.locale.register('paperReview', { zh, en }))
   ctx.effect(() => ctx.sidebarRightTabs.register({
     id, kind: 'paper-review', priority: 'extension', title: () => t('title'),
@@ -51,9 +60,7 @@ export function apply(ctx: Context): void {
       return FileListingSchema.parse(result.value)
     },
     async pickFile(signal, sessionId) {
-      const result = await connection.rpc.call('/api', 'paper-review/pick-file', { sessionId }, signal)
-      if (!result.ok) throw new Error(result.error.message)
-      return z.object({ path: z.string().nullable() }).parse(result.value).path
+      return pick('paper-review/pick-file', '.md', signal, sessionId)
     },
     async currentFile(signal, sessionId) {
       const result = await connection.rpc.call('/api', 'paper-review/current', { sessionId }, signal)
@@ -71,14 +78,10 @@ export function apply(ctx: Context): void {
       return BibliographyViewSchema.parse(result.value)
     },
     async pickBibliography(signal, sessionId) {
-      const result = await connection.rpc.call('/api', 'paper-review/pick-bibliography', { sessionId }, signal)
-      if (!result.ok) throw new Error(result.error.message)
-      return z.object({ path: z.string().nullable() }).parse(result.value).path
+      return pick('paper-review/pick-bibliography', '.bib', signal, sessionId)
     },
     async pickFigure(signal, sessionId) {
-      const result = await connection.rpc.call('/api', 'paper-review/pick-figure', { sessionId }, signal)
-      if (!result.ok) throw new Error(result.error.message)
-      return z.object({ path: z.string().nullable() }).parse(result.value).path
+      return pick('paper-review/pick-figure', '.pdf,.png,.jpg,.jpeg,.webp,.gif,.svg', signal, sessionId)
     },
     async listFigureFiles(path, signal, sessionId) {
       const result = await connection.rpc.call('/api', 'paper-review/list-files', { sessionId, path, extension: 'figure' }, signal)

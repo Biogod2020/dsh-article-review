@@ -27,10 +27,29 @@ kind: "package-bundle"
 <a id="installation"></a>
 ## 安装
 
-需要 DSH Web `0.2.0-rc.2`、Node.js 22（≥22.19）或 24+，沿用现有模型配置。
+支持 DSH Desktop 和 Web `0.2.0-rc.2`，沿用现有模型配置。
+
+### Desktop App
+
+App 自带运行环境，无需另装 Node。
+
+1. 在 App 左侧打开 **Plugins（插件）**，点击 **Add plugin（添加插件）**。
+2. 粘贴预构建发行版地址：
+
+   `github:Biogod2020/dsh-article-review#v0.2.0-rc.3`
+
+3. 安装完成后点击 **Enable now（立即启用）**，按提示重启。
+4. 选择本地工作区并打开一个对话，在右侧栏选择**阅读、批注与局部修改**。
+5. 点击**浏览工作区 → 选择本地文件**打开 Markdown 稿件。系统选择窗口属于 App，文件必须位于当前对话工作区内。BibTeX 和替换图片也使用同一 Desktop 选择器。
+
+Desktop 使用独立的 `desktop` 配置，安装到 `web` 不会同时安装到 App。升级旧插件时，安装上面的发行版地址，按 App 提示重新加载或重启。macOS Desktop 已实测；Windows 要求见[支持范围与兼容性](docs/development.zh.md#scope-and-compatibility)。
+
+### Web
+
+需要 Node.js 22（≥22.19）或 24+：
 
 ```sh
-dsh plugin --profile web add 'github:Biogod2020/dsh-article-review#v0.2.0-rc.2'
+dsh plugin --profile web add 'github:Biogod2020/dsh-article-review#v0.2.0-rc.3'
 dsh web
 ```
 

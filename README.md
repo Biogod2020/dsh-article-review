@@ -27,10 +27,29 @@ Across multiple revision rounds, each paragraph stays compared with **the last v
 <a id="installation"></a>
 ## Install
 
-Requires DSH Web `0.2.0-rc.2` and Node.js 22 (≥22.19) or 24+. Uses your existing model configuration.
+Supports DSH Desktop and Web `0.2.0-rc.2`. Uses your existing model configuration.
+
+### Desktop App
+
+The App includes its runtime; no separate Node installation is needed.
+
+1. Open **Plugins** in the App's left sidebar, then click **Add plugin**.
+2. Paste this prebuilt release address:
+
+   `github:Biogod2020/dsh-article-review#v0.2.0-rc.3`
+
+3. After installation, click **Enable now** and follow any restart prompt.
+4. Choose a local workspace and open a conversation. In the right sidebar, choose **Read, annotate and revise**.
+5. Click **Browse workspace → Choose local file** to open a Markdown manuscript. The system dialog belongs to the App; the selected file must be inside this conversation's workspace. BibTeX and replacement figures use the same Desktop picker.
+
+Desktop uses its own `desktop` profile. Installing into the `web` profile does not install into the App. If updating from an older plugin, install the release address above and follow the App's reload or restart prompt. macOS Desktop has been exercised; see [platform requirements](docs/development.md#scope-and-compatibility) for Windows.
+
+### Web
+
+Requires Node.js 22 (≥22.19) or 24+:
 
 ```sh
-dsh plugin --profile web add 'github:Biogod2020/dsh-article-review#v0.2.0-rc.2'
+dsh plugin --profile web add 'github:Biogod2020/dsh-article-review#v0.2.0-rc.3'
 dsh web
 ```
 

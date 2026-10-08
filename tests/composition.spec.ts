@@ -71,7 +71,7 @@ it('boots from a composition, keeps ordinary tools, and lets agents and operator
     })
     return response
   }
-  const control = (method: 'paper-review/list-files' | 'paper-review/current' | 'paper-review/leave' | 'paper-review/command' | 'paper-review/revision', payload: object, sessionId = 'paper-review-recording') => fetch(`${origin}/api/${method}`, {
+  const control = (method: 'paper-review/list-files' | 'paper-review/current' | 'paper-review/leave' | 'paper-review/command' | 'paper-review/revision' | 'paper-review/pick-file' | 'paper-review/pick-bibliography' | 'paper-review/pick-figure', payload: object, sessionId = 'paper-review-recording') => fetch(`${origin}/api/${method}`, {
     method: 'POST', headers: { 'content-type': 'application/json', origin, cookie },
     body: JSON.stringify({ type: 'client-request', rpcId: 'control-test', method, payload: { sessionId, ...payload } }),
   })
@@ -85,6 +85,16 @@ it('boots from a composition, keeps ordinary tools, and lets agents and operator
   const initialFiles = await (await control('paper-review/list-files', { path: '' })).json() as { result: { ok: boolean; value: { entries: { name: string }[] } } }
   expect(initialFiles.result.ok).toBe(true)
   expect(initialFiles.result.value.entries.map(entry => entry.name)).toContain('article.md')
+  // Desktop sends the shell's absolute path; the authenticated host still confines it to this session's workspace.
+  expect((await (await control('paper-review/pick-file', { selectedPath: join(root, 'article.md') })).json()).result)
+    .toEqual({ ok: true, value: { path: 'article.md' } })
+  expect((await (await control('paper-review/pick-bibliography', { selectedPath: join(root, 'references', 'main.bib') })).json()).result)
+    .toEqual({ ok: true, value: { path: 'references/main.bib' } })
+  await writeFile(join(root, 'figure.png'), 'test figure')
+  expect((await (await control('paper-review/pick-figure', { selectedPath: join(root, 'figure.png') })).json()).result)
+    .toEqual({ ok: true, value: { path: 'figure.png' } })
+  expect((await (await control('paper-review/pick-file', { selectedPath: join(root, 'article.md') }, 'missing-session')).json()).result.ok).toBe(false)
+  expect((await (await control('paper-review/pick-file', { selectedPath: join(root, 'references', 'main.bib') })).json()).result.ok).toBe(false)
   const envelope: unknown = await (await rpc({ action: 'open', path: 'article.md' })).json()
   const view = z.object({ result: z.object({ value: ViewSchema }) }).parse(envelope).result.value
   expect((await (await control('paper-review/current', {})).json() as { result: { value: { path: string } } }).result.value.path).toBe('article.md')

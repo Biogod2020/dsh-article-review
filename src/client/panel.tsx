@@ -64,9 +64,9 @@ export interface PaperPanelActions {
   bibliography: (path: string, signal: AbortSignal, sessionId: string) => Promise<BibliographyView>
   /** Replace explicit `.bib` bindings; no bibliography or manuscript source is edited. */
   bindBibliography: (path: string, files: string[], signal: AbortSignal, sessionId: string) => Promise<BibliographyView>
-  /** Choose a workspace `.bib` file through Finder on a macOS DSH host. */
+  /** Choose a workspace `.bib` file in Desktop or on a macOS Web host. */
   pickBibliography: (signal: AbortSignal, sessionId: string) => Promise<string | null>
-  /** Choose a replacement figure using Finder on the macOS host. */
+  /** Choose a replacement figure in Desktop or on a macOS Web host. */
   pickFigure: (signal: AbortSignal, sessionId: string) => Promise<string | null>
   /** Browse folders and figure files on hosts without Finder. */
   listFigureFiles: (path: string, signal: AbortSignal, sessionId: string) => Promise<FileListing>
@@ -174,6 +174,7 @@ export function PaperPanel({
   const [source, setSource] = useState(false)
   const [listing, setListing] = useState<FileListing>()
   const [pickerOpen, setPickerOpen] = useState(false)
+  const filePickController = useRef<AbortController>()
   const [pickerKind, setPickerKind] = useState<'md' | 'bib'>('md')
   const [controlsOpen, setControlsOpen] = useState(false)
   const [headerCollapsed, setHeaderCollapsed] = useState(() => preference('paper-review:toolbar-collapsed') === 'true')
@@ -379,17 +380,21 @@ export function PaperPanel({
   }
 
   const chooseFile = async (): Promise<void> => {
+    filePickController.current?.abort()
+    const controller = new AbortController()
+    filePickController.current = controller
+    const signal = AbortSignal.any([tab.signal, controller.signal])
     setPickerBusy(true); setPickerError(''); setError('')
     try {
-      const selected = await pickFile(tab.signal, sessionId)
-      if (!selected || tab.signal.aborted) return
+      const selected = await pickFile(signal, sessionId)
+      if (!selected || signal.aborted) return
       setPath(selected); setPickerOpen(false)
       void run({ action: 'open', path: selected })
     } catch (caught) {
-      if (tab.signal.aborted) return
+      if (signal.aborted) return
       const message = caught instanceof Error ? caught.message : String(caught)
       setPickerError(message)
-    } finally { setPickerBusy(false) }
+    } finally { if (filePickController.current === controller) { filePickController.current = undefined; setPickerBusy(false) } }
   }
 
   const exitMode = async (): Promise<void> => {
@@ -457,20 +462,29 @@ export function PaperPanel({
   }
 
   const chooseBib = async (): Promise<void> => {
+    filePickController.current?.abort()
+    const controller = new AbortController()
+    filePickController.current = controller
+    const signal = AbortSignal.any([tab.signal, controller.signal])
     setBibBusy(true); setBibError(''); setPickerError('')
     try {
-      const selected = await pickBibliography(tab.signal, sessionId)
-      if (selected && !tab.signal.aborted && !bib?.files.includes(selected)) {
+      const selected = await pickBibliography(signal, sessionId)
+      if (selected && !signal.aborted && !bib?.files.includes(selected)) {
         setPickerOpen(false); await updateBib([...(bib?.files ?? []), selected])
       }
-    } catch (caught) { if (!tab.signal.aborted) setPickerError(caught instanceof Error ? caught.message : String(caught)) }
-    finally { setBibBusy(false) }
+    } catch (caught) { if (!signal.aborted) setPickerError(caught instanceof Error ? caught.message : String(caught)) }
+    finally { if (filePickController.current === controller) { filePickController.current = undefined; setBibBusy(false) } }
   }
 
   useEffect(() => {
     setSelectedNotes([]); setSource(false); setShowHighlights(false); setShowNotes(false); setShowDrafts(false); setFocusReading(false)
     setRecoveringBaseline(undefined); setBaselineTarget(''); setFocusedReference(undefined)
   }, [doc?.path])
+
+  useEffect(() => {
+    if (!pickerOpen) filePickController.current?.abort()
+    return () => { filePickController.current?.abort() }
+  }, [pickerOpen])
 
   useEffect(() => {
     if (!pickerOpen) return

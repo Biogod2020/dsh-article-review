@@ -54,6 +54,10 @@
     "../src/workbench-view.ts",
     "../tests/workbench-view.spec.ts",
     "../src/pdf-preview-cache.ts",
-    "../tests/pdf-preview-cache.spec.ts"
+    "../tests/pdf-preview-cache.spec.ts",
+    "../src/selected-file.ts",
+    "../src/client/desktop-file-picker.ts",
+    "../tests/selected-file.spec.ts",
+    "../tests/desktop-file-picker.client.spec.ts"
   ]
 }

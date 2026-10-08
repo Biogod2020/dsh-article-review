@@ -4,7 +4,6 @@ import ConfigSchema from '@deepseek-ai/schemastery'
 import { z } from 'zod'
 import { PdfPreviewCache } from './pdf-preview-cache.ts'
 import { realpath } from 'node:fs/promises'
-import { relative, sep, isAbsolute } from 'node:path'
 import type {} from '@deepseek-ai/dsh-client-connection'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
@@ -17,6 +16,7 @@ import { revisionId } from './document.ts'
 import { readManuscriptPage } from './manuscript-read.ts'
 import { workbenchView } from './workbench-view.ts'
 import { pickNativeBibliography, pickNativeFigure, pickNativeManuscript } from './native-file-picker.ts'
+import { selectedWorkspaceFile } from './selected-file.ts'
 
 /** Cordis plugin identity. */
 export const name = 'paper-review'
@@ -415,10 +415,11 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
           result = { ok: true, value: payload.projection === 'workbench' ? workbenchView(view) : view }
         } else if (parsed.data.method === 'paper-review/pick-figure') {
           const root = await realpath(await rootFor(sessionId))
-          const selected = await pickNativeFigure(root, request.signal)
+          const input = z.object({ selectedPath: z.string().min(1).optional() }).parse(parsed.data.payload)
+          const selected = input.selectedPath ?? await pickNativeFigure(root, request.signal)
           if (selected === null) result = { ok: true, value: { path: null } }
           else {
-            const path = relative(root, selected).split(sep).join('/')
+            const path = await selectedWorkspaceFile(root, selected, 'figure')
             await store.figurePath(path)
             result = { ok: true, value: { path } }
           }
@@ -433,20 +434,20 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
           result = { ok: true, value: await store.configureBibliography(input.path, input.files) }
         } else if (parsed.data.method === 'paper-review/pick-bibliography') {
           const root = await realpath(await rootFor(sessionId))
-          const selected = await pickNativeBibliography(root, request.signal)
+          const input = z.object({ selectedPath: z.string().min(1).optional() }).parse(parsed.data.payload)
+          const selected = input.selectedPath ?? await pickNativeBibliography(root, request.signal)
           if (selected === null) result = { ok: true, value: { path: null } }
           else {
-            const path = relative(root, selected)
-            if (!path || path === '..' || path.startsWith(`..${sep}`) || isAbsolute(path) || !/\.bib$/i.test(path)) throw new Error('Chosen .bib file must be inside the conversation workspace')
+            const path = await selectedWorkspaceFile(root, selected, 'bib')
             result = { ok: true, value: { path } }
           }
         } else if (parsed.data.method === 'paper-review/pick-file') {
-          const selected = await pickNativeManuscript(await realpath(await rootFor(sessionId)), request.signal)
+          const root = await realpath(await rootFor(sessionId))
+          const input = z.object({ selectedPath: z.string().min(1).optional() }).parse(parsed.data.payload)
+          const selected = input.selectedPath ?? await pickNativeManuscript(root, request.signal)
           if (selected === null) result = { ok: true, value: { path: null } }
           else {
-            const root = await realpath(await rootFor(sessionId))
-            const path = relative(root, selected)
-            if (!path || path === '..' || path.startsWith(`..${sep}`) || isAbsolute(path)) throw new Error('Chosen manuscript must be inside the conversation workspace')
+            const path = await selectedWorkspaceFile(root, selected, 'md')
             const { document } = await store.read(path)
             result = { ok: true, value: { path: document.path } }
           }
