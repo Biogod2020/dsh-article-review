@@ -44,7 +44,7 @@ App 自带运行环境，无需另装 Node。
 
 Desktop 使用独立的 `desktop` 配置，安装到 `web` 不会同时安装到 App。升级旧插件时，安装上面的发行版地址，按 App 提示重新加载或重启。macOS Desktop 已实测；Windows 要求见[支持范围与兼容性](docs/development.zh.md#scope-and-compatibility)。
 
-若 GitHub 地址连接超时，可下载[预构建发行归档](https://codeload.github.com/Biogod2020/dsh-article-review/tar.gz/refs/tags/v0.2.0-rc.3)，解压到固定本地目录，在 **Plugins → Add plugin** 中输入该目录的绝对路径。归档已含 `lib/index.js` 和 `lib/client.js`，无需构建。本地安装会链接该目录，请保留原位置。
+若 GitHub 地址连接超时，可下载[预构建发行归档](https://codeload.github.com/Biogod2020/dsh-article-review/tar.gz/refs/tags/v0.2.0-rc.3)，保存下载的 `.tar.gz` 文件，在 **Plugins → Add plugin** 中输入该文件的绝对路径。归档已含 `lib/index.js` 和 `lib/client.js`，无需解压或构建。
 
 ### Web
 
