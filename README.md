@@ -44,6 +44,8 @@ The App includes its runtime; no separate Node installation is needed.
 
 Desktop uses its own `desktop` profile. Installing into the `web` profile does not install into the App. If updating from an older plugin, install the release address above and follow the App's reload or restart prompt. macOS Desktop has been exercised; see [platform requirements](docs/development.md#scope-and-compatibility) for Windows.
 
+If the GitHub address times out, download the [prebuilt release archive](https://codeload.github.com/Biogod2020/dsh-article-review/tar.gz/refs/tags/v0.2.0-rc.3), extract it into a permanent local directory, and enter that directory’s absolute path in **Plugins → Add plugin**. The archive already includes `lib/index.js` and `lib/client.js`; no build is needed. Keep the directory in place because a local installation links to it.
+
 ### Web
 
 Requires Node.js 22 (≥22.19) or 24+:
