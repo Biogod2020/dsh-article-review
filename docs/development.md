@@ -42,7 +42,7 @@ Build `lib/` in a compatible DSH checkout, then prepare a separate release direc
 ```sh
 node scripts/prepare-git-release.mjs /absolute/path/to/release-directory
 npm pack /absolute/path/to/release-directory --pack-destination /absolute/path/to/artifacts
-npm publish /absolute/path/to/artifacts/dsh-article-review-0.2.1-alpha.1.tgz --registry=https://registry.npmjs.org --access public --tag next
+npm publish /absolute/path/to/artifacts/dsh-article-review-0.2.1-alpha.2.tgz --registry=https://registry.npmjs.org --access public --tag next
 ```
 
 The preparation script replaces workspace dependencies with registry-resolvable versions and checks that the client module name matches the package name and that `zod` is inlined. Do not publish the source directory with `workspace:` dependencies. Prereleases use the `next` tag; installation instructions pin the full version. Before uploading, check the same archive with `--dry-run`, then install and start it in an isolated DSH profile. Publishing requires npm login and the account's two-factor authentication. After publication, verify the version and archive integrity on the official npm registry and the mainland mirror separately.

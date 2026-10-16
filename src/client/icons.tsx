@@ -1,5 +1,16 @@
 /** Small review controls bundle their artwork so older DSH clients render the same panel. */
 import type { ReactNode } from 'react'
+import type { IconProps } from '@deepseek-ai/dsh-client-ui-primitives'
+
+/** Manuscript with a revision pencil; the sidebar supplies size and theme-aware ink. */
+export function PaperReviewIcon({ size = 26, className }: IconProps): ReactNode {
+  return <svg width={size} height={size} className={className} viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M11 20.5H6A1.5 1.5 0 0 1 4.5 19V5A1.5 1.5 0 0 1 6 3.5h7.5L18 8v2.5" />
+    <path d="M13.5 3.5V8H18M7.5 11.5H13M7.5 15h3" />
+    <path d="m13.25 17.25 5.9-5.9a1.2 1.2 0 0 1 1.7 1.7l-5.9 5.9-2.95.75zM18 12.5l1.7 1.7" />
+  </svg>
+}
 
 export type PaperIconKind = 'read' | 'changes' | 'versions' | 'history' | 'references'
   | 'refresh' | 'up' | 'down' | 'folder' | 'close' | 'edit' | 'sparkle'

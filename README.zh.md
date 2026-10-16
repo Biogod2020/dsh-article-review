@@ -37,7 +37,7 @@ App 自带运行环境，无需另装 Node。
 1. 在 App 左侧打开 **Plugins（插件）**，点击 **Add plugin（添加插件）**。
 2. 粘贴 npm 包名及版本：
 
-   `dsh-article-review@0.2.1-alpha.1`
+   `dsh-article-review@0.2.1-alpha.2`
 
 3. 安装完成后点击 **Enable now（立即启用）**，按提示重启。
 4. 选择本地工作区并打开一个对话，在右侧栏选择**阅读、批注与局部修改**。
@@ -45,14 +45,14 @@ App 自带运行环境，无需另装 Node。
 
 Desktop 使用独立的 `desktop` 配置，安装到 `web` 不会同时安装到 App。若之前通过 GitHub 安装了旧包 `@deepseek-ai/dsh-experimental-paper-review`，先在 Plugins 中卸载旧包，再安装上述 npm 包并按提示重启；工作区中的 `.paper-review/` 审阅记录继续使用。macOS Desktop 已实测；Windows 要求见[支持范围与兼容性](docs/development.zh.md#scope-and-compatibility)。
 
-可选择 npm 官方源或中国大陆镜像。镜像尚未同步新版本时，先切回官方源。GitHub 安装方式仍可使用 `github:Biogod2020/dsh-article-review#v0.2.1-alpha.1`；该历史 tag 保留旧包名。若 GitHub 地址连接超时，可下载[预构建发行归档](https://codeload.github.com/Biogod2020/dsh-article-review/tar.gz/refs/tags/v0.2.1-alpha.1)，在 **Plugins → Add plugin** 中输入本地归档的绝对路径，无需解压或构建。两种包名请选择一种安装。
+可选择 npm 官方源或中国大陆镜像。镜像尚未同步新版本时，先切回官方源。GitHub 安装地址为 `github:Biogod2020/dsh-article-review#v0.2.1-alpha.2`。若 GitHub 地址连接超时，可下载[预构建发行归档](https://codeload.github.com/Biogod2020/dsh-article-review/tar.gz/refs/tags/v0.2.1-alpha.2)，在 **Plugins → Add plugin** 中输入本地归档的绝对路径，无需解压或构建。`v0.2.1-alpha.1` 及更早 tag 保留旧包名，两种包名请选择一种安装。
 
 ### Web
 
 需要 Node.js 22（≥22.19）或 24+：
 
 ```sh
-dsh plugin --profile web add 'dsh-article-review@0.2.1-alpha.1'
+dsh plugin --profile web add 'dsh-article-review@0.2.1-alpha.2'
 dsh web
 ```
 

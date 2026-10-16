@@ -1,6 +1,6 @@
 {
   "name": "dsh-article-review",
-  "version": "0.2.1-alpha.1",
+  "version": "0.2.1-alpha.2",
   "description": "Annotation-driven Markdown manuscript review with proposals and human review baselines",
   "keywords": [
     "deepseek-harness",

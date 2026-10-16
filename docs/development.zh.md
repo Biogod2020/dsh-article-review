@@ -42,7 +42,7 @@ DSH_HARNESS_ROOT=/absolute/path/to/deepseek-harness npm run test:harness
 ```sh
 node scripts/prepare-git-release.mjs /absolute/path/to/release-directory
 npm pack /absolute/path/to/release-directory --pack-destination /absolute/path/to/artifacts
-npm publish /absolute/path/to/artifacts/dsh-article-review-0.2.1-alpha.1.tgz --registry=https://registry.npmjs.org --access public --tag next
+npm publish /absolute/path/to/artifacts/dsh-article-review-0.2.1-alpha.2.tgz --registry=https://registry.npmjs.org --access public --tag next
 ```
 
 准备脚本将工作区依赖替换为可从注册表解析的依赖，并检查客户端模块名与包名一致、`zod` 已内联。不要直接发布含 `workspace:` 依赖的源码目录。预发布使用 `next` 标签；安装说明固定到完整版本。上传前先用 `--dry-run` 检查同一个归档，并在隔离 DSH 配置中安装及启动验证。正式发布需 npm 登录和账号要求的双重验证；发布后分别检查 npm 官方源及国内镜像的版本与归档完整性。

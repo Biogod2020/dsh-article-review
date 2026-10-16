@@ -13,6 +13,7 @@ import { WorkbenchViewSchema } from '../workbench-view.ts'
 import { PaperPanel, type PaperPanelActions } from './panel.tsx'
 import { en, zh } from './locales.ts'
 import { pickDesktopFile } from './desktop-file-picker.ts'
+import { PaperReviewIcon } from './icons.tsx'
 
 /** Browser dependencies supplied by the Web profile. */
 export const inject = ['slots', 'locale', 'sidebarRightTabs', 'connection', 'remote', 'remote.workspaceFiles']
@@ -36,7 +37,7 @@ export function apply(ctx: Context): void {
   ctx.effect(() => ctx.locale.register('paperReview', { zh, en }))
   ctx.effect(() => ctx.sidebarRightTabs.register({
     id, kind: 'paper-review', priority: 'extension', title: () => t('title'),
-    guide: [{ id: 'paper', order: 5, title: () => t('guide'), description: () => t('description') }],
+    guide: [{ id: 'paper', order: 5, title: () => t('guide'), description: () => t('description'), icon: PaperReviewIcon }],
     keepMounted: true,
   }))
   const resolveFigure = async (path: string, signal: AbortSignal, sessionId: string): Promise<string> => {
