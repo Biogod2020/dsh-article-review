@@ -32,6 +32,9 @@ async function copyDeclarations(directory) {
 await copyArtifact('lib/index.js')
 await copyArtifact('lib/client.js')
 const clientPath = join(target, 'lib/client.js')
+if (/\brequire\(["']zod["']\)/.test(await readFile(clientPath, 'utf8'))) {
+  throw new Error('Inline zod in the client bundle; official Desktop rc.2 has no shared zod module')
+}
 // CSS module labels keep relative paths; the release does not ship the client sourcemap.
 await writeFile(clientPath, (await readFile(clientPath, 'utf8'))
   .replace(/[ \t]+$/gm, '')
@@ -39,11 +42,11 @@ await writeFile(clientPath, (await readFile(clientPath, 'utf8'))
   .replace(/^\/\/# sourceMappingURL=client\.js\.map\r?\n?/gm, '').trimEnd() + '\n')
 if (await copyDeclarations('lib/types') === 0) throw new Error('Build the declaration files before preparing a release')
 
-const dependencies = { ...releaseManifest.dependencies }
+const dependencies = { ...sourceManifest.dependencies }
 for (const [name, version] of Object.entries({
   '@deepseek-ai/node-addon-system': '^0.1.2',
-  '@deepseek-ai/dsh-native-command': '0.2.0-rc.2',
-  '@deepseek-ai/schemastery': '~3.18.4',
+  '@deepseek-ai/dsh-native-command': '0.2.0-rc.2 || 0.2.1-alpha.4',
+  '@deepseek-ai/schemastery': '~3.18.4 || ~3.18.5-alpha.2',
 })) {
   if (!/^workspace:(?:\^|~|\*)$/.test(dependencies[name] ?? '') && dependencies[name] !== version) {
     throw new Error(`Unexpected source dependency: ${name}`)
@@ -54,10 +57,15 @@ if (dependencies.koffi !== '^3.1.0' && !(dependencies.koffi === undefined && rel
   throw new Error('Unexpected koffi source dependency')
 }
 delete dependencies.koffi
+delete dependencies['@deepseek-ai/dsh-native-command']
 releaseManifest.dependencies = dependencies
-releaseManifest.peerDependencies = { '@deepseek-ai/cordis': '~4.0.4', koffi: '^3.1.0' }
+releaseManifest.peerDependencies = {
+  '@deepseek-ai/cordis': '~4.0.4 || ~4.0.5-alpha.2',
+  '@deepseek-ai/dsh-native-command': '0.2.0-rc.2 || 0.2.1-alpha.4',
+  koffi: '^3.1.0',
+}
 releaseManifest.peerDependenciesMeta = { koffi: { optional: true } }
-releaseManifest.engines = { node: '^22.19.0 || >=24' }
+releaseManifest.engines = { ...sourceManifest.engines }
 delete releaseManifest.devDependencies
 delete releaseManifest.scripts
 delete releaseManifest.exports['./src/*']

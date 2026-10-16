@@ -173,11 +173,16 @@ describe('manuscript review workflow', () => {
     await mkdir(join(root, 'drafts'))
     await writeFile(join(root, 'drafts', 'next.md'), '# Next\n')
     await writeFile(join(root, 'notes.txt'), 'Private notes\n')
+    await writeFile(join(root, 'companion.pdf'), 'Fictional PDF fixture')
     await symlink('/etc', join(root, 'outside'))
     expect(await store.listFiles('')).toMatchObject({ path: '', truncated: false, entries: [
       { name: 'drafts', type: 'directory' }, { name: 'article.md', type: 'file' },
     ] })
     expect(await store.listFiles('drafts')).toMatchObject({ path: 'drafts', entries: [{ name: 'next.md', type: 'file' }] })
+    const beforePreview = await store.read('article.md')
+    expect((await store.listFiles('', 'preview')).entries.map(entry => entry.name)).toEqual(['drafts', 'article.md', 'companion.pdf', 'notes.txt'])
+    await expect(store.listFiles('outside', 'preview')).rejects.toThrow('inside')
+    expect(await store.read('article.md')).toEqual(beforePreview)
     await expect(store.listFiles('../')).rejects.toThrow('inside')
     await expect(store.listFiles('/etc')).rejects.toThrow('inside')
     await expect(store.listFiles('outside')).rejects.toThrow('inside')

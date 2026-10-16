@@ -53,9 +53,9 @@ export interface PaperPanelActions {
    * @param path - workspace-relative folder.
    * @param signal - tab lifetime.
    * @param sessionId - native conversation.
-   * @returns bounded Markdown listing.
+   * @returns bounded file listing for the selected review or preview purpose.
    */
-  listFiles: (path: string, signal: AbortSignal, sessionId: string, extension?: 'md' | 'bib') => Promise<FileListing>
+  listFiles: (path: string, signal: AbortSignal, sessionId: string, extension?: 'md' | 'bib' | 'preview') => Promise<FileListing>
   /** @returns selected workspace-relative Markdown path, or null when Finder is canceled. */
   pickFile: (signal: AbortSignal, sessionId: string) => Promise<string | null>
   /** @returns manuscript selected by the operator or agent in this conversation. */
@@ -175,7 +175,7 @@ export function PaperPanel({
   const [listing, setListing] = useState<FileListing>()
   const [pickerOpen, setPickerOpen] = useState(false)
   const filePickController = useRef<AbortController>()
-  const [pickerKind, setPickerKind] = useState<'md' | 'bib'>('md')
+  const [pickerKind, setPickerKind] = useState<'md' | 'bib' | 'preview'>('md')
   const [controlsOpen, setControlsOpen] = useState(false)
   const [headerCollapsed, setHeaderCollapsed] = useState(() => preference('paper-review:toolbar-collapsed') === 'true')
   const [previewFigure, setPreviewFigure] = useState<PaperFigure>()
@@ -651,6 +651,7 @@ export function PaperPanel({
     if (id.startsWith('bib:')) setFocusedReference(id.slice(4))
   }, [])
   const compactHeader = Boolean(doc) && headerCollapsed
+  const pickerTitle = pickerKind === 'preview' ? 'previewDocuments' : pickerKind === 'md' ? 'browse' : 'bibChoose'
 
   const annotationCard = (annotation: Annotation): ReactNode => <div
     className={css.note} key={annotation.id} data-annotation={annotation.id}>
@@ -671,6 +672,9 @@ export function PaperPanel({
         {doc && !compactHeader && <div className={css.summary}><span>{t('notes')} {doc.annotations.filter(a => a.status === 'open').length}</span>
           <span title={doc.current.id}>{t('version')} {doc.current.id.slice(0, 7)}</span></div>}
         {doc && <div className={css.topActions}>
+          {!compactHeader && <button title={t('nativePreviewHelp')} onClick={() => {
+            tab.actions.openResource(fileAddressFor(sessionId, undefined, doc.path), { preferNewPane: true })
+          }}>{t('nativePreview')}</button>}
           {!compactHeader && <button className={`${css.refresh} ${css.iconOnly}`} aria-label={busy ? t('loading') : t('check')}
             title={busy ? t('loading') : t('check')} disabled={busy} onClick={() => { void run({ action: 'open', path: doc.path }, false) }}>
             <PaperIcon kind="refresh" />
@@ -691,6 +695,9 @@ export function PaperPanel({
           <input aria-label={t('path')} placeholder={t('pathHint')} value={path} onChange={(event) =>{  setPath(event.target.value) }} />
           <button type="button" disabled={busy || pickerBusy} onClick={() => { setPickerKind('md'); setPickerOpen(true); void browse('', 'md') }}><PaperIcon kind="folder" size={15} />{t('browse')}</button>
           <button disabled={busy || !path.trim()}><PaperIcon kind="read" size={15} />{t('open')}</button>
+          <button type="button" disabled={pickerBusy} title={t('nativePreviewHelp')} onClick={() => {
+            setPickerKind('preview'); setPickerOpen(true); void browse('', 'preview')
+          }}>{t('previewDocuments')}</button>
         </form>
         {doc && <button className={css.leave} disabled={busy || running} onClick={() => { void exitMode() }}>{t('leave')}</button>}
       </div>}
@@ -711,9 +718,9 @@ export function PaperPanel({
     </div>}
     {notice && <div className={css.notice} role="status">{notice}</div>}
     {pickerOpen && <div className={css.pickerBackdrop} role="presentation" onClick={() => { setPickerOpen(false) }}>
-      <div className={css.picker} ref={picker} role="dialog" aria-modal="true" aria-label={t(pickerKind === 'md' ? 'browse' : 'bibChoose')}
+      <div className={css.picker} ref={picker} role="dialog" aria-modal="true" aria-label={t(pickerTitle)}
         onClick={(event) => { event.stopPropagation() }}>
-        <div className={css.pickerHeading}><strong>{t(pickerKind === 'md' ? 'browse' : 'bibChoose')}</strong><button className={css.iconOnly} aria-label={t('close')}
+        <div className={css.pickerHeading}><strong>{t(pickerTitle)}</strong><button className={css.iconOnly} aria-label={t('close')}
           title={t('close')} onClick={() => { setPickerOpen(false) }}><PaperIcon kind="close" /></button></div>
         <div className={css.pickerCrumbs}><button disabled={pickerBusy || listing?.path === ''} onClick={() => { void browse('') }}>{t('workspace')}</button>
           {listing?.path.split('/').filter(Boolean).map((part, index, parts) => <button key={index} disabled={pickerBusy || index === parts.length - 1}
@@ -721,17 +728,19 @@ export function PaperPanel({
         </div>
         {pickerBusy && <p>{t('loading')}</p>}
         {pickerError && <p className={css.error} role="alert">{pickerError}</p>}
+        {pickerKind === 'preview' && <p>{t('nativePreviewHelp')}</p>}
         {!pickerBusy && listing && <div className={css.pickerEntries}>
-          {listing.entries.length === 0 && <p>{t(pickerKind === 'bib' ? 'noBibFiles' : 'noMarkdown')}</p>}
+          {listing.entries.length === 0 && <p>{t(pickerKind === 'preview' ? 'noPreviewFiles' : pickerKind === 'bib' ? 'noBibFiles' : 'noMarkdown')}</p>}
           {listing.entries.map(entry => <button key={entry.name} onClick={() => {
             const selected = [listing.path, entry.name].filter(Boolean).join('/')
             if (entry.type === 'directory') void browse(selected)
+            else if (pickerKind === 'preview') { setPickerOpen(false); tab.actions.openResource(fileAddressFor(sessionId, undefined, selected), { preferNewPane: true }) }
             else if (pickerKind === 'bib') { setPickerOpen(false); void updateBib([...new Set([...(bib?.files ?? []), selected])]) }
             else { setPath(selected); setPickerOpen(false); void run({ action: 'open', path: selected }) }
           }}>{entry.type === 'directory' ? '▸' : '▤'} {entry.name}</button>)}
           {listing.truncated && <p>{t('truncated')}</p>}
         </div>}
-        <button disabled={pickerBusy || bibBusy} onClick={() => { void (pickerKind === 'md' ? chooseFile() : chooseBib()) }}>{t('hostPicker')}</button>
+        {pickerKind !== 'preview' && <button disabled={pickerBusy || bibBusy} onClick={() => { void (pickerKind === 'md' ? chooseFile() : chooseBib()) }}>{t('hostPicker')}</button>}
       </div>
     </div>}
     {(view?.diskChanged || incoming) && <div className={css.banner} role="status"><span>{t(incoming ? 'newVersion' : 'external')}</span>

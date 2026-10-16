@@ -3,6 +3,8 @@ import type {} from '@deepseek-ai/dsh-client-ui-slots'
 
 /** Chinese interface dictionary. */
 export const zh = {
+  nativePreview: 'DSH 预览', previewDocuments: '预览配套文件', noPreviewFiles: '此目录没有文件或文件夹。',
+  nativePreviewHelp: '在旁边打开 DSH 原生文档预览。预览磁盘上的文件，不改变当前稿件、批注或人工审阅基线；支持格式由 DSH 提供。',
   tabread: '阅读', tabchanges: '修改', tabversions: '版本', tabhistory: '记录', tabreferences: '文献',
   reviewedLabel: '已审', backToReferences: '返回文献', hostPicker: '选择本地文件',
   queueFilter: '提案类别', allProposals: '全部提案', needsJudgment: '优先判断', queueEmpty: '此类别没有待审提案；其他提案仍保留。',
@@ -86,6 +88,8 @@ export const zh = {
 export type PaperReviewKey = keyof typeof zh
 /** English interface dictionary. */
 export const en: Record<PaperReviewKey, string> = {
+  nativePreview: 'DSH preview', previewDocuments: 'Preview companion files', noPreviewFiles: 'No files or folders in this directory.',
+  nativePreviewHelp: 'Open DSH’s native document preview alongside the review. It shows the file on disk without changing the selected manuscript, annotations or human review baselines. DSH provides the supported formats.',
   tabread: 'Read', tabchanges: 'Changes', tabversions: 'Versions', tabhistory: 'History', tabreferences: 'References',
   reviewedLabel: 'Reviewed', backToReferences: 'Back to references', hostPicker: 'Choose local file',
   queueFilter: 'Category', allProposals: 'All proposals', needsJudgment: 'Needs judgment', queueEmpty: 'No pending proposals match. Other proposals are retained.',

@@ -6,7 +6,7 @@ This document covers local builds, manuscript tools, persistence and platform co
 
 ## Git installation
 
-For installation commands, see the [project README](../README.md#installation). The installer adds the package's [bundle patch](../cordis.patch.yml) after the Web layer; no separate launcher or model configuration is needed. This independent add-on was smoke-tested on macOS with DSH `0.2.0-rc.2`. Host/client types and integration tests use the pinned upstream tag `dsh-v0.2.0-rc.2` (`639ed015`). For other hosts, see [scope and compatibility](#scope-and-compatibility).
+For installation commands, see the [project README](../README.md#installation). The installer adds the package's [bundle patch](../cordis.patch.yml) after the Web layer; no separate launcher or model configuration is needed. The current release supports DSH Web `0.2.1-alpha.4` and macOS Desktop `0.2.0-rc.2`. Its `engines.dsh` names these two verified versions; both host/client type checks and all 240 integration tests pass on each. For other hosts, see [scope and compatibility](#scope-and-compatibility).
 
 The browser receives the current manuscript plus a revision index; historical bodies load only for the selected comparison pair. Reader blocks share viewport observers. PDF previews share a byte-bounded cache and converter queue (`previewCacheBytes`, default 4194304; `previewConcurrency`, default 1). See the [performance measurements](performance.zh.md).
 
@@ -26,6 +26,8 @@ The installation links to the local directory, so keep the checkout in place. Re
 npm run test:setup
 npm test
 npm run typecheck:core
+npm ci --prefix validation/harness --ignore-scripts
+DSH_HARNESS_SOURCE=/absolute/path/to/dsh-v0.2.1-alpha.4 npm run test:published
 DSH_HARNESS_ROOT=/absolute/path/to/deepseek-harness npm run test:harness
 ```
 
@@ -93,7 +95,7 @@ Attached blocks and annotations add a user message only when submitted. Neighbor
 Submitted context appends to the conversation. Changed quotations, revisions, annotations or interface language change the new message, not earlier retained messages. Provider cache reuse remains outside this plugin's control.
 
 ## Scope and compatibility
-The Desktop update was exercised on macOS with DSH App `0.2.0-rc.2` and fictional files: manuscript selection, cancel and retry, BibTeX binding, figure proposal and rejection, annotation persistence and native composer context. Host/client type checks and 239 rc.2 integration tests passed. Windows Desktop has not been exercised on a real machine.
+The release was exercised in an isolated copy of macOS Desktop `0.2.0-rc.2` with fictional files: native manuscript selection, cancel and retry, proposal acceptance and rejection, the original human baseline after two accepted rounds, version swapping and source diffs, annotation-to-composer insertion, BibTeX binding, and recovery after a full restart. Native Markdown, two-page PDF and DOCX-to-PDF previews passed. Windows Desktop has not been exercised on a real machine. See the [release validation](release-0.2.1-alpha.1.zh.md).
 
 
 <a id="scope-and-compatibility"></a>
@@ -101,7 +103,7 @@ The Desktop update was exercised on macOS with DSH App `0.2.0-rc.2` and fictiona
 
 The plugin reviews local Markdown manuscripts with one server process and multiple browser windows. The following notes cover formats, platforms and concurrent access.
 
-- PDF, Word and LaTeX sources, tracked document export, block movement and cross-block Markdown reference resolution are not implemented. Proposals can replace or delete exact blocks, or insert complete Markdown fragments beside exact anchors; dependent edits can be grouped.
+- PDF and Word can use DSH’s native preview; proposal editing still targets Markdown. PDF, Word and LaTeX source editing, tracked document export, block movement and cross-block Markdown reference resolution are not implemented. Proposals can replace or delete exact blocks, or insert complete Markdown fragments beside exact anchors; dependent edits can be grouped.
 - Numeric, citation, figure, Methods and claim-word checks flag lexical changes for author review. Authors assess their scientific meaning and evidence support. Automated integration tests use scripted model responses; real-model revision quality requires separate evaluation.
 - Selections stay within one Markdown block. Cross-block selections receive an explicit message; add separate notes and submit them together. Highlights require a browser with the CSS Custom Highlight API. A changed source block marks its rendered selections **Needs location**, even if the quoted words survive elsewhere. Automatic fuzzy matching and manual reanchoring are not implemented; preserve the old record and create a new one at the intended passage.
 - Locks apply to this plugin, not external editors. A noncooperating writer can race the final check and rename. Atomic replacement and the journal address process interruption, not guaranteed power-loss durability or hostile local filesystem mutation.

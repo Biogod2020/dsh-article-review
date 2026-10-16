@@ -6,7 +6,7 @@
 
 ## Git 安装
 
-安装命令见 [项目首页](../README.zh.md#installation)。安装器将本包的[组合配置](../cordis.patch.yml)加入 Web 层之后；无需额外启动器或模型配置。此独立插件已在 macOS + DSH `0.2.0-rc.2` 上完成启动检查。宿主/客户端类型与集成测试使用上游 `dsh-v0.2.0-rc.2`（`639ed015`）。其他平台的要求见 [支持范围与兼容性](#scope-and-compatibility)。
+安装命令见 [项目首页](../README.zh.md#installation)。安装器将本包的[组合配置](../cordis.patch.yml)加入 Web 层之后；无需额外启动器或模型配置。当前版本已在 DSH Web `0.2.1-alpha.4` 与 macOS Desktop `0.2.0-rc.2` 上验证。`engines.dsh` 声明这两个已验证版本；二者的宿主/客户端类型检查和完整集成测试各通过 240 项。其他平台的要求见 [支持范围与兼容性](#scope-and-compatibility)。
 
 浏览器只接收当前正文与版本目录，历史正文按对比选择读取。段落共享可见性观察器；PDF 预览共用缓存和转换队列（`previewCacheBytes` 默认 4194304，`previewConcurrency` 默认 1）。见[性能测量](performance.zh.md)。
 
@@ -26,6 +26,8 @@ dsh plugin --profile web add /absolute/path/to/deepseek-harness/packages/experim
 npm run test:setup
 npm test
 npm run typecheck:core
+npm ci --prefix validation/harness --ignore-scripts
+DSH_HARNESS_SOURCE=/absolute/path/to/dsh-v0.2.1-alpha.4 npm run test:published
 DSH_HARNESS_ROOT=/absolute/path/to/deepseek-harness npm run test:harness
 ```
 
@@ -93,7 +95,7 @@ Only change the selected blocks; insert complete Markdown before or after an exa
 提交的上下文追加到会话。引文、版本、批注或界面语言的变化会改变新消息，不会改变此前保留的消息。提供商的缓存复用不受本插件控制。
 
 ## 支持范围与兼容性
-本次 Desktop 改造已在 macOS + DSH App `0.2.0-rc.2` 中用虚构稿件验证：系统选择稿件、取消后重试、绑定 BibTeX、换图提案与拒绝、保存批注及附到原生输入框。宿主/客户端类型检查通过，上游 rc.2 集成测试 239 项通过。Windows Desktop 尚未实机验收。
+新版已在隔离的 macOS Desktop `0.2.0-rc.2` 中用虚构材料验证：系统选择稿件、取消重试、提案接受与拒绝、两轮接受后保留原人工基线、版本交换与源码差异、批注附到原生输入框、BibTeX 绑定，以及退出重启后的记录恢复。原生 Markdown、双页 PDF 和 DOCX 转 PDF 预览通过。Windows Desktop 尚未实机验收。详见[新版验收记录](release-0.2.1-alpha.1.zh.md)。
 
 
 <a id="scope-and-compatibility"></a>
@@ -101,7 +103,7 @@ Only change the selected blocks; insert complete Markdown before or after an exa
 
 插件面向本地 Markdown 稿件审阅，支持一个服务进程和多个浏览器窗口。以下说明文件格式、平台及并发行为。
 
-- 尚未实现 PDF、Word、LaTeX 原稿、带修订痕迹的文档导出、区块移动以及跨区块 Markdown 引用解析。提案可以替换或删除精确区块，也可在精确锚点旁插入完整 Markdown 片段；相关修改可以分组。
+- PDF 与 Word 可通过 DSH 原生能力预览；提案编辑仍针对 Markdown，尚未实现 PDF、Word、LaTeX 原稿编辑、带修订痕迹的文档导出、区块移动以及跨区块 Markdown 引用解析。提案可以替换或删除精确区块，也可在精确锚点旁插入完整 Markdown 片段；相关修改可以分组。
 - 数字、引用、图表、方法和论断词检查会提示文字变化，作者负责判断其科学含义及证据支持。自动化集成测试使用脚本化模型响应；真实模型的修改质量需单独评估。
 - 选区限定在一个 Markdown 段落内。跨段选择会明确提示；可分别批注后一起提交。高亮需要支持 CSS Custom Highlight API 的浏览器。段落原文变化后，渲染选区会标为**需要重新定位**，即使引文仍出现在其他位置。尚未实现模糊匹配和手动重定位；请保留旧记录，在目标位置新建。
 - 锁定只约束本插件，不约束外部编辑器。不配合的外部写入可能在最终检查与重命名之间竞争。原子替换和恢复日志针对进程中断，不保证突然断电持久性或抵御恶意本地文件系统修改。

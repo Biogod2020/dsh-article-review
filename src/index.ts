@@ -403,7 +403,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
           if (!revision) throw new Error('Manuscript version not found')
           result = { ok: true, value: revision }
         } else if (parsed.data.method === 'paper-review/list-files') {
-          const listing = z.object({ path: z.string(), extension: z.enum(['md', 'bib', 'figure']).default('md') }).parse(parsed.data.payload)
+          const listing = z.object({ path: z.string(), extension: z.enum(['md', 'bib', 'figure', 'preview']).default('md') }).parse(parsed.data.payload)
           result = { ok: true, value: await store.listFiles(listing.path, listing.extension) }
         } else if (parsed.data.method === 'paper-review/list-figures') {
           const input = z.object({ path: z.string() }).parse(parsed.data.payload)

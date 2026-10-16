@@ -32,3 +32,27 @@ jobs:
         run: npm test
       - name: Check core types
         run: npm run typecheck:core
+  published-harness:
+    name: DSH 0.2.1-alpha.4 / integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            validation/package-lock.json
+            validation/harness/package-lock.json
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          repository: deepseek-ai/deepseek-harness
+          ref: 86a402200d95fecef4529d969836f1fe13c6cb0d # dsh-v0.2.1-alpha.4
+          path: .artifacts/dsh-source
+      - run: npm run test:setup
+      - run: npm ci --prefix validation/harness --ignore-scripts
+      - name: Check shipped host/client types and review integration
+        run: npm run test:published
+        env:
+          DSH_HARNESS_SOURCE: ${{ github.workspace }}/.artifacts/dsh-source

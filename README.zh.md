@@ -22,12 +22,13 @@ kind: "package-bundle"
 - **审阅进度**：标记、锁定已审段落，追踪后续变化。
 - **版本对比**：逐词对比与 Markdown 源码差异。
 - **图表审阅**：预览、提议换图，保留前后副本。
+- **配套文档预览**：使用 DSH 原生预览打开 Markdown、PDF、Office 等文件，保留当前审稿状态。
 - **文献管理**：绑定 BibTeX，定位引用，检查新增引用键。
 
 <a id="installation"></a>
 ## 安装
 
-支持 DSH Desktop 和 Web `0.2.0-rc.2`，沿用现有模型配置。
+支持 DSH Web `0.2.1-alpha.4` 和 Desktop `0.2.0-rc.2`，沿用现有模型配置。
 
 ### Desktop App
 
@@ -36,7 +37,7 @@ App 自带运行环境，无需另装 Node。
 1. 在 App 左侧打开 **Plugins（插件）**，点击 **Add plugin（添加插件）**。
 2. 粘贴预构建发行版地址：
 
-   `github:Biogod2020/dsh-article-review#v0.2.0-rc.3`
+   `github:Biogod2020/dsh-article-review#v0.2.1-alpha.1`
 
 3. 安装完成后点击 **Enable now（立即启用）**，按提示重启。
 4. 选择本地工作区并打开一个对话，在右侧栏选择**阅读、批注与局部修改**。
@@ -44,14 +45,14 @@ App 自带运行环境，无需另装 Node。
 
 Desktop 使用独立的 `desktop` 配置，安装到 `web` 不会同时安装到 App。升级旧插件时，安装上面的发行版地址，按 App 提示重新加载或重启。macOS Desktop 已实测；Windows 要求见[支持范围与兼容性](docs/development.zh.md#scope-and-compatibility)。
 
-若 GitHub 地址连接超时，可下载[预构建发行归档](https://codeload.github.com/Biogod2020/dsh-article-review/tar.gz/refs/tags/v0.2.0-rc.3)，保存下载的 `.tar.gz` 文件，在 **Plugins → Add plugin** 中输入该文件的绝对路径。归档已含 `lib/index.js` 和 `lib/client.js`，无需解压或构建。
+若 GitHub 地址连接超时，可下载[预构建发行归档](https://codeload.github.com/Biogod2020/dsh-article-review/tar.gz/refs/tags/v0.2.1-alpha.1)，保存下载的 `.tar.gz` 文件，在 **Plugins → Add plugin** 中输入该文件的绝对路径。归档已含 `lib/index.js` 和 `lib/client.js`，无需解压或构建。
 
 ### Web
 
 需要 Node.js 22（≥22.19）或 24+：
 
 ```sh
-dsh plugin --profile web add 'github:Biogod2020/dsh-article-review#v0.2.0-rc.3'
+dsh plugin --profile web add 'github:Biogod2020/dsh-article-review#v0.2.1-alpha.1'
 dsh web
 ```
 

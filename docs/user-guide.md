@@ -1,5 +1,11 @@
 # User guide
 
+## Native document previews
+
+Click **DSH preview** to inspect the current manuscript file on disk, or **Change file → Preview companion files** to open another workspace file with DSH’s native renderer. Markdown, PDF, images and Office use the viewers supplied by your DSH installation. Office conversion requires its local rendering runtime.
+
+The preview requests a second pane when space permits. DSH has a two-pane limit; with both panes occupied it may open another tab. The review tab, annotations and human baselines remain available. Previewing does not switch the selected review manuscript or accept changes. A file changed externally can show newer content in native preview while the review remains on its pinned version; use **Load new version** in the review when ready.
+
 English | [中文](user-guide.zh.md)
 
 This guide covers file selection, annotations, proposals, version comparison, figures and references. For installation, see the [project README](../README.md#installation).

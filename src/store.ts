@@ -174,12 +174,12 @@ export class PaperStore {
   }
 
   /**
-   * List one workspace directory for manuscript or BibTeX selection.
+   * List one workspace directory for review files or native document previews.
    * @param path - workspace-relative directory, or an empty string for the root.
    * @param extension - file suffix to list alongside directories.
    * @returns bounded visible folders and matching files, with truncation state.
    */
-  listFiles(path: string, extension: 'md' | 'bib' | 'figure' = 'md'): Promise<{ path: string; entries: { name: string; type: 'directory' | 'file' }[]; truncated: boolean }> {
+  listFiles(path: string, extension: 'md' | 'bib' | 'figure' | 'preview' = 'md'): Promise<{ path: string; entries: { name: string; type: 'directory' | 'file' }[]; truncated: boolean }> {
     return this.serial(async () => {
       if (isAbsolute(path) || path.split(/[\\/]/).some(part => part === '..' || part === '.paper-review')) throw new Error('Choose a directory inside the manuscript workspace')
       const directory = await realpath(resolve(this.root, path))
@@ -187,8 +187,8 @@ export class PaperStore {
       if (relativePath === '..' || relativePath.startsWith(`..${sep}`) || isAbsolute(relativePath)) throw new Error('Directory must be inside the manuscript workspace')
       if (!(await stat(directory)).isDirectory()) throw new Error('Choose a directory')
       const entries = (await readdir(directory, { withFileTypes: true }))
-        .filter(entry => !entry.name.startsWith('.') && (entry.isDirectory() || (entry.isFile() && (extension === 'figure'
-          ? /\.(?:pdf|png|jpe?g|webp|gif|svg)$/i.test(entry.name) : entry.name.toLowerCase().endsWith(`.${extension}`)))))
+        .filter(entry => !entry.name.startsWith('.') && (entry.isDirectory() || (entry.isFile() && (extension === 'preview' || (extension === 'figure'
+          ? /\.(?:pdf|png|jpe?g|webp|gif|svg)$/i.test(entry.name) : entry.name.toLowerCase().endsWith(`.${extension}`))))))
         .map(entry => ({ name: entry.name, type: entry.isDirectory() ? 'directory' as const : 'file' as const }))
         .sort((a, b) => Number(a.type === 'file') - Number(b.type === 'file') || a.name.localeCompare(b.name, undefined, { numeric: true }))
       return { path: relativePath === '' ? '' : relativePath.split(sep).join('/'), entries: entries.slice(0, 500), truncated: entries.length > 500 }

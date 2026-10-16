@@ -37,12 +37,14 @@ function fixture(operation?: 'insert-before' | 'insert-after', stale = false, ne
     revisions: newerRevision ? [base, revision] : [revision], proposals: [proposal], annotations: [], highlights: [],
     baselines: [], history: [], reading: {} } }
   const command = vi.fn(async (_command: PaperCommand) => view)
+  const openResource = vi.fn()
+  const listFiles = vi.fn(async () => ({ path: '', entries: [{ name: 'companion.pdf', type: 'file' as const }], truncated: false }))
   // The fixture supplies only the native hooks consumed here; Web binding is covered by the real profile acceptance.
   const props = { sessionId: 'navigation-fixture', t: (key: PaperReviewKey) => en[key],
-    useTabInfo: () => ({ tab: { signal: new AbortController().signal } }),
+    useTabInfo: () => ({ tab: { signal: new AbortController().signal, actions: { openResource } } }),
     useSession: (select: (state: { running: boolean }) => boolean) => select({ running: false }),
     useInput: () => ({ draft: '', occurrences: [], phase: 'plain' }), inputActions: { setDraft: vi.fn() },
-    command, currentFile: async () => 'article.md', bibliography: async () => ({ files: [], entries: citation ? [{ key: 'demo2026', type: 'article', file: 'demo.bib', fields: { title: 'A fictional citation', author: 'Example, Ada', year: '2026' }, hash: '' }] : [], missingKeys: [],
+    command, listFiles, currentFile: async () => 'article.md', bibliography: async () => ({ files: [], entries: citation ? [{ key: 'demo2026', type: 'article', file: 'demo.bib', fields: { title: 'A fictional citation', author: 'Example, Ada', year: '2026' }, hash: '' }] : [], missingKeys: [],
       possibleBareKeys: [], canonicalCitationCount: 0, citationStatus: 'no-citations' }),
   } as PaperPanelProps
   vi.stubGlobal('CSS', { escape: (value: string) => value })
@@ -51,8 +53,25 @@ function fixture(operation?: 'insert-before' | 'insert-after', stale = false, ne
   Object.defineProperty(HTMLElement.prototype, 'scrollTo', { configurable: true,
     value(this: HTMLElement, options: ScrollToOptions) { this.scrollTop = options.top ?? 0 } })
   render(<PaperPanel {...props} />)
-  return { block, scroll, command, view }
+  return { block, scroll, command, view, openResource, listFiles }
 }
+
+it('opens manuscript and companion previews without changing the review document', async () => {
+  const { block, command, view, openResource, listFiles } = fixture()
+  await screen.findByText(block.text)
+  const before = structuredClone(view)
+  const operations = command.mock.calls.length
+  fireEvent.click(screen.getByRole('button', { name: en.nativePreview }))
+  expect(openResource).toHaveBeenCalledWith(expect.stringContaining('article.md'), { preferNewPane: true })
+  fireEvent.click(screen.getByRole('button', { name: en.showControls }))
+  fireEvent.click(screen.getByRole('button', { name: en.previewDocuments }))
+  fireEvent.click(await screen.findByRole('button', { name: /companion.pdf/ }))
+  expect(listFiles).toHaveBeenCalledWith('', expect.any(AbortSignal), 'navigation-fixture', 'preview')
+  expect(openResource).toHaveBeenLastCalledWith(expect.stringContaining('companion.pdf'), { preferNewPane: true })
+  expect(command.mock.calls).toHaveLength(operations)
+  expect(view).toEqual(before)
+  expect(screen.getByText(block.text)).toBeTruthy()
+})
 
 it.each(['insert-before', 'insert-after', undefined] as const)('locates %s at its exact anchor and returns to the same proposal', async (operation) => {
   const { block, scroll, command } = fixture(operation)

@@ -11,7 +11,7 @@ import Include from '@deepseek-ai/cordis-plugin-include'
 import LlmRuntime, { ToolCallId, createUserMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
-import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
+import * as JsonlPersistenceModule from '@deepseek-ai/dsh-session-persistence-jsonl'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime, { defineTool } from '@deepseek-ai/dsh-tools'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
@@ -24,6 +24,10 @@ import * as PaperReview from '../src/index.ts'
 import { WorkbenchViewSchema } from '../src/workbench-view.ts'
 import { ViewSchema, RevisionSchema } from '../src/schema.ts'
 import { revisionId } from '../src/document.ts'
+
+// DSH rc.2 exports the service class; alpha.4 exports a named function plugin.
+const JsonlSessionPersistence = 'default' in JsonlPersistenceModule && typeof JsonlPersistenceModule.default === 'function'
+  ? JsonlPersistenceModule.default : JsonlPersistenceModule
 
 let root = ''
 let ctx: Context | undefined

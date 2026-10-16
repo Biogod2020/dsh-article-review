@@ -22,12 +22,13 @@ Across multiple revision rounds, each paragraph stays compared with **the last v
 - **Track your review** — mark and lock reviewed paragraphs; track later changes.
 - **Compare versions** — word-level comparisons and exact Markdown source diffs.
 - **Review figures** — preview and propose replacements; keep before/after copies.
+- **Preview companion documents** — open the manuscript or workspace files in DSH’s native preview alongside the review.
 - **Manage references** — bind BibTeX, jump to citations and check new citation keys.
 
 <a id="installation"></a>
 ## Install
 
-Supports DSH Desktop and Web `0.2.0-rc.2`. Uses your existing model configuration.
+Supports DSH Web `0.2.1-alpha.4` and Desktop `0.2.0-rc.2`. Uses your existing model configuration.
 
 ### Desktop App
 
@@ -36,7 +37,7 @@ The App includes its runtime; no separate Node installation is needed.
 1. Open **Plugins** in the App's left sidebar, then click **Add plugin**.
 2. Paste this prebuilt release address:
 
-   `github:Biogod2020/dsh-article-review#v0.2.0-rc.3`
+   `github:Biogod2020/dsh-article-review#v0.2.1-alpha.1`
 
 3. After installation, click **Enable now** and follow any restart prompt.
 4. Choose a local workspace and open a conversation. In the right sidebar, choose **Read, annotate and revise**.
@@ -44,14 +45,14 @@ The App includes its runtime; no separate Node installation is needed.
 
 Desktop uses its own `desktop` profile. Installing into the `web` profile does not install into the App. If updating from an older plugin, install the release address above and follow the App's reload or restart prompt. macOS Desktop has been exercised; see [platform requirements](docs/development.md#scope-and-compatibility) for Windows.
 
-If the GitHub address times out, download the [prebuilt release archive](https://codeload.github.com/Biogod2020/dsh-article-review/tar.gz/refs/tags/v0.2.0-rc.3), save the downloaded `.tar.gz` file locally, and enter that file’s absolute path in **Plugins → Add plugin**. The archive already includes `lib/index.js` and `lib/client.js`; no extraction or build is needed.
+If the GitHub address times out, download the [prebuilt release archive](https://codeload.github.com/Biogod2020/dsh-article-review/tar.gz/refs/tags/v0.2.1-alpha.1), save the downloaded `.tar.gz` file locally, and enter that file’s absolute path in **Plugins → Add plugin**. The archive already includes `lib/index.js` and `lib/client.js`; no extraction or build is needed.
 
 ### Web
 
 Requires Node.js 22 (≥22.19) or 24+:
 
 ```sh
-dsh plugin --profile web add 'github:Biogod2020/dsh-article-review#v0.2.0-rc.3'
+dsh plugin --profile web add 'github:Biogod2020/dsh-article-review#v0.2.1-alpha.1'
 dsh web
 ```
 
