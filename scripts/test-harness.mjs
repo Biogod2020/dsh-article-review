@@ -65,8 +65,8 @@ const aliases = Object.entries(paths).sort(([a], [b]) => b.length - a.length).ma
 }))
 export default defineConfig({ root: process.cwd(), plugins: [standardDecoratorPlugin()],
   resolve: { alias: [
-    { find: /^@deepseek-ai\\/dsh-experimental-paper-review$/, replacement: process.cwd() + '/src/index.ts' },
-    { find: /^@deepseek-ai\\/dsh-experimental-paper-review\\/client$/, replacement: process.cwd() + '/src/client/index.ts' },
+    { find: /^dsh-article-review$/, replacement: process.cwd() + '/src/index.ts' },
+    { find: /^dsh-article-review\\/client$/, replacement: process.cwd() + '/src/client/index.ts' },
     { find: /^\\.\\.\\/\\.\\.\\/\\.\\.\\/(client|core)\\/(.*)$/, replacement: h + '/packages/$1/$2' }, ...aliases,
   ] },
   oxc: { tsconfig: false, jsx: { runtime: 'automatic' } },

@@ -21,6 +21,7 @@ export const inject = ['slots', 'locale', 'sidebarRightTabs', 'connection', 'rem
  * @param ctx - Client context with authenticated connection and native sidebar seats.
  */
 export function apply(ctx: Context): void {
+  // Retain the sidebar identity so existing saved review tabs reopen after the npm package rename.
   const id = '@deepseek-ai/dsh-experimental-paper-review'
   const t = ctx.locale.bind('paperReview')
   const connection = ctx.get('connection') as ConnectionHandle

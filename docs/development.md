@@ -4,7 +4,7 @@ English | [中文](development.zh.md)
 
 This document covers local builds, manuscript tools, persistence and platform compatibility. For everyday use, see the [user guide](user-guide.md).
 
-## Git installation
+## npm and Git installation
 
 For installation commands, see the [project README](../README.md#installation). The installer adds the package's [bundle patch](../cordis.patch.yml) after the Web layer; no separate launcher or model configuration is needed. The current release supports DSH Web `0.2.1-alpha.4` and macOS Desktop `0.2.0-rc.2`. Its `engines.dsh` names these two verified versions; both host/client type checks and all 240 integration tests pass on each. For other hosts, see [scope and compatibility](#scope-and-compatibility).
 
@@ -32,6 +32,20 @@ DSH_HARNESS_ROOT=/absolute/path/to/deepseek-harness npm run test:harness
 ```
 
 The full lane checks host/client types separately and runs the native composition tests against the installed upstream checkout. It never edits that checkout. See the [hands-on review](experience-review.zh.md) for the DSH 0.2 test matrix and remaining issues.
+
+## Packaging and publishing
+
+The community npm package is named `dsh-article-review`. Historical GitHub tags retain the old development package name. The client sidebar identity remains stable so saved review tabs reopen; the `paper-review` composition id, private review directory and data format also remain unchanged.
+
+Build `lib/` in a compatible DSH checkout, then prepare a separate release directory containing the same package name and version:
+
+```sh
+node scripts/prepare-git-release.mjs /absolute/path/to/release-directory
+npm pack /absolute/path/to/release-directory --pack-destination /absolute/path/to/artifacts
+npm publish /absolute/path/to/artifacts/dsh-article-review-0.2.1-alpha.1.tgz --registry=https://registry.npmjs.org --access public --tag next
+```
+
+The preparation script replaces workspace dependencies with registry-resolvable versions and checks that the client module name matches the package name and that `zod` is inlined. Do not publish the source directory with `workspace:` dependencies. Prereleases use the `next` tag; installation instructions pin the full version. Before uploading, check the same archive with `--dry-run`, then install and start it in an isolated DSH profile. Publishing requires npm login and the account's two-factor authentication. After publication, verify the version and archive integrity on the official npm registry and the mainland mirror separately.
 
 <a id="understand-the-implementation"></a>
 ## Understand the implementation

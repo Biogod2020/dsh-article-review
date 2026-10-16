@@ -1,4 +1,4 @@
-/** Copy the built plugin into a Git worktree with registry-resolvable runtime dependencies. */
+/** Copy the built plugin into a release directory with registry-resolvable runtime dependencies. */
 import { copyFile, mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -32,11 +32,16 @@ async function copyDeclarations(directory) {
 await copyArtifact('lib/index.js')
 await copyArtifact('lib/client.js')
 const clientPath = join(target, 'lib/client.js')
-if (/\brequire\(["']zod["']\)/.test(await readFile(clientPath, 'utf8'))) {
+const clientSource = await readFile(clientPath, 'utf8')
+const registration = clientSource.match(/^\s*window\.__ModuleLoader__\.load\(\{\s*id:\s*("[^"]+")/)
+if (registration === null || JSON.parse(registration[1]) !== sourceManifest.name) {
+  throw new Error('Rebuild the client bundle with the release package name before packaging')
+}
+if (/\brequire\(["']zod["']\)/.test(clientSource)) {
   throw new Error('Inline zod in the client bundle; official Desktop rc.2 has no shared zod module')
 }
 // CSS module labels keep relative paths; the release does not ship the client sourcemap.
-await writeFile(clientPath, (await readFile(clientPath, 'utf8'))
+await writeFile(clientPath, clientSource
   .replace(/[ \t]+$/gm, '')
   .replace(/^([ \t]*\/\/#region \\0dsh-css:).*[/\\]src[/\\]/gm, '$1src/')
   .replace(/^\/\/# sourceMappingURL=client\.js\.map\r?\n?/gm, '').trimEnd() + '\n')

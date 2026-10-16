@@ -35,28 +35,28 @@ Supports DSH Web `0.2.1-alpha.4` and Desktop `0.2.0-rc.2`. Uses your existing mo
 The App includes its runtime; no separate Node installation is needed.
 
 1. Open **Plugins** in the App's left sidebar, then click **Add plugin**.
-2. Paste this prebuilt release address:
+2. Paste the npm package name and version:
 
-   `github:Biogod2020/dsh-article-review#v0.2.1-alpha.1`
+   `dsh-article-review@0.2.1-alpha.1`
 
 3. After installation, click **Enable now** and follow any restart prompt.
 4. Choose a local workspace and open a conversation. In the right sidebar, choose **Read, annotate and revise**.
 5. Click **Browse workspace → Choose local file** to open a Markdown manuscript. The system dialog belongs to the App; the selected file must be inside this conversation's workspace. BibTeX and replacement figures use the same Desktop picker.
 
-Desktop uses its own `desktop` profile. Installing into the `web` profile does not install into the App. If updating from an older plugin, install the release address above and follow the App's reload or restart prompt. macOS Desktop has been exercised; see [platform requirements](docs/development.md#scope-and-compatibility) for Windows.
+Desktop uses its own `desktop` profile. Installing into the `web` profile does not install into the App. If you previously installed `@deepseek-ai/dsh-experimental-paper-review` from GitHub, uninstall that package in Plugins before installing the npm package above and restarting. Workspace review records in `.paper-review/` continue to be used. macOS Desktop has been exercised; see [platform requirements](docs/development.md#scope-and-compatibility) for Windows.
 
-If the GitHub address times out, download the [prebuilt release archive](https://codeload.github.com/Biogod2020/dsh-article-review/tar.gz/refs/tags/v0.2.1-alpha.1), save the downloaded `.tar.gz` file locally, and enter that file’s absolute path in **Plugins → Add plugin**. The archive already includes `lib/index.js` and `lib/client.js`; no extraction or build is needed.
+Choose the official npm registry or the mainland China mirror. If the mirror has not synced this version, use the official registry. GitHub installation remains available as `github:Biogod2020/dsh-article-review#v0.2.1-alpha.1`; that historical tag retains the old package name. If GitHub times out, download the [prebuilt release archive](https://codeload.github.com/Biogod2020/dsh-article-review/tar.gz/refs/tags/v0.2.1-alpha.1) and enter its absolute local path in **Plugins → Add plugin**, without extracting or building it. Install one package name at a time.
 
 ### Web
 
 Requires Node.js 22 (≥22.19) or 24+:
 
 ```sh
-dsh plugin --profile web add 'github:Biogod2020/dsh-article-review#v0.2.1-alpha.1'
+dsh plugin --profile web add 'dsh-article-review@0.2.1-alpha.1'
 dsh web
 ```
 
-Restart a running Web profile after installation. Use the prebuilt tag; `main` contains development source.
+Restart a running Web profile after installation. For GitHub installation, use the prebuilt tag; `main` contains development source.
 
 ## Start reviewing
 

@@ -41,3 +41,13 @@
 ![官方双页 PDF 与审稿基线并排](screenshots/desktop-021-native-preview.png)
 
 Windows Desktop 未实机验收。集成用例使用脚本化模型响应；本次验证不评估真实模型的修稿质量。原生预览继承 DSH 的格式、转换依赖和两栏布局限制。
+
+## npm 分发
+
+同版本以社区包名 [`dsh-article-review`](https://www.npmjs.com/package/dsh-article-review) 发布到 npm，并已同步到 `registry.npmmirror.com`。安装规格为 `dsh-article-review@0.2.1-alpha.1`。历史 GitHub tag 和归档仍保留旧开发包名；两种包名请选择一种安装。
+
+客户端模块按新包名重新构建，原侧栏标识、组合配置中的 `paper-review` 标识及审阅数据格式保持不变。宿主 `lib/index.js` 与上文 Desktop 实测的发行文件逐字节一致。改名后的源码在两个 DSH 版本上重新通过宿主/客户端类型检查及各 240 项集成测试；发行准备脚本增加客户端模块名与包名一致性检查。
+
+npm 官方源和国内镜像的实际归档均已下载，并与通过本地安装验证的候选包核对 SHA-512 完整性。两种注册表分别在全新隔离 DSH 配置中通过按包名安装和启动检查：认证页面返回 HTTP 200，客户端清单包含新包，进程正常退出。
+
+归档 `dsh-article-review-0.2.1-alpha.1.tgz`：304,378 字节；SHA-256 为 `0d48e4edd7823dbe56ec9d8337e6fb83d715d0b564c54cbc1685f215213270ea`。

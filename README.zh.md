@@ -35,28 +35,28 @@ kind: "package-bundle"
 App 自带运行环境，无需另装 Node。
 
 1. 在 App 左侧打开 **Plugins（插件）**，点击 **Add plugin（添加插件）**。
-2. 粘贴预构建发行版地址：
+2. 粘贴 npm 包名及版本：
 
-   `github:Biogod2020/dsh-article-review#v0.2.1-alpha.1`
+   `dsh-article-review@0.2.1-alpha.1`
 
 3. 安装完成后点击 **Enable now（立即启用）**，按提示重启。
 4. 选择本地工作区并打开一个对话，在右侧栏选择**阅读、批注与局部修改**。
 5. 点击**浏览工作区 → 选择本地文件**打开 Markdown 稿件。系统选择窗口属于 App，文件必须位于当前对话工作区内。BibTeX 和替换图片也使用同一 Desktop 选择器。
 
-Desktop 使用独立的 `desktop` 配置，安装到 `web` 不会同时安装到 App。升级旧插件时，安装上面的发行版地址，按 App 提示重新加载或重启。macOS Desktop 已实测；Windows 要求见[支持范围与兼容性](docs/development.zh.md#scope-and-compatibility)。
+Desktop 使用独立的 `desktop` 配置，安装到 `web` 不会同时安装到 App。若之前通过 GitHub 安装了旧包 `@deepseek-ai/dsh-experimental-paper-review`，先在 Plugins 中卸载旧包，再安装上述 npm 包并按提示重启；工作区中的 `.paper-review/` 审阅记录继续使用。macOS Desktop 已实测；Windows 要求见[支持范围与兼容性](docs/development.zh.md#scope-and-compatibility)。
 
-若 GitHub 地址连接超时，可下载[预构建发行归档](https://codeload.github.com/Biogod2020/dsh-article-review/tar.gz/refs/tags/v0.2.1-alpha.1)，保存下载的 `.tar.gz` 文件，在 **Plugins → Add plugin** 中输入该文件的绝对路径。归档已含 `lib/index.js` 和 `lib/client.js`，无需解压或构建。
+可选择 npm 官方源或中国大陆镜像。镜像尚未同步新版本时，先切回官方源。GitHub 安装方式仍可使用 `github:Biogod2020/dsh-article-review#v0.2.1-alpha.1`；该历史 tag 保留旧包名。若 GitHub 地址连接超时，可下载[预构建发行归档](https://codeload.github.com/Biogod2020/dsh-article-review/tar.gz/refs/tags/v0.2.1-alpha.1)，在 **Plugins → Add plugin** 中输入本地归档的绝对路径，无需解压或构建。两种包名请选择一种安装。
 
 ### Web
 
 需要 Node.js 22（≥22.19）或 24+：
 
 ```sh
-dsh plugin --profile web add 'github:Biogod2020/dsh-article-review#v0.2.1-alpha.1'
+dsh plugin --profile web add 'dsh-article-review@0.2.1-alpha.1'
 dsh web
 ```
 
-安装后重启正在运行的 Web 配置。使用预构建 tag；`main` 是开发源码。
+安装后重启正在运行的 Web 配置。GitHub 安装请使用预构建 tag；`main` 是开发源码。
 
 ## 开始审阅
 

@@ -4,7 +4,7 @@
 
 本文说明本地构建、稿件工具、持久化与平台兼容性。日常操作见 [使用指南](user-guide.zh.md)。
 
-## Git 安装
+## npm 与 Git 安装
 
 安装命令见 [项目首页](../README.zh.md#installation)。安装器将本包的[组合配置](../cordis.patch.yml)加入 Web 层之后；无需额外启动器或模型配置。当前版本已在 DSH Web `0.2.1-alpha.4` 与 macOS Desktop `0.2.0-rc.2` 上验证。`engines.dsh` 声明这两个已验证版本；二者的宿主/客户端类型检查和完整集成测试各通过 240 项。其他平台的要求见 [支持范围与兼容性](#scope-and-compatibility)。
 
@@ -32,6 +32,20 @@ DSH_HARNESS_ROOT=/absolute/path/to/deepseek-harness npm run test:harness
 ```
 
 完整流程分别检查宿主/客户端类型，并在已安装依赖的上游工作区上运行真实组合测试，不修改该工作区。[使用体验报告](experience-review.zh.md)记录 DSH 0.2 的实测和剩余问题。
+
+## 打包与发布
+
+社区 npm 包名是 `dsh-article-review`。历史 GitHub tag 使用旧开发包名；客户端侧栏标识保留，以恢复已有审阅标签页。组合配置中的 `paper-review` 标识、私有审阅目录和数据格式不变。
+
+在兼容 DSH 工作区构建 `lib/` 后，准备一个包含相同包名和版本的独立发行目录，然后运行：
+
+```sh
+node scripts/prepare-git-release.mjs /absolute/path/to/release-directory
+npm pack /absolute/path/to/release-directory --pack-destination /absolute/path/to/artifacts
+npm publish /absolute/path/to/artifacts/dsh-article-review-0.2.1-alpha.1.tgz --registry=https://registry.npmjs.org --access public --tag next
+```
+
+准备脚本将工作区依赖替换为可从注册表解析的依赖，并检查客户端模块名与包名一致、`zod` 已内联。不要直接发布含 `workspace:` 依赖的源码目录。预发布使用 `next` 标签；安装说明固定到完整版本。上传前先用 `--dry-run` 检查同一个归档，并在隔离 DSH 配置中安装及启动验证。正式发布需 npm 登录和账号要求的双重验证；发布后分别检查 npm 官方源及国内镜像的版本与归档完整性。
 
 <a id="understand-the-implementation"></a>
 ## 理解实现
