@@ -1,6 +1,6 @@
 {
   "name": "dsh-article-review",
-  "version": "0.2.1-alpha.2",
+  "version": "0.2.2-alpha.14",
   "description": "Annotation-driven Markdown manuscript review with proposals and human review baselines",
   "keywords": [
     "deepseek-harness",
@@ -30,7 +30,7 @@
   },
   "engines": {
     "node": "^22.19.0 || >=24",
-    "dsh": "0.2.0-rc.2 || 0.2.1-alpha.4"
+    "dsh": "0.2.0-rc.2 || 0.2.1-alpha.4 || 0.2.1-rc.2 || 0.2.1-rc.3"
   },
   "exports": {
     ".": {
@@ -49,7 +49,8 @@
     "lib/index.js",
     "lib/client.js",
     "lib/types/**/*.d.ts",
-    "cordis.patch.yml"
+    "cordis.patch.yml",
+    "skills/**"
   ],
   "dsh": {
     "bundle": {
@@ -117,6 +118,7 @@
     "@types/react-dom": "~18.3.0",
     "@testing-library/react": "^16.1.0",
     "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "react-dom": "^18.2.0",
+    "@deepseek-ai/dsh-skill": "workspace:*"
   }
 }
