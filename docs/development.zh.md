@@ -6,7 +6,7 @@
 
 ## npm 与 Git 安装
 
-安装命令见 [项目首页](../README.zh.md#installation)。安装器将本包的[组合配置](../cordis.patch.yml)加入 Web 层之后；无需额外启动器或模型配置。当前版本已在 DSH Web `0.2.1-alpha.4` 与 macOS Desktop `0.2.0-rc.2` / `0.2.1-rc.2` 上验证。`engines.dsh` 声明这三个已验证版本；三者均通过宿主/客户端类型检查。Desktop `0.2.1-rc.2` 完整集成测试通过 269 项；旧 Desktop/Web 的 panel API 与组合测试各通过 21 项。其他平台的要求见 [支持范围与兼容性](#scope-and-compatibility)。
+安装命令见 [项目首页](../README.zh.md#installation)。安装器将本包的[组合配置](../cordis.patch.yml)加入 Web 层之后；无需额外启动器或模型配置。`0.2.2-alpha.14` 支持 DSH Web `0.2.1-alpha.4` 与 macOS Desktop `0.2.0-rc.2` / `0.2.1-rc.2` / `0.2.1-rc.3`。rc.3 的宿主/客户端类型检查和 298 项集成测试通过；安装包检查覆盖认证、打开稿件、批注、人工审阅基线及服务重启后的记录恢复。其他平台的要求见 [支持范围与兼容性](#scope-and-compatibility)。
 
 浏览器只接收当前正文与版本目录，历史正文按对比选择读取。段落共享可见性观察器；PDF 预览共用缓存和转换队列（`previewCacheBytes` 默认 4194304，`previewConcurrency` 默认 1）。见[性能测量](performance.zh.md)。
 
@@ -43,13 +43,14 @@ DSH_HARNESS_ROOT=/absolute/path/to/deepseek-harness npm run test:harness
 
 ```sh
 node scripts/prepare-git-release.mjs /absolute/path/to/release-directory
-npm pack /absolute/path/to/release-directory --pack-destination /absolute/path/to/artifacts
+cd /absolute/path/to/release-directory
 node scripts/check-release.mjs
+npm pack --ignore-scripts --pack-destination /absolute/path/to/artifacts
 git tag v0.2.2-alpha.14
 git push origin v0.2.2-alpha.14
 ```
 
-准备脚本将工作区依赖替换为可从注册表解析的依赖，并检查客户端模块名与包名一致、`zod` 已内联。不要直接发布含 `workspace:` 依赖的源码目录。预发布使用 `next` 标签；安装说明固定到完整版本。上传前先用 `--dry-run` 检查同一个归档，并在隔离 DSH 配置中安装及启动验证。`publish.yml` 检查预构建标签、rc.3 完整集成与重启恢复，然后通过 npm OIDC 发布同一次验收的归档。首次在 npm 为 `Biogod2020/dsh-article-review`、`publish.yml` 配置 Trusted Publisher 并允许直接 `npm publish`，可能需要账号本人验证；后续发行复用该信任。流水线继续核对官方源与镜像归档完整性，并从两个源按包名安装。
+在发行工作树中保留已验收的 `lib/index.js` / `lib/client.js` SHA-256 清单 `release-runtime-sha256.json`；`check-release.mjs` 据此拒绝未验收的运行文件。准备脚本将工作区依赖替换为可从注册表解析的依赖，并检查客户端模块名与包名一致、`zod` 已内联。不要直接发布含 `workspace:` 依赖的源码目录。预发布使用 `next` 标签；安装说明固定到完整版本。上传前先用 `--dry-run` 检查同一个归档，并在隔离 DSH 配置中安装及启动验证。`publish.yml` 检查预构建标签、rc.3 完整集成与重启恢复，然后通过 npm OIDC 发布同一次验收的归档。首次在 npm 为 `Biogod2020/dsh-article-review`、`publish.yml` 配置 Trusted Publisher 并允许直接 `npm publish`，可能需要账号本人验证；后续发行复用该信任。流水线继续核对官方源与镜像归档完整性，并从两个源按包名安装。
 
 <a id="understand-the-implementation"></a>
 ## 理解实现
