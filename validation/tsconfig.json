@@ -58,6 +58,10 @@
     "../src/selected-file.ts",
     "../src/client/desktop-file-picker.ts",
     "../tests/selected-file.spec.ts",
-    "../tests/desktop-file-picker.client.spec.ts"
+    "../tests/desktop-file-picker.client.spec.ts",
+    "../src/figure-panels.ts",
+    "../src/client/reading-sections.ts",
+    "../src/client/reading-figures.ts",
+    "../tests/reading-layout.spec.ts"
   ]
 }

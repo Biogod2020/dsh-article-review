@@ -6,7 +6,7 @@
 
 ## npm 与 Git 安装
 
-安装命令见 [项目首页](../README.zh.md#installation)。安装器将本包的[组合配置](../cordis.patch.yml)加入 Web 层之后；无需额外启动器或模型配置。当前版本已在 DSH Web `0.2.1-alpha.4` 与 macOS Desktop `0.2.0-rc.2` 上验证。`engines.dsh` 声明这两个已验证版本；二者的宿主/客户端类型检查和完整集成测试各通过 240 项。其他平台的要求见 [支持范围与兼容性](#scope-and-compatibility)。
+安装命令见 [项目首页](../README.zh.md#installation)。安装器将本包的[组合配置](../cordis.patch.yml)加入 Web 层之后；无需额外启动器或模型配置。当前版本已在 DSH Web `0.2.1-alpha.4` 与 macOS Desktop `0.2.0-rc.2` / `0.2.1-rc.2` 上验证。`engines.dsh` 声明这三个已验证版本；三者均通过宿主/客户端类型检查。Desktop `0.2.1-rc.2` 完整集成测试通过 269 项；旧 Desktop/Web 的 panel API 与组合测试各通过 21 项。其他平台的要求见 [支持范围与兼容性](#scope-and-compatibility)。
 
 浏览器只接收当前正文与版本目录，历史正文按对比选择读取。段落共享可见性观察器；PDF 预览共用缓存和转换队列（`previewCacheBytes` 默认 4194304，`previewConcurrency` 默认 1）。见[性能测量](performance.zh.md)。
 
@@ -31,6 +31,8 @@ DSH_HARNESS_SOURCE=/absolute/path/to/dsh-v0.2.1-alpha.4 npm run test:published
 DSH_HARNESS_ROOT=/absolute/path/to/deepseek-harness npm run test:harness
 ```
 
+通过 `DSH_HARNESS_RUNTIME=/absolute/path/to/node_modules` 可指定已安装的 Desktop `0.2.0-rc.2` / `0.2.1-rc.2` / `0.2.1-rc.3` 运行时进行同样的兼容性检查；该目录须包含包的类型声明。默认使用 `validation/harness/node_modules` 中的 Web `0.2.1-alpha.4`。
+
 完整流程分别检查宿主/客户端类型，并在已安装依赖的上游工作区上运行真实组合测试，不修改该工作区。[使用体验报告](experience-review.zh.md)记录 DSH 0.2 的实测和剩余问题。
 
 ## 打包与发布
@@ -42,10 +44,12 @@ DSH_HARNESS_ROOT=/absolute/path/to/deepseek-harness npm run test:harness
 ```sh
 node scripts/prepare-git-release.mjs /absolute/path/to/release-directory
 npm pack /absolute/path/to/release-directory --pack-destination /absolute/path/to/artifacts
-npm publish /absolute/path/to/artifacts/dsh-article-review-0.2.1-alpha.2.tgz --registry=https://registry.npmjs.org --access public --tag next
+node scripts/check-release.mjs
+git tag v0.2.2-alpha.14
+git push origin v0.2.2-alpha.14
 ```
 
-准备脚本将工作区依赖替换为可从注册表解析的依赖，并检查客户端模块名与包名一致、`zod` 已内联。不要直接发布含 `workspace:` 依赖的源码目录。预发布使用 `next` 标签；安装说明固定到完整版本。上传前先用 `--dry-run` 检查同一个归档，并在隔离 DSH 配置中安装及启动验证。正式发布需 npm 登录和账号要求的双重验证；发布后分别检查 npm 官方源及国内镜像的版本与归档完整性。
+准备脚本将工作区依赖替换为可从注册表解析的依赖，并检查客户端模块名与包名一致、`zod` 已内联。不要直接发布含 `workspace:` 依赖的源码目录。预发布使用 `next` 标签；安装说明固定到完整版本。上传前先用 `--dry-run` 检查同一个归档，并在隔离 DSH 配置中安装及启动验证。`publish.yml` 检查预构建标签、rc.3 完整集成与重启恢复，然后通过 npm OIDC 发布同一次验收的归档。首次在 npm 为 `Biogod2020/dsh-article-review`、`publish.yml` 配置 Trusted Publisher 并允许直接 `npm publish`，可能需要账号本人验证；后续发行复用该信任。流水线继续核对官方源与镜像归档完整性，并从两个源按包名安装。
 
 <a id="understand-the-implementation"></a>
 ## 理解实现
@@ -82,7 +86,7 @@ npm publish /absolute/path/to/artifacts/dsh-article-review-0.2.1-alpha.2.tgz --r
 
 #### Token 影响
 
-打开稿件前可用两个发现 schema；启用后在普通工具之外增加十五个活跃 schema。退出后下一轮隐藏这十五个 schema，不移除早期结果。全文读取按固定版本分页，默认 40 个完整区块、32,000 字符；按区块读取含邻居；提案查看和修改返回完整修改组。图工具返回路径和哈希，不返回图片字节，模型仍需另行查看图像。BibTeX 索引返回全部绑定元数据。大型文献库、提案和历史会增加结果长度；本地历史没有裁剪上限。
+打开稿件前可用两个发现 schema；启用后在普通工具之外增加十六个活跃 schema。退出后下一轮隐藏这十五个 schema，不移除早期结果。全文读取按固定版本分页，默认 40 个完整区块、32,000 字符；按区块读取含邻居；提案查看和修改返回完整修改组。图工具返回路径和哈希，不返回图片字节，模型仍需另行查看图像。BibTeX 索引返回全部绑定元数据。大型文献库、提案和历史会增加结果长度；本地历史没有裁剪上限。
 
 #### KV Cache 影响
 
@@ -109,7 +113,7 @@ Only change the selected blocks; insert complete Markdown before or after an exa
 提交的上下文追加到会话。引文、版本、批注或界面语言的变化会改变新消息，不会改变此前保留的消息。提供商的缓存复用不受本插件控制。
 
 ## 支持范围与兼容性
-新版已在隔离的 macOS Desktop `0.2.0-rc.2` 中用虚构材料验证：系统选择稿件、取消重试、提案接受与拒绝、两轮接受后保留原人工基线、版本交换与源码差异、批注附到原生输入框、BibTeX 绑定，以及退出重启后的记录恢复。原生 Markdown、双页 PDF 和 DOCX 转 PDF 预览通过。Windows Desktop 尚未实机验收。详见[新版验收记录](release-0.2.1-alpha.1.zh.md)。
+新版已在隔离的 macOS Desktop `0.2.0-rc.2` / `0.2.1-rc.2` 中用虚构材料验证：系统选择稿件、取消重试、提案接受与拒绝、两轮接受后保留原人工基线、版本交换与源码差异、批注附到原生输入框、BibTeX 绑定，以及退出重启后的记录恢复。原生 Markdown、双页 PDF 和 DOCX 转 PDF 预览通过。Windows Desktop 尚未实机验收。详见[新版验收记录](release-0.2.1-alpha.1.zh.md)。
 
 
 <a id="scope-and-compatibility"></a>
@@ -125,3 +129,7 @@ Only change the selected blocks; insert complete Markdown before or after an exa
 - Git 发行包不会自动安装 `koffi`，因为这个原生依赖只用于 Windows 工作区锁。Windows 上的安装与运行尚未验收；在 Windows 打开稿件前，需先在同一个配置中安装 `koffi`。
 - 完整版本和批注持续保留，没有清理机制或稿件恢复按钮。长历史可能占用磁盘并拖慢状态载入；阅读区、审阅对比及渲染后的版本区块在接近可见区域时挂载。文献列表每页最多显示四十条。工作区锁允许一个服务器进程及多个浏览器窗口，不提供多作者同步。
 - BibTeX 索引可处理普通完整条目，但不会展开宏或核实书目信息。新增正文引用会在本插件的替换和插入提案中校验，不会拦截其他工具直接写文件。文献库会提示疑似裸引用键；科学术语也可能触发提示，需结合上下文判断。
+
+## Panel 准备流程
+
+`paper_figure_list({path, packet})` 可在稿件旁独占创建只读上下文快照；`prepare_panels.py` 从中填入精确目标原文，生成裁切和核对预览。`paper_panel_set({path, manifest})` 最多读取 1 MiB 的工作区内 JSON，仍走与 inline 参数相同的版本、原图、裁切与段落校验。保存响应只含当前图的紧凑确认。普通 `paper_read` 可传 `includePanels:false` 避免重复整份关联原文；`savedPanels` 将原图、正文和保留裁切失效都标为 stale。受限原生并行与旧宿主回退见随附 skill。

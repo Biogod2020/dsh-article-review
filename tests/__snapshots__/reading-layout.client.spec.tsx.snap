@@ -1,0 +1,9 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`finds text on another page and selects a panel beside it without changing the manuscript 1`] = `
+{
+  "pinned": true,
+  "section": "Second",
+  "selection": "Figure 1",
+}
+`;

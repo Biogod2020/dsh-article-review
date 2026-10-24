@@ -49,6 +49,10 @@ exports[`boots from a composition, keeps ordinary tools, and lets agents and ope
           "description": "Optional exact block id returned by paper_read.",
           "type": "string",
         },
+        "includePanels": {
+          "description": "Default true. Set false for compact paragraph reads that omit full panel maps and repeated before text.",
+          "type": "boolean",
+        },
         "maxBlocks": {
           "description": "Maximum whole blocks per page, integer 1–200; default 40.",
           "type": "number",
@@ -117,10 +121,14 @@ exports[`boots from a composition, keeps ordinary tools, and lets agents and ope
     },
   },
   {
-    "description": "List the exact local figures referenced by the current manuscript, with block ids, authored paths, workspace files and retained hashes. Read-only; missing files are not replaced by guessed versions.",
+    "description": "List the exact local figures referenced by the current manuscript, with block ids, authored paths, workspace files and source hashes. Optionally export a workspace JSON packet of these figures and current manuscript blocks for panel helpers; existing different files are never overwritten. Missing figures are not guessed.",
     "name": "paper_figure_list",
     "parameters": {
       "properties": {
+        "packet": {
+          "description": "Optional new workspace-relative .json context snapshot for panel helpers, outside .paper-review. Same content may be reused.",
+          "type": "string",
+        },
         "path": {
           "description": "Workspace-relative Markdown manuscript path, for example article.md.",
           "type": "string",
@@ -173,6 +181,88 @@ exports[`boots from a composition, keeps ordinary tools, and lets agents and ope
         "figure",
         "replacement",
         "reason",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "description": "Save verified PNG panel crops beside exact manuscript paragraphs. Use either manifest (a workspace JSON file of complete prepared arguments) or all inline fields. Replaces one figure map; an empty panels array removes it. Both forms validate the current revision, sourceHash, crops and exact paragraph text. Returns a compact confirmation; use paper_read for full metadata. Never edits artwork or manuscript prose.",
+    "name": "paper_panel_set",
+    "parameters": {
+      "properties": {
+        "figure": {
+          "type": "string",
+        },
+        "figureBlockId": {
+          "type": "string",
+        },
+        "manifest": {
+          "description": "Workspace-relative .json file containing revision, figureBlockId, figure, sourceHash and panels; an optional path must match this manuscript. Omit inline fields when using it.",
+          "type": "string",
+        },
+        "panels": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "file": {
+                "type": "string",
+              },
+              "label": {
+                "type": "string",
+              },
+              "page": {
+                "type": "integer",
+              },
+              "region": {
+                "items": {
+                  "type": "number",
+                },
+                "type": "array",
+              },
+              "targets": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "before": {
+                      "type": "string",
+                    },
+                    "blockId": {
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "blockId",
+                    "before",
+                  ],
+                  "type": "object",
+                },
+                "type": "array",
+              },
+            },
+            "required": [
+              "label",
+              "file",
+              "page",
+              "region",
+              "targets",
+            ],
+            "type": "object",
+          },
+          "type": "array",
+        },
+        "path": {
+          "description": "Workspace-relative Markdown manuscript path, for example article.md.",
+          "type": "string",
+        },
+        "revision": {
+          "type": "string",
+        },
+        "sourceHash": {
+          "type": "string",
+        },
+      },
+      "required": [
+        "path",
       ],
       "type": "object",
     },
@@ -549,6 +639,7 @@ exports[`boots from a composition, keeps ordinary tools, and lets agents and ope
     "paper_figure_replace",
     "paper_list",
     "paper_open",
+    "paper_panel_set",
     "paper_propose",
     "paper_read",
     "paper_revise",
@@ -568,6 +659,7 @@ exports[`boots from a composition, keeps ordinary tools, and lets agents and ope
     "paper_figure_replace",
     "paper_list",
     "paper_open",
+    "paper_panel_set",
     "paper_propose",
     "paper_read",
     "paper_revise",
@@ -587,6 +679,7 @@ exports[`boots from a composition, keeps ordinary tools, and lets agents and ope
     "paper_figure_replace",
     "paper_list",
     "paper_open",
+    "paper_panel_set",
     "paper_propose",
     "paper_read",
     "paper_revise",
@@ -606,6 +699,7 @@ exports[`boots from a composition, keeps ordinary tools, and lets agents and ope
     "paper_figure_replace",
     "paper_list",
     "paper_open",
+    "paper_panel_set",
     "paper_propose",
     "paper_read",
     "paper_revise",
@@ -625,6 +719,7 @@ exports[`boots from a composition, keeps ordinary tools, and lets agents and ope
     "paper_figure_replace",
     "paper_list",
     "paper_open",
+    "paper_panel_set",
     "paper_propose",
     "paper_read",
     "paper_revise",

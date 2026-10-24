@@ -1,5 +1,5 @@
 /** Real Loader, authenticated HTTP and agent-loop coverage; only model responses are scripted. */
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -13,6 +13,9 @@ import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import * as JsonlPersistenceModule from '@deepseek-ai/dsh-session-persistence-jsonl'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import Skills from '@deepseek-ai/dsh-skill'
+import * as ToolSkill from '@deepseek-ai/dsh-tool-skill'
+import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import ToolRuntime, { defineTool } from '@deepseek-ai/dsh-tools'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
@@ -75,12 +78,14 @@ it('boots from a composition, keeps ordinary tools, and lets agents and operator
     })
     return response
   }
-  const control = (method: 'paper-review/list-files' | 'paper-review/current' | 'paper-review/leave' | 'paper-review/command' | 'paper-review/revision' | 'paper-review/pick-file' | 'paper-review/pick-bibliography' | 'paper-review/pick-figure', payload: object, sessionId = 'paper-review-recording') => fetch(`${origin}/api/${method}`, {
+  const control = (method: 'paper-review/open-request' | 'paper-review/list-files' | 'paper-review/current' | 'paper-review/leave' | 'paper-review/command' | 'paper-review/revision' | 'paper-review/pick-file' | 'paper-review/pick-bibliography' | 'paper-review/pick-figure', payload: object, sessionId = 'paper-review-recording') => fetch(`${origin}/api/${method}`, {
     method: 'POST', headers: { 'content-type': 'application/json', origin, cookie },
     body: JSON.stringify({ type: 'client-request', rpcId: 'control-test', method, payload: { sessionId, ...payload } }),
   })
   const agent = await ctx.agentLoop.create(SessionId('paper-review-recording'), { provider: 'mock', model: 'mock' }, { cwd: root })
   const ordinary = await ctx.agentLoop.create(SessionId('ordinary-session'), { provider: 'mock', model: 'mock' }, { cwd: root })
+  expect((await (await control('paper-review/open-request', {}, 'ordinary-session')).json()).result).toEqual({ ok: true, value: null })
+  await expect(stat(join(root, '.paper-review'))).rejects.toMatchObject({ code: 'ENOENT' })
   expect(ctx.tools.schemas(ordinary).filter(schema => schema.name.startsWith('paper_')).map(schema => schema.name).sort()).toEqual([...PaperReview.PAPER_DISCOVERY_TOOLS].sort())
   const absent = await (await rpc({ action: 'open', path: 'missing.md' })).json() as { result: { ok: boolean } }
   expect(absent.result.ok).toBe(false)
@@ -434,3 +439,120 @@ it('boots from a composition, keeps ordinary tools, and lets agents and operator
   const unknown = await (await rpc({ action: 'open', path: 'article.md' }, true, 'nonexistent-session')).json() as { result: { ok: boolean } }
   expect(unknown.result.ok).toBe(false)
 }, 30_000)
+
+it.each([[false, false], [false, true], [true, false], [true, true]])('loads the panel skill and runs one logged turn (native skill loader: %s, file import: %s)', async (nativeSkill, manifestImport) => {
+  // rc.2 reads header.cwd directly; alpha.4 requires its separate working-directory service.
+  const directoryModule = '@deepseek-ai/dsh-working-directory'
+  const directory = nativeSkill && ToolSkill.inject.includes('workingDirectory') ? (await import(directoryModule)).default : undefined
+  root = await mkdtemp(join(tmpdir(), 'dsh-panel-composition-'))
+  const source = '# Paper\n\nPanel a is discussed here (Fig. 1a).\n\n> **Figure 1** (`whole.png`): Shared legend.\n'
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jV5kAAAAASUVORK5CYII=', 'base64')
+  await writeFile(join(root, 'article.md'), source)
+  await writeFile(join(root, 'copy.md'), source)
+  await writeFile(join(root, 'whole.png'), png)
+  await writeFile(join(root, 'crop.png'), png)
+  const modules: Record<string, object> = { llm: LlmRuntime, sessions: SessionStore, projections: SessionProjectionRegistry,
+    prompt: SystemPrompt, skills: Skills, persistence: JsonlSessionPersistence, tools: ToolRuntime,
+    agents: AgentRegistry, loop: AgentLoop, credentials: Credentials, server: WebServer, connection: Connection, review: PaperReview,
+    fs: LocalFileSystem, ...(directory ? { directory } : {}), skillTool: ToolSkill }
+  const configPath = join(root, 'cordis.yml')
+  await writeFile(configPath, JSON.stringify([
+    { name: 'llm' }, { name: 'sessions' }, { name: 'projections' }, { name: 'prompt', config: { personaPrefix: '' } }, { name: 'skills' },
+    { name: 'persistence', config: { root: join(root, 'logs'), compression: 'none' } },
+    { name: 'tools' }, { name: 'agents' }, { name: 'loop', config: { agents: [] } },
+    ...(nativeSkill ? [{ name: 'fs' }, ...(directory ? [{ name: 'directory' }] : []), { name: 'skillTool' }] : []),
+    { name: 'credentials', config: { path: join(root, 'credentials.yml'), watch: false } },
+    { name: 'server', config: { host: '127.0.0.1', port: 0 } }, { name: 'connection' }, { name: 'review', config: { maxBytes: 1_000_000 } },
+  ].map(entry => ({ ...entry, name: `cordis:${entry.name}` }))))
+  ctx = new Context(); ctx.baseUrl = pathToFileURL(root).href + '/'
+  await ctx.plugin(Loader); ctx.loader.builtins.include = Include
+  Object.assign(ctx.loader.builtins, modules)
+  await ctx.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(configPath).href } }); await ctx.loader.await()
+  const origin = `http://127.0.0.1:${ctx.webServer.port}`, context = ctx
+  ctx.webServer.register({ kind: 'exact', path: '/', handler(req, res) { if (context.connection.authorizeIndex(req, res)) res.end('review') } })
+  const auth = await fetch(ctx.connection.authenticatedUrl(origin), { redirect: 'manual' })
+  const cookie = auth.headers.get('set-cookie')!.split(';', 1)[0]!
+  const agent = await ctx.agentLoop.create(SessionId('panel-button'), { provider: 'mock', model: 'mock' }, { cwd: root })
+  const rpc = async (method: string, payload: object, authenticated = true) => fetch(`${origin}/api/${method}`, {
+    method: 'POST', headers: { 'content-type': 'application/json', origin, ...(authenticated ? { cookie } : {}) },
+    body: JSON.stringify({ type: 'client-request', rpcId: 'panel-test', method, payload: { sessionId: agent.id, ...payload } }),
+  })
+  const opened = z.object({ result: z.object({ value: ViewSchema }) }).parse(await (await rpc('paper-review/command', { command: { action: 'open', path: 'article.md' } })).json()).result.value
+  const listed = await (await rpc('paper-review/list-figures', { path: 'article.md' })).json() as { result: { value: { figures: { blockId: string; path: string; sourceHash: string }[] } } }
+  const figure = listed.result.value.figures[0]!, block = opened.document.current.blocks[1]!
+  const skill = await ctx.skills.get('paper-figure-panels')
+  expect(skill?.content).toContain('split_panels.py')
+  const panelInput = { path: 'article.md', revision: opened.document.current.id,
+      figureBlockId: figure.blockId, figure: figure.path, sourceHash: figure.sourceHash,
+      panels: [{ label: 'a', file: 'crop.png', page: 1, region: [0, 0, .5, 1], targets: [{ blockId: block.id, before: block.text }] }] }
+  if (manifestImport) await writeFile(join(root, 'panel-registration.json'), JSON.stringify(panelInput))
+  const adapter = new MockAdapter([
+    toolCallResponse('wrong-open', 'paper_open', { path: 'copy.md' }),
+    toolCallResponse('wrong-save', 'paper_panel_set', { ...panelInput, path: 'copy.md' }),
+    toolCallResponse('read-panels', 'paper_read', { path: 'article.md', includePanels: false }),
+    toolCallResponse('set-panels', 'paper_panel_set', manifestImport
+      ? { path: 'article.md', manifest: 'panel-registration.json' } : panelInput),
+    textResponse('Panel a is linked to its paragraph. Original artwork and prose are unchanged.'),
+  ])
+  const disposeAdapter = ctx.llm.registerAdapter(['mock'], adapter)
+  const request = { path: 'article.md', revision: opened.document.current.id, intent: 'Arrange panels for reading.', requestId: '67f07d31-71b2-4fb0-80e1-4481fdf65c20' }
+  expect((await rpc('paper-review/prepare-panels', request, false)).status).toBe(401)
+  expect((await (await rpc('paper-review/prepare-panels', request)).json()).result.ok).toBe(true)
+  await vi.waitFor(() => { expect(agent.session.snapshotEvents().some(event => event.type === 'turn/end')).toBe(true) }, { timeout: 10_000 })
+  expect((await (await rpc('paper-review/prepare-panels', request)).json()).result.ok).toBe(true)
+  const messages = agent.session.snapshotEvents().filter(event => event.type === 'user/message')
+  expect(JSON.stringify(messages)).toContain('<skill_content name=')
+  expect(messages.some(event => event.data.source.kind === 'skill-invocation')).toBe(nativeSkill)
+  expect(JSON.stringify(adapter.requests)).toContain('Base directory for this skill:')
+  expect(agent.session.snapshotEvents().filter(event => event.type === 'turn/end')).toHaveLength(1)
+  const results = agent.session.snapshotEvents().filter(event => event.type === 'tool/result')
+  expect(results.filter(event => event.data.message.isError).map(event => event.data.message.toolCallId)).toEqual(['wrong-open', 'wrong-save'])
+  expect((await (await rpc('paper-review/current', {})).json()).result.value.path).toBe('article.md')
+  const saved = agent.session.snapshotEvents().find(event => event.type === 'tool/result' && event.data.message.toolCallId === 'set-panels')
+  const savedText = saved?.type === 'tool/result' ? saved.data.message.content.find(item => item.type === 'text') : undefined
+  if (savedText?.type !== 'text') throw new Error('Panel save did not return text')
+  expect(JSON.parse(savedText.text)).toMatchObject({ workspaceRoot: await realpath(root), path: 'article.md', revision: opened.document.current.id, panelCount: 1, totalPanels: 1,
+    panels: [{ label: 'a', targetBlockIds: [block.id] }], manuscriptWritten: false, originalFilesWritten: false })
+  expect(savedText.text).not.toContain('"before"')
+  const execute = async (name: string, args: object, id: string) => {
+    const response = await ctx!.tools.execute({ agent, callId: ToolCallId(id), name, arguments: args, signal: new AbortController().signal })
+    expect(response.isError).not.toBe(true)
+    const text = response.content.find(item => item.type === 'text')
+    if (text?.type !== 'text') throw new Error('Tool did not return text')
+    return JSON.parse(text.text)
+  }
+  expect(await execute('paper_read', { path: 'article.md', includePanels: false }, 'small-read')).not.toHaveProperty('figurePanels')
+  expect(await execute('paper_read', { path: 'article.md' }, 'legacy-read')).toHaveProperty('figurePanels')
+  const packet = await execute('paper_figure_list', { path: 'article.md', packet: 'panel-context.json' }, 'packet-export')
+  expect(packet).toMatchObject({ workspaceRoot: await realpath(root), path: 'article.md', packet: 'panel-context.json',
+    panelCount: 1, validPanelCount: 1, associationCount: 1, figures: [{ savedPanels: [{ label: 'a', stale: false }] }] })
+  expect(packet).not.toHaveProperty('blocks')
+  expect(JSON.parse(await readFile(join(root, 'panel-context.json'), 'utf8'))).toMatchObject({ version: 1,
+    path: 'article.md', revision: opened.document.current.id, blocks: expect.arrayContaining([{ id: block.id, kind: block.kind, text: block.text }]) })
+  const restored = z.object({ result: z.object({ value: ViewSchema }) }).parse(await (await rpc('paper-review/command', { command: { action: 'open', path: 'article.md' } })).json()).result.value
+  expect(restored.document.figurePanels?.[0]?.targets).toEqual([{ blockId: block.id, before: block.text }])
+  // The destination constraint belongs only to the launched run, not later user work.
+  expect(await execute('paper_open', { path: 'copy.md' }, 'later-open')).toMatchObject({ path: 'copy.md' })
+  expect(await readFile(join(root, 'article.md'), 'utf8')).toBe(source)
+  expect(await readFile(join(root, 'whole.png'))).toEqual(png)
+  const articleSkill = await ctx.skills.get('paper-project-start')
+  expect(articleSkill?.content).toContain('import_article.py')
+  await writeFile(join(root, 'imported.md'), '# Imported article\n\nText without artwork.\n')
+  const importAdapter = new MockAdapter([
+    toolCallResponse('import-open', 'paper_open', { path: 'imported.md' }),
+    toolCallResponse('import-figures', 'paper_figure_list', { path: 'imported.md' }),
+    textResponse('Imported article is ready; no artwork is present.'),
+  ])
+  disposeAdapter()
+  ctx.llm.registerAdapter(['mock'], importAdapter)
+  const importRequest = { text: 'Exact pasted article.\n\nDo not rewrite α = 0.05.', requestId: 'f1f0a21c-e86d-49a0-8c16-a6ac95230300' }
+  expect((await rpc('paper-review/start-project', importRequest, false)).status).toBe(401)
+  expect((await (await rpc('paper-review/start-project', importRequest)).json()).result.ok).toBe(true)
+  await vi.waitFor(() => { expect(agent.session.snapshotEvents().filter(event => event.type === 'turn/end')).toHaveLength(2) })
+  expect((await (await rpc('paper-review/start-project', importRequest)).json()).result.ok).toBe(true)
+  const reveal = (await (await rpc('paper-review/open-request', {})).json()).result.value
+  expect(reveal).toMatchObject({ requestId: expect.any(String), path: 'imported.md' })
+  expect(JSON.stringify(importAdapter.requests)).toContain('paper-project-start')
+  expect((await (await rpc('paper-review/current', {})).json()).result.value.path).toBe('imported.md')
+  expect(agent.session.snapshotEvents().filter(event => event.type === 'turn/end')).toHaveLength(2)
+}, 20_000)

@@ -8,6 +8,7 @@ import { PaperPanel } from '../src/client/panel.tsx'
 import type { PaperPanelProps } from '../src/client/panel.tsx'
 import { en } from '../src/client/locales.ts'
 import type { PaperReviewKey } from '../src/client/locales.ts'
+import { writeWorkbenchState } from '../src/client/workbench-state.ts'
 
 vi.mock('../src/client/reader-text.tsx', () => ({ ReaderText: ({ block }: { block: PaperBlock }) => <div data-reader-text>{block.text}</div> }))
 vi.mock('../src/client/rendered-diff.tsx', () => ({
@@ -25,7 +26,7 @@ afterEach(() => {
   else Reflect.deleteProperty(HTMLElement.prototype, 'scrollTo')
 })
 
-function fixture(operation?: 'insert-before' | 'insert-after', stale = false, newerRevision = false, citation = false) {
+function fixture(operation?: 'insert-before' | 'insert-after', stale = false, newerRevision = false, citation = false, paging = false) {
   const base = parseRevision('# Paper\n\n## Methods\n\n### Screening\n\nAn exact source anchor.\n\nAnother paragraph.' + (citation ? ' [@demo2026]' : ''))
   const revision = newerRevision ? parseRevision(base.text.replace('Another paragraph.', 'An unrelated accepted revision.'), base) : base
   const block = revision.blocks.find(candidate => candidate.text === 'An exact source anchor.')
@@ -52,6 +53,7 @@ function fixture(operation?: 'insert-before' | 'insert-after', stale = false, ne
   Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: scroll })
   Object.defineProperty(HTMLElement.prototype, 'scrollTo', { configurable: true,
     value(this: HTMLElement, options: ScrollToOptions) { this.scrollTop = options.top ?? 0 } })
+  if (paging) writeWorkbenchState('navigation-fixture', 'article.md', { mode: 'read', positions: {}, reader: { layout: 'text', paging: 'sections' } })
   render(<PaperPanel {...props} />)
   return { block, scroll, command, view, openResource, listFiles }
 }
@@ -71,6 +73,25 @@ it('opens manuscript and companion previews without changing the review document
   expect(command.mock.calls).toHaveLength(operations)
   expect(view).toEqual(before)
   expect(screen.getByText(block.text)).toBeTruthy()
+})
+
+it('keeps secondary reading tools out of the toolbar and closes their popover without losing the reader selection', async () => {
+  const { block, command } = fixture()
+  await screen.findByText(block.text)
+  expect(screen.queryByRole('button', { name: en.nextReview })).toBeNull()
+  const toggle = screen.getByRole('button', { name: en.readingTools })
+  fireEvent.click(toggle)
+  expect(screen.getByRole('group', { name: en.readingTools })).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: en.nextReview }))
+  const selected = document.querySelector('[data-block][aria-current="true"]')?.getAttribute('data-block')
+  fireEvent.keyDown(document, { key: 'Escape' })
+  expect(screen.queryByRole('group', { name: en.readingTools })).toBeNull()
+  expect(document.activeElement).toBe(toggle)
+  expect(document.querySelector('[data-block][aria-current="true"]')?.getAttribute('data-block')).toBe(selected)
+  fireEvent.click(toggle)
+  fireEvent.pointerDown(document.querySelector('[data-paper-scroll]')!)
+  expect(screen.queryByRole('group', { name: en.readingTools })).toBeNull()
+  expect(command.mock.calls.every(([request]) => ['open', 'position'].includes(request.action))).toBe(true)
 })
 
 it.each(['insert-before', 'insert-after', undefined] as const)('locates %s at its exact anchor and returns to the same proposal', async (operation) => {
@@ -100,6 +121,18 @@ it('disables manuscript navigation when the exact source anchor is stale', async
   fireEvent.click(screen.getByRole('button', { name: en.changes }))
   expect(screen.getByText(en.locationUnavailable)).toBeTruthy()
   expect(screen.getByRole<HTMLButtonElement>('button', { name: en.viewInArticle }).disabled).toBe(true)
+})
+
+it('opens a proposal anchor on another section page and returns to the original proposal', async () => {
+  const { block } = fixture('insert-after', false, false, false, true)
+  await screen.findByText('# Paper')
+  expect(screen.queryByText(block.text)).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: en.changes }))
+  fireEvent.click(screen.getByRole('button', { name: en.viewInArticle }))
+  await screen.findByText(block.text)
+  expect(screen.getByLabelText<HTMLSelectElement>(en.readingSection).selectedOptions[0]?.textContent?.trim()).toBe('Screening')
+  fireEvent.click(screen.getByRole('button', { name: en.backToProposal }))
+  await waitFor(() => { expect(document.querySelector('[data-proposal="P7"]')).toBeTruthy() })
 })
 
 it.each(['insert-before', 'insert-after'] as const)('keeps %s acceptance enabled after an unrelated revision', async (operation) => {
@@ -223,6 +256,7 @@ it('locates citations without labelling them as changed review baselines', async
 it('moves directly to the next unreviewed block and exposes focused reading without marking paragraphs reviewed', async () => {
   const { view, command } = fixture()
   await screen.findByText('An exact source anchor.')
+  fireEvent.click(screen.getByRole('button', { name: en.readingTools }))
   fireEvent.click(screen.getByRole('button', { name: en.nextReview }))
   expect(document.querySelector('[data-block][aria-current="true"]')?.getAttribute('data-block')).toBe(view.document.current.blocks[0]?.id)
   fireEvent.click(screen.getByRole('button', { name: en.nextReview }))
@@ -235,6 +269,7 @@ it('moves directly to the next unreviewed block and exposes focused reading with
 it('measures a review jump after the previous selection actions leave the layout', async () => {
   const { block, view } = fixture()
   await screen.findByText(block.text)
+  fireEvent.click(screen.getByRole('button', { name: en.readingTools }))
   const viewport = document.querySelector<HTMLElement>('[data-paper-scroll]')
   const first = document.querySelector<HTMLElement>(`[data-block="${view.document.current.blocks[0]?.id}"]`)
   const second = document.querySelector<HTMLElement>(`[data-block="${view.document.current.blocks[1]?.id}"]`)

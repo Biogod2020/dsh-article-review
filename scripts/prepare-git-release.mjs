@@ -1,6 +1,6 @@
 /** Copy the built plugin into a release directory with registry-resolvable runtime dependencies. */
-import { copyFile, mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
-import { dirname, join, resolve } from 'node:path'
+import { copyFile, cp, mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
+import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const source = fileURLToPath(new URL('..', import.meta.url))
@@ -30,6 +30,8 @@ async function copyDeclarations(directory) {
 }
 
 await copyArtifact('lib/index.js')
+await cp(join(source, 'skills'), join(target, 'skills'), { recursive: true,
+  filter: path => basename(path) !== '__pycache__' && !path.endsWith('.pyc') })
 await copyArtifact('lib/client.js')
 const clientPath = join(target, 'lib/client.js')
 const clientSource = await readFile(clientPath, 'utf8')
@@ -50,7 +52,7 @@ if (await copyDeclarations('lib/types') === 0) throw new Error('Build the declar
 const dependencies = { ...sourceManifest.dependencies }
 for (const [name, version] of Object.entries({
   '@deepseek-ai/node-addon-system': '^0.1.2',
-  '@deepseek-ai/dsh-native-command': '0.2.0-rc.2 || 0.2.1-alpha.4',
+  '@deepseek-ai/dsh-native-command': sourceManifest.engines.dsh,
   '@deepseek-ai/schemastery': '~3.18.4 || ~3.18.5-alpha.2',
 })) {
   if (!/^workspace:(?:\^|~|\*)$/.test(dependencies[name] ?? '') && dependencies[name] !== version) {
@@ -66,7 +68,7 @@ delete dependencies['@deepseek-ai/dsh-native-command']
 releaseManifest.dependencies = dependencies
 releaseManifest.peerDependencies = {
   '@deepseek-ai/cordis': '~4.0.4 || ~4.0.5-alpha.2',
-  '@deepseek-ai/dsh-native-command': '0.2.0-rc.2 || 0.2.1-alpha.4',
+  '@deepseek-ai/dsh-native-command': sourceManifest.engines.dsh,
   koffi: '^3.1.0',
 }
 releaseManifest.peerDependenciesMeta = { koffi: { optional: true } }

@@ -77,7 +77,7 @@ it('restores the same paragraph offset after preceding lazy blocks change height
   const fixture = viewportFixture()
   fixture.viewport.scrollTop = 740
   const position = capturePaperPosition(fixture.viewport)
-  expect(position).toEqual({ top: 740, anchor: { blockId: 'reading-anchor', offset: -40 } })
+  expect(position).toEqual({ top: 740, anchor: { blockId: 'reading-anchor', offset: -40, fraction: .4 } })
   fixture.viewport.scrollTop = 0
   fixture.move(960)
   const release = restorePaperPosition(fixture.viewport, position)
@@ -116,7 +116,7 @@ it('captures a late reading anchor without measuring every preceding block', () 
     vi.spyOn(block, 'getBoundingClientRect').mockImplementation(() => measure(index))
     viewport.append(block)
   }
-  expect(capturePaperPosition(viewport)).toEqual({ top: 75025, anchor: { blockId: 'paragraph-750', offset: -25 } })
+  expect(capturePaperPosition(viewport)).toEqual({ top: 75025, anchor: { blockId: 'paragraph-750', offset: -25, fraction: .25 } })
   expect(measure.mock.calls.length).toBeLessThan(20)
 })
 

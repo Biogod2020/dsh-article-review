@@ -6,10 +6,21 @@ export const PanelModeSchema = z.enum(['read', 'changes', 'versions', 'history',
 /** Current workbench view. */
 export type PanelMode = z.infer<typeof PanelModeSchema>
 const position = z.object({ top: z.number().nonnegative(),
-  anchor: z.object({ blockId: z.string(), offset: z.number() }).optional() })
+  anchor: z.object({ blockId: z.string(), offset: z.number(), fraction: z.number().min(0).max(1).optional() }).optional() })
+const figureView = z.object({ fit: z.enum(['width', 'window', 'actual']), zoom: z.number().min(.25).max(8),
+  left: z.number().nonnegative(), top: z.number().nonnegative() })
+export type FigureViewState = z.infer<typeof figureView>
 const stateSchema = z.object({
   mode: PanelModeSchema.default('read'),
   selectedBlockId: z.string().optional(),
+  reader: z.object({ layout: z.enum(['text', 'figures']), paging: z.enum(['continuous', 'sections']),
+    sectionBlockId: z.string().optional(), figureKey: z.string().optional(), pinned: z.boolean().optional(),
+    figureSelection: z.enum(['follow', 'manual']).optional(), manualBlockId: z.string().optional(),
+    figurePresentation: z.enum(['peek', 'floating', 'docked']).optional(),
+    figureWindow: z.object({ x: z.number().nonnegative(), y: z.number().nonnegative(), width: z.number().positive(), height: z.number().positive() }).optional(),
+    figurePlacement: z.enum(['auto', 'side', 'top']).optional(), columnRatio: z.number().min(.25).max(.8).optional(),
+    figureViews: z.record(z.string(), figureView).optional(),
+    figureWidth: z.enum(['compact', 'balanced', 'wide']).optional(), figuresCollapsed: z.boolean().optional() }).optional(),
   positions: z.record(z.string(), position).default({}),
   versions: z.object({ leftRevisionId: z.string(), rightRevisionId: z.string(),
     layout: z.enum(['rendered', 'split', 'inline']) }).optional(),

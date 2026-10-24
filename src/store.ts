@@ -1,6 +1,6 @@
 /** Local manuscript state, serialized operator actions, and recoverable source acceptance. */
 import { constants } from 'node:fs'
-import { mkdir, open, readFile, readdir, realpath, rename, stat, unlink } from 'node:fs/promises'
+import { lstat, mkdir, open, readFile, readdir, realpath, rename, stat, unlink } from 'node:fs/promises'
 import { isAbsolute, relative, resolve, sep } from 'node:path'
 import { createHash, randomUUID } from 'node:crypto'
 import { authoredFigureBase, collectFigures, figureFilePath, pinnedFigure, replaceFigureReference } from './figures.ts'
@@ -10,6 +10,8 @@ import { checkChanges, migrateAnnotations, parseRevision, revisionId } from './d
 import { assertNewCitations, citationsIn, parseBibtex, possibleBareCitationKeys, reviewableBlocks } from './bibliography.ts'
 import type { BibEntry } from './bibliography.ts'
 import { acquireOwnerLock } from './owner-lock.ts'
+import { PanelInputSchema } from './figure-panels.ts'
+import type { FigurePanel, PanelInput } from './figure-panels.ts'
 import { DeletionInputSchema, DocumentSchema, FigureReplacementSchema, ProposalInputSchema, ProposalRevisionInputSchema } from './schema.ts'
 import type { DeletionInput } from './schema.ts'
 import type { BibliographyView, FigureAsset, FigureReplacement, PaperCommand, PaperDocument, PaperView, Proposal, ProposalInput, ProposalRevisionInput } from './schema.ts'
@@ -220,21 +222,185 @@ export class PaperStore {
    * @param path - manuscript path.
    * @returns reader revision, source-change flag and workspace-relative figure files.
    */
-  listFigures(path: string): Promise<{
+  listFigures(path: string, packet?: string): Promise<{
+    workspaceRoot: string
+    path: string
     revision: string
     diskChanged: boolean
-    figures: { blockId: string; label: string; path: string; file: string | null; hash?: string }[]
+    packet?: string
+    panelCount: number
+    validPanelCount: number
+    associationCount: number
+    figures: { blockId: string; label: string; path: string; file: string | null; hash?: string; sourceHash?: string; error?: string;
+      savedPanels: { label: string; stale: boolean; targetCount: number }[] }[]
   }> {
     return this.serial(async () => {
       const { document, disk } = await this.load(path)
       const base = authoredFigureBase(document.current.text)
-      return { revision: document.current.id, diskChanged: revisionId(disk) !== document.current.id,
-        figures: collectFigures(document.current.blocks).map((figure) => {
+      const targets = new Map(document.current.blocks.map(block => [block.id, block.text]))
+      const fileHashes = new Map<string, Promise<string>>()
+      const hashFile = (file: string): Promise<string> => {
+        let pending = fileHashes.get(file)
+        if (!pending) {
+          pending = this.figureData(file).then(data => createHash('sha256').update(data).digest('hex'))
+          fileHashes.set(file, pending)
+        }
+        return pending
+      }
+      // Validate each retained crop once, without holding every image in memory at the same time.
+      const cropHashes = new Map<string, string | undefined>()
+      for (const panel of document.figurePanels ?? []) if (!cropHashes.has(panel.file)) {
+        cropHashes.set(panel.file, await hashFile(panel.file).catch(() => undefined))
+      }
+      const listing = { workspaceRoot: this.root, path: document.path, revision: document.current.id, diskChanged: revisionId(disk) !== document.current.id,
+        figures: await Promise.all(collectFigures(document.current.blocks).map(async (figure) => {
           const hash = document.current.figureAssets?.find(asset => asset.path === figure.path)?.hash
-          return { ...figure, file: figureFilePath(document.path, base, pinnedFigure(document.current, figure).path) ?? null,
-            ...(hash ? { hash } : {}) }
-        }) }
+          const file = figureFilePath(document.path, base, pinnedFigure(document.current, figure).path) ?? null
+          const saved = (document.figurePanels ?? []).filter(panel => panel.figureBlockId === figure.blockId && panel.figure === figure.path)
+          const savedPanels = (sourceHash?: string) => saved.map(panel => ({ label: panel.label, targetCount: panel.targets.length,
+            stale: sourceHash === undefined || panel.sourceHash !== sourceHash
+              || cropHashes.get(panel.file) !== panel.hash
+              || panel.targets.some(target => targets.get(target.blockId) !== target.before) }))
+          try {
+            const sourceHash = file ? await hashFile(file) : undefined
+            return { ...figure, file, ...(hash ? { hash } : {}), ...(sourceHash ? { sourceHash } : {}), savedPanels: savedPanels(sourceHash) }
+          } catch (error) { return { ...figure, file, error: error instanceof Error ? error.message : String(error), savedPanels: savedPanels() } }
+        })) }
+      const saved = listing.figures.flatMap(figure => figure.savedPanels)
+      const summary = { panelCount: saved.length, validPanelCount: saved.filter(panel => !panel.stale).length,
+        associationCount: saved.filter(panel => !panel.stale).reduce((count, panel) => count + panel.targetCount, 0) }
+      if (packet === undefined) return { ...listing, ...summary }
+      if (listing.diskChanged) throw new Error('Load external manuscript changes before exporting panel context')
+      const content = JSON.stringify({ version: 1, workspaceRoot: this.root, path: document.path, revision: document.current.id,
+        figures: listing.figures, blocks: document.current.blocks.map(({ id, kind, text }) => ({ id, kind, text })) }, null, 2) + '\n'
+      return { ...listing, ...summary, packet: await this.writePanelPacket(packet, content) }
     })
+  }
+
+  /** Read prepared arguments; setPanels still checks the current source and every exact paragraph anchor. */
+  readPanelManifest(path: string, manifest: string): Promise<PanelInput> {
+    return this.serial(async () => {
+      const source = await this.readWorkspaceJson(manifest, 1_048_576)
+      let decoded: unknown
+      try { decoded = JSON.parse(source.text) } catch { throw new Error('Panel manifest must contain valid JSON') }
+      const contents = z.object({ workspaceRoot: z.string().optional(), path: z.string().optional() }).passthrough().parse(decoded)
+      if (contents.workspaceRoot !== undefined && (!isAbsolute(contents.workspaceRoot)
+        || await realpath(contents.workspaceRoot).catch(() => undefined) !== this.root))
+        throw new Error('Panel manifest belongs to a different workspace; export context from the intended manuscript')
+      if (contents.path !== undefined && (await this.locate(contents.path)).source !== (await this.locate(path)).source)
+        throw new Error('Panel manifest belongs to a different manuscript')
+      return PanelInputSchema.parse(contents)
+    })
+  }
+
+  /** Confine JSON artifacts and reject links into review state or another workspace. */
+  private async workspaceJson(path: string, createParents: boolean): Promise<{ source: string; path: string }> {
+    if (!path || isAbsolute(path) || !/\.json$/i.test(path)
+      || path.split(/[\\/]/).some(part => part === '..' || part.toLowerCase() === '.paper-review'))
+      throw new Error('Choose a workspace-relative .json file outside .paper-review')
+    const source = resolve(this.root, path), normalized = relative(this.root, source)
+    if (!normalized || normalized === '..' || normalized.startsWith(`..${sep}`) || isAbsolute(normalized))
+      throw new Error('Panel JSON file must remain inside the workspace')
+    const parts = normalized.split(sep)
+    let directory = this.root
+    for (const part of parts.slice(0, -1)) {
+      directory = resolve(directory, part)
+      if (createParents) await mkdir(directory).catch((error: unknown) => {
+        if (!(error instanceof Error && 'code' in error && error.code === 'EEXIST')) throw error
+      })
+      const info = await lstat(directory)
+      if (!info.isDirectory() || info.isSymbolicLink()) throw new Error('Panel JSON directories must not be symbolic links')
+    }
+    const info = await lstat(source).catch((error: unknown) => { if (missing(error)) return undefined; throw error })
+    if (info && (!info.isFile() || info.isSymbolicLink())) throw new Error('Panel JSON must be a regular file, not a symbolic link')
+    return { source, path: normalized }
+  }
+
+  private async readWorkspaceJson(path: string, maximum: number): Promise<{ text: string; path: string }> {
+    const location = await this.workspaceJson(path, false)
+    const handle = await open(location.source, constants.O_RDONLY | constants.O_NOFOLLOW)
+    try {
+      const info = await handle.stat()
+      if (!info.isFile() || info.size > maximum) throw new Error(`Panel JSON must be a regular file no larger than ${maximum} bytes`)
+      const bytes = Buffer.alloc(maximum + 1)
+      let size = 0
+      while (size < bytes.length) {
+        const { bytesRead } = await handle.read(bytes, size, bytes.length - size, size)
+        if (!bytesRead) break
+        size += bytesRead
+      }
+      if (size > maximum) throw new Error(`Panel JSON must be no larger than ${maximum} bytes`)
+      return { text: new TextDecoder('utf-8', { fatal: true }).decode(bytes.subarray(0, size)), path: location.path }
+    } finally { await handle.close() }
+  }
+
+  private async writePanelPacket(path: string, content: string): Promise<string> {
+    const maximum = 2_097_152
+    if (Buffer.byteLength(content) > maximum) throw new Error(`Panel context packet exceeds ${maximum} bytes`)
+    const location = await this.workspaceJson(path, true)
+    try {
+      const handle = await open(location.source, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o400)
+      try { await handle.writeFile(content); await handle.sync() } finally { await handle.close() }
+    } catch (error) {
+      if (!(error instanceof Error && 'code' in error && error.code === 'EEXIST')) throw error
+      if ((await this.readWorkspaceJson(path, maximum)).text !== content)
+        throw new Error('Panel context packet already exists with different content; choose a new file')
+    }
+    return location.path
+  }
+
+  /** Replace one figure's panel associations without changing Markdown, original artwork or review baselines. */
+  setPanels(path: string, input: PanelInput): Promise<PaperView> {
+    return this.serial(async () => {
+      const request = PanelInputSchema.parse(input)
+      const { document, key, disk } = await this.load(path)
+      this.assertRevision(document, request.revision)
+      if (revisionId(disk) !== document.current.id) throw new Error('Load external manuscript changes before arranging panels')
+      if (!request.panels.length) {
+        document.figurePanels = (document.figurePanels ?? []).filter(panel => panel.figureBlockId !== request.figureBlockId || panel.figure !== request.figure)
+        await atomicWrite(key, JSON.stringify(document))
+        return { document, diskChanged: false }
+      }
+      const figure = collectFigures(document.current.blocks).find(item => item.blockId === request.figureBlockId && item.path === request.figure)
+      if (!figure) throw new Error('Figure reference changed; use paper_figure_list again')
+      const base = authoredFigureBase(document.current.text)
+      const directory = base || document.path.slice(0, Math.max(0, document.path.lastIndexOf('/')))
+      const file = figureFilePath(document.path, base, pinnedFigure(document.current, figure).path)
+      if (!file) throw new Error('Figure path is invalid')
+      const source = await this.retainFigure(directory, file, figure.path)
+      if (source.hash !== request.sourceHash) throw new Error('Source figure changed; inspect and split the current file again')
+      for (const panel of request.panels) for (const target of panel.targets) {
+        if (!document.current.blocks.some(block => block.id === target.blockId && block.text === target.before))
+          throw new Error('Panel target changed; reread the exact paragraph before arranging it')
+      }
+      const panels: FigurePanel[] = []
+      for (const panel of request.panels) {
+        if (!/\.png$/i.test(panel.file)) throw new Error('Panel crops must be PNG files')
+        const data = await this.figureData(panel.file)
+        if (!data.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) throw new Error('Panel crop is not a PNG image')
+        const asset = await this.retainFigure(directory, panel.file, panel.file)
+        panels.push({ id: `${figure.blockId}:${panel.label}`, figureBlockId: figure.blockId, figure: figure.path,
+          label: panel.label, sourceHash: source.hash, sourceFile: file,
+          file: [directory, asset.snapshot].filter(Boolean).join('/'), hash: asset.hash,
+          page: panel.page, region: panel.region, targets: panel.targets })
+      }
+      // Check again after retaining assets; a rejected operation may leave harmless immutable copies.
+      if (createHash('sha256').update(await this.figureData(file)).digest('hex') !== source.hash
+        || await this.sourceText((await this.locate(path)).source) !== disk) throw new Error('Source changed while arranging panels; reread and retry')
+      document.figurePanels = [...(document.figurePanels ?? []).filter(panel => panel.figureBlockId !== figure.blockId || panel.figure !== figure.path), ...panels]
+      await atomicWrite(key, JSON.stringify(document))
+      return { document, diskChanged: false }
+    })
+  }
+
+  private async panelStatus(document: PaperDocument): Promise<PaperDocument> {
+    if (!document.figurePanels?.length) return document
+    const hashes = new Map<string, Promise<string | undefined>>()
+    for (const panel of document.figurePanels) if (!hashes.has(panel.sourceFile)) {
+      hashes.set(panel.sourceFile, this.figureData(panel.sourceFile).then(data => createHash('sha256').update(data).digest('hex'), () => undefined))
+    }
+    return { ...document, figurePanels: await Promise.all(document.figurePanels.map(async panel => ({ ...panel,
+      stale: await hashes.get(panel.sourceFile) !== panel.sourceHash }))) }
   }
 
   private async figureData(path: string): Promise<Buffer> {
@@ -563,7 +729,7 @@ export class PaperStore {
   read(path: string): Promise<PaperView> {
     return this.serial(async () => {
       const { document, disk } = await this.load(path)
-      return { document, diskChanged: revisionId(disk) !== document.current.id }
+      return { document: await this.panelStatus(document), diskChanged: revisionId(disk) !== document.current.id }
     })
   }
 
@@ -895,7 +1061,7 @@ export class PaperStore {
         await atomicWrite(key, JSON.stringify(document))
         await unlink(`${key}.pending`)
       } else await atomicWrite(key, JSON.stringify(document))
-      return { document, diskChanged: revisionId(output ?? disk) !== document.current.id }
+      return { document: command.action === 'position' ? document : await this.panelStatus(document), diskChanged: revisionId(output ?? disk) !== document.current.id }
     })
   }
 }

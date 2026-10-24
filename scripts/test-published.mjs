@@ -11,12 +11,14 @@ if (!source) throw new Error('Set DSH_HARNESS_SOURCE to the dsh-v0.2.1-alpha.4 s
 const harness = await realpath(source)
 const manifest = JSON.parse(await readFile(join(harness, 'package.json'), 'utf8'))
 if (manifest.version !== '0.2.1-alpha.4') throw new Error('The published lane requires matching DSH 0.2.1-alpha.4 fixtures')
-const runtime = resolve(repo, 'validation/harness/node_modules')
+const runtime = process.env.DSH_HARNESS_RUNTIME ? await realpath(process.env.DSH_HARNESS_RUNTIME) : resolve(repo, 'validation/harness/node_modules')
+const runtimeManifest = JSON.parse(await readFile(join(runtime, '@deepseek-ai/dsh/package.json'), 'utf8'))
+if (!['0.2.0-rc.2', '0.2.1-alpha.4', '0.2.1-rc.2', '0.2.1-rc.3'].includes(runtimeManifest.version)) throw new Error('Choose a supported DSH runtime with declaration files')
 const args = process.argv.slice(2)
 if (args.some(arg => arg === '-u' || arg.startsWith('--update'))) throw new Error('Review snapshot changes in the source checkout; this runner never updates snapshots')
 const temporary = await mkdtemp(join(tmpdir(), 'paper-review-published-'))
 try {
-  for (const entry of ['src', 'tests', 'package.json', 'cordis.patch.yml', 'review.overlay.yml']) await cp(join(repo, entry), join(temporary, entry), { recursive: true })
+  for (const entry of ['src', 'tests', 'skills', 'package.json', 'cordis.patch.yml', 'review.overlay.yml']) await cp(join(repo, entry), join(temporary, entry), { recursive: true })
   const modules = join(temporary, 'node_modules')
   const seen = new Set()
   for (const root of [join(repo, 'validation/node_modules'), runtime]) {
@@ -47,7 +49,7 @@ try {
   for (const [face, include] of [['host', ['src/*.ts']], ['client', ['src/client', 'src/schema.ts', 'src/figures.ts', 'src/change-audit.ts', 'src/review-queue.ts', 'src/review-blocks.ts', 'src/workbench-view.ts']]]) {
     const config = `tsconfig.${face}.json`
     await writeFile(join(temporary, config), JSON.stringify({ compilerOptions, include }))
-    console.log(`Checking ${face} against published DSH ${manifest.version}`)
+    console.log(`Checking ${face} against published DSH ${runtimeManifest.version}`)
     const result = spawnSync(process.execPath, [join(modules, 'typescript/bin/tsc'), '-p', config], { cwd: temporary, stdio: 'inherit' })
     if (result.error) throw result.error
     if (result.status !== 0) { process.exitCode = result.status ?? 1; break }
@@ -70,7 +72,7 @@ export default defineConfig({root: ${JSON.stringify(temporary)},
     execArgv:process.allowedNodeEnvironmentFlags.has('--webstorage')?['--no-webstorage']:[]},
 })`
     await writeFile(join(temporary, 'vitest.config.mjs'), config)
-    console.log(`Running integration tests against published DSH ${manifest.version}`)
+    console.log(`Running integration tests against published DSH ${runtimeManifest.version}`)
     const result = spawnSync(process.execPath, [join(modules, 'vitest/vitest.mjs'), 'run', '--config', 'vitest.config.mjs', ...args], { cwd: temporary, stdio: 'inherit' })
     if (result.error) throw result.error
     process.exitCode = result.status ?? 1

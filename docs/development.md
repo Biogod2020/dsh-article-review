@@ -6,7 +6,7 @@ This document covers local builds, manuscript tools, persistence and platform co
 
 ## npm and Git installation
 
-For installation commands, see the [project README](../README.md#installation). The installer adds the package's [bundle patch](../cordis.patch.yml) after the Web layer; no separate launcher or model configuration is needed. The current release supports DSH Web `0.2.1-alpha.4` and macOS Desktop `0.2.0-rc.2`. Its `engines.dsh` names these two verified versions; both host/client type checks and all 240 integration tests pass on each. For other hosts, see [scope and compatibility](#scope-and-compatibility).
+For installation commands, see the [project README](../README.md#installation). The installer adds the package's [bundle patch](../cordis.patch.yml) after the Web layer; no separate launcher or model configuration is needed. The current release supports DSH Web `0.2.1-alpha.4` and macOS Desktop `0.2.0-rc.2` / `0.2.1-rc.2`. Its `engines.dsh` names these three verified versions; host/client type checks pass on all three. Desktop `0.2.1-rc.2` passes the full 269-test suite; the panel API/composition lane passes on the older Desktop/Web runtimes (21 tests each). For other hosts, see [scope and compatibility](#scope-and-compatibility).
 
 The browser receives the current manuscript plus a revision index; historical bodies load only for the selected comparison pair. Reader blocks share viewport observers. PDF previews share a byte-bounded cache and converter queue (`previewCacheBytes`, default 4194304; `previewConcurrency`, default 1). See the [performance measurements](performance.zh.md).
 
@@ -31,6 +31,8 @@ DSH_HARNESS_SOURCE=/absolute/path/to/dsh-v0.2.1-alpha.4 npm run test:published
 DSH_HARNESS_ROOT=/absolute/path/to/deepseek-harness npm run test:harness
 ```
 
+Set `DSH_HARNESS_RUNTIME=/absolute/path/to/node_modules` to check an installed Desktop `0.2.0-rc.2` / `0.2.1-rc.2` / `0.2.1-rc.3` runtime with declaration files; the default is the Web `0.2.1-alpha.4` runtime under `validation/harness/node_modules`.
+
 The full lane checks host/client types separately and runs the native composition tests against the installed upstream checkout. It never edits that checkout. See the [hands-on review](experience-review.zh.md) for the DSH 0.2 test matrix and remaining issues.
 
 ## Packaging and publishing
@@ -42,10 +44,12 @@ Build `lib/` in a compatible DSH checkout, then prepare a separate release direc
 ```sh
 node scripts/prepare-git-release.mjs /absolute/path/to/release-directory
 npm pack /absolute/path/to/release-directory --pack-destination /absolute/path/to/artifacts
-npm publish /absolute/path/to/artifacts/dsh-article-review-0.2.1-alpha.2.tgz --registry=https://registry.npmjs.org --access public --tag next
+node scripts/check-release.mjs
+git tag v0.2.2-alpha.14
+git push origin v0.2.2-alpha.14
 ```
 
-The preparation script replaces workspace dependencies with registry-resolvable versions and checks that the client module name matches the package name and that `zod` is inlined. Do not publish the source directory with `workspace:` dependencies. Prereleases use the `next` tag; installation instructions pin the full version. Before uploading, check the same archive with `--dry-run`, then install and start it in an isolated DSH profile. Publishing requires npm login and the account's two-factor authentication. After publication, verify the version and archive integrity on the official npm registry and the mainland mirror separately.
+The preparation script replaces workspace dependencies with registry-resolvable versions and checks that the client module name matches the package name and that `zod` is inlined. Do not publish the source directory with `workspace:` dependencies. Prereleases use the `next` tag; installation instructions pin the full version. Before uploading, check the same archive with `--dry-run`, then install and start it in an isolated DSH profile. The `publish.yml` workflow checks the prebuilt tag, full rc.3 integration and restart recovery, then publishes its exact verified archive through npm OIDC. Configure the package's Trusted Publisher once for `Biogod2020/dsh-article-review`, workflow `publish.yml`, with direct `npm publish` permission. Initial owner verification may be required; ordinary releases use the existing trust. The workflow verifies official npm and mirror archive integrity and installs by package name from both registries.
 
 <a id="understand-the-implementation"></a>
 ## Understand the implementation
@@ -82,7 +86,7 @@ The model receives `paper_list` and `paper_open` before a manuscript opens. An e
 
 #### Token effect
 
-Two discovery schemas remain available before opening a manuscript; fifteen active schemas join the ordinary model tool list afterward. Exiting hides those fifteen schemas for the next turn without removing earlier results. Full reads return whole blocks in revision-pinned pages (40 blocks / 32,000 characters by default); a block read includes neighbors. Proposal inspection and revision return the full edit group. Figure tools return paths and hashes, not image bytes, so the model must inspect the artwork separately. BibTeX indexes return all bound metadata. Large libraries, proposals and histories increase tool-result size; local histories have no pruning limit.
+Two discovery schemas remain available before opening a manuscript; sixteen active schemas join the ordinary model tool list afterward. Exiting hides those sixteen schemas for the next turn without removing earlier results. Full reads return whole blocks in revision-pinned pages (40 blocks / 32,000 characters by default); a block read includes neighbors. Proposal inspection and revision return the full edit group. Figure tools return paths and hashes, not image bytes, so the model must inspect the artwork separately. BibTeX indexes return all bound metadata. Large libraries, proposals and histories increase tool-result size; local histories have no pruning limit.
 
 #### KV Cache effect
 
@@ -109,7 +113,7 @@ Attached blocks and annotations add a user message only when submitted. Neighbor
 Submitted context appends to the conversation. Changed quotations, revisions, annotations or interface language change the new message, not earlier retained messages. Provider cache reuse remains outside this plugin's control.
 
 ## Scope and compatibility
-The release was exercised in an isolated copy of macOS Desktop `0.2.0-rc.2` with fictional files: native manuscript selection, cancel and retry, proposal acceptance and rejection, the original human baseline after two accepted rounds, version swapping and source diffs, annotation-to-composer insertion, BibTeX binding, and recovery after a full restart. Native Markdown, two-page PDF and DOCX-to-PDF previews passed. Windows Desktop has not been exercised on a real machine. See the [release validation](release-0.2.1-alpha.1.zh.md).
+The release was exercised in an isolated copy of macOS Desktop `0.2.0-rc.2` / `0.2.1-rc.2` with fictional files: native manuscript selection, cancel and retry, proposal acceptance and rejection, the original human baseline after two accepted rounds, version swapping and source diffs, annotation-to-composer insertion, BibTeX binding, and recovery after a full restart. Native Markdown, two-page PDF and DOCX-to-PDF previews passed. Windows Desktop has not been exercised on a real machine. See the [release validation](release-0.2.1-alpha.1.zh.md).
 
 
 <a id="scope-and-compatibility"></a>
@@ -125,3 +129,7 @@ The plugin reviews local Markdown manuscripts with one server process and multip
 - The Git release does not install `koffi` automatically because this native dependency is used only for Windows workspace locking. Windows installation and operation are not yet verified; Windows requires `koffi` in the same profile before the plugin can open a manuscript.
 - Full revisions and annotations are retained without pruning or a manuscript restore button. Large histories can consume disk and slow state loading; the reader, review comparisons and rendered version blocks mount near the viewport. The references list shows at most forty entries per page. The workspace lock permits one server process, with multiple browser windows; it is not multi-author synchronization.
 - BibTeX indexing accepts ordinary complete entries but does not expand macros or validate bibliographic truth. New in-text citations are checked in proposed replacements and insertions, not in unrelated direct file writes. The references tab flags possible bare citation keys; scientific terms can also trigger a flag and need contextual review.
+
+## Panel preparation
+
+`paper_figure_list({path, packet})` optionally exports an exclusive, read-only context snapshot beside the manuscript. `prepare_panels.py` fills exact target text from it and generates verified crop files/previews. `paper_panel_set({path, manifest})` reads up to 1 MiB of confined JSON and applies the same revision/source/crop/paragraph checks as inline input. The compact response covers only the current figure. Ordinary `paper_read` calls can pass `includePanels:false` to avoid repeating all saved targets. `savedPanels` marks source, paragraph and retained-crop failures as stale. See the bundled skill for bounded native dispatch and old-host fallback.

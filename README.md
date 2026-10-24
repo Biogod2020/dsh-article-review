@@ -17,7 +17,9 @@ Across multiple revision rounds, each paragraph stays compared with **the last v
 
 ## Features
 
+- **Start from an article** — import PDF, DOCX, LaTeX, TXT, Markdown, HTML or pasted prose with `paper-project-start`; preserve the source, prepare available figures and open the reader.
 - **Read and annotate** — highlights, underlines, comments and manuscript search.
+- **Read text with figures** — whole figures or AI-prepared panels beside their paragraphs; optional section pages retain your reading position. See the [reading guide](docs/user-guide.md#text-figures-and-section-pages).
 - **Revise with AI** — propose replacements, insertions or deletions; revise pending proposals. Supports headings, lists and tables.
 - **Track your review** — mark and lock reviewed paragraphs; track later changes.
 - **Compare versions** — word-level comparisons and exact Markdown source diffs.
@@ -28,7 +30,7 @@ Across multiple revision rounds, each paragraph stays compared with **the last v
 <a id="installation"></a>
 ## Install
 
-Supports DSH Web `0.2.1-alpha.4` and Desktop `0.2.0-rc.2`. Uses your existing model configuration.
+Version `0.2.2-alpha.14` supports DSH Web `0.2.1-alpha.4` and Desktop `0.2.0-rc.2` / `0.2.1-rc.2` / `0.2.1-rc.3`. Uses your existing model configuration.
 
 ### Desktop App
 
@@ -37,7 +39,7 @@ The App includes its runtime; no separate Node installation is needed.
 1. Open **Plugins** in the App's left sidebar, then click **Add plugin**.
 2. Paste the npm package name and version:
 
-   `dsh-article-review@0.2.1-alpha.2`
+   `dsh-article-review@0.2.2-alpha.14`
 
 3. After installation, click **Enable now** and follow any restart prompt.
 4. Choose a local workspace and open a conversation. In the right sidebar, choose **Read, annotate and revise**.
@@ -45,20 +47,22 @@ The App includes its runtime; no separate Node installation is needed.
 
 Desktop uses its own `desktop` profile. Installing into the `web` profile does not install into the App. If you previously installed `@deepseek-ai/dsh-experimental-paper-review` from GitHub, uninstall that package in Plugins before installing the npm package above and restarting. Workspace review records in `.paper-review/` continue to be used. macOS Desktop has been exercised; see [platform requirements](docs/development.md#scope-and-compatibility) for Windows.
 
-Choose the official npm registry or the mainland China mirror. If the mirror has not synced this version, use the official registry. GitHub installation is also available as `github:Biogod2020/dsh-article-review#v0.2.1-alpha.2`. If GitHub times out, download the [prebuilt release archive](https://codeload.github.com/Biogod2020/dsh-article-review/tar.gz/refs/tags/v0.2.1-alpha.2) and enter its absolute local path in **Plugins → Add plugin**, without extracting or building it. Tags through `v0.2.1-alpha.1` retain the old package name; install one package name at a time.
+Choose the official npm registry or the mainland China mirror. If the mirror has not synced this version, use the official registry. GitHub installation is also available as `github:Biogod2020/dsh-article-review#v0.2.2-alpha.14`. If GitHub times out, download the [prebuilt release archive](https://codeload.github.com/Biogod2020/dsh-article-review/tar.gz/refs/tags/v0.2.2-alpha.14) and enter its absolute local path in **Plugins → Add plugin**, without extracting or building it. Tags through `v0.2.1-alpha.1` retain the old package name; install one package name at a time.
 
 ### Web
 
 Requires Node.js 22 (≥22.19) or 24+:
 
 ```sh
-dsh plugin --profile web add 'dsh-article-review@0.2.1-alpha.2'
+dsh plugin --profile web add 'dsh-article-review@0.2.2-alpha.14'
 dsh web
 ```
 
 Restart a running Web profile after installation. For GitHub installation, use the prebuilt tag; `main` contains development source.
 
 ## Start reviewing
+
+For a document or pasted article, choose **Import article** in the reader's file controls, or invoke `/paper-project-start` in the conversation and identify the source. Conversion creates a separate project in the conversation workspace. The first run uses `uv` to prepare document tools there. Text-only articles skip figure preparation; scans require OCR and verification. See the [import guide](docs/user-guide.md#start-from-an-article).
 
 1. Choose **Read, annotate and revise** in the right sidebar and open a Markdown manuscript.
 2. Select text, annotate it, attach the notes to the conversation and send your request.

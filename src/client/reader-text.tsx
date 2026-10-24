@@ -8,6 +8,8 @@ import { displayCitations } from './citation-display.ts'
 import { normalizeLegacyTableDividers } from './legacy-tables.ts'
 import { anchorRange, captureSelection } from './selection.ts'
 import type { TextAnchor } from './selection.ts'
+import { FigureReferences } from './figure-references.tsx'
+import type { FigureReferenceActions } from './figure-references.tsx'
 import { useRenderedChange } from './rendered-diff.tsx'
 
 /**
@@ -15,7 +17,7 @@ import { useRenderedChange } from './rendered-diff.tsx'
  * @param props - source, attached marks, localized chrome and selection handlers.
  * @returns source-preserving reader text.
  */
-export function ReaderText({ block, highlights, annotations, labels, bibliography, onSelect, onMenu, comparison }: {
+export function ReaderText({ block, highlights, annotations, labels, bibliography, onSelect, onMenu, comparison, figureReferences }: {
   block: PaperBlock
   highlights: PaperHighlight[]
   annotations: Annotation[]
@@ -23,6 +25,7 @@ export function ReaderText({ block, highlights, annotations, labels, bibliograph
   bibliography?: BibliographyView | undefined
   onSelect?: (anchor?: TextAnchor) => void
   onMenu?: (event: MouseEvent, anchor?: TextAnchor) => void
+  figureReferences?: FigureReferenceActions | undefined
   comparison?: { opposite: string; side: 'before' | 'after' }
 }): ReactNode {
   const root = useRef<HTMLDivElement>(null)
@@ -32,6 +35,7 @@ export function ReaderText({ block, highlights, annotations, labels, bibliograph
   const displayText = useMemo(() => !rendered ? '' : block.kind === 'code' || block.kind === 'html'
     ? block.text : normalizeLegacyTableDividers(displayCitations(block.text, bibliography?.entries ?? [])),
   [rendered, block.kind, block.text, bibliography?.entries])
+  const markdown = useMemo(() => <MarkdownText text={displayText} labels={labels} />, [displayText, labels])
   const diffCSS = useRenderedChange(root, block.text, comparison?.opposite, comparison?.side ?? 'before', rendered)
   const marked = highlights.some(h => !h.removed && h.anchor === 'attached') || annotations.some(a => a.anchor === 'attached' && a.status === 'open')
   useEffect(() => {
@@ -58,7 +62,7 @@ export function ReaderText({ block, highlights, annotations, labels, bibliograph
     <div ref={root} data-reader-text onMouseUp={onSelect ? (event) => {
       if (event.button === 0 && root.current) onSelect(captureSelection(root.current))
     } : undefined} onContextMenu={onMenu ? (event) => { if (root.current) onMenu(event, captureSelection(root.current)) } : undefined}>
-      {rendered ? <MarkdownText text={displayText} labels={labels} />
+      {rendered ? figureReferences && /\bfig(?:ure)?s?\.?\s+(?:S)?\d/i.test(displayText) ? <FigureReferences actions={figureReferences}>{markdown}</FigureReferences> : markdown
         : <div data-reader-placeholder aria-hidden="true" style={{ minHeight: Math.max(36, Math.ceil(block.text.length / 42) * 29) }} />}
     </div></>
 }

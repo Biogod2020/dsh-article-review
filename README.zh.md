@@ -17,7 +17,9 @@ kind: "package-bundle"
 
 ## 核心功能
 
+- **从文章开始**：固定的 `paper-project-start` skill 支持 PDF、DOCX、LaTeX、TXT、Markdown、HTML 和粘贴正文，保留原稿，准备已有图片并打开阅读器。
 - **阅读批注**：高亮、下划线、评论与全文搜索。
+- **图文对照**：整图或 AI 切分的 panel 与正文一起阅读，可选小节分页，切换时保留位置。见[阅读指南](docs/user-guide.zh.md#图文对照与小节分页)。
 - **AI 修稿**：替换、增删和重写提案，支持标题、列表、表格。
 - **审阅进度**：标记、锁定已审段落，追踪后续变化。
 - **版本对比**：逐词对比与 Markdown 源码差异。
@@ -28,7 +30,7 @@ kind: "package-bundle"
 <a id="installation"></a>
 ## 安装
 
-支持 DSH Web `0.2.1-alpha.4` 和 Desktop `0.2.0-rc.2`，沿用现有模型配置。
+`0.2.2-alpha.14` 支持 DSH Web `0.2.1-alpha.4` 和 Desktop `0.2.0-rc.2` / `0.2.1-rc.2` / `0.2.1-rc.3`，沿用现有模型配置。
 
 ### Desktop App
 
@@ -37,7 +39,7 @@ App 自带运行环境，无需另装 Node。
 1. 在 App 左侧打开 **Plugins（插件）**，点击 **Add plugin（添加插件）**。
 2. 粘贴 npm 包名及版本：
 
-   `dsh-article-review@0.2.1-alpha.2`
+   `dsh-article-review@0.2.2-alpha.14`
 
 3. 安装完成后点击 **Enable now（立即启用）**，按提示重启。
 4. 选择本地工作区并打开一个对话，在右侧栏选择**阅读、批注与局部修改**。
@@ -45,20 +47,22 @@ App 自带运行环境，无需另装 Node。
 
 Desktop 使用独立的 `desktop` 配置，安装到 `web` 不会同时安装到 App。若之前通过 GitHub 安装了旧包 `@deepseek-ai/dsh-experimental-paper-review`，先在 Plugins 中卸载旧包，再安装上述 npm 包并按提示重启；工作区中的 `.paper-review/` 审阅记录继续使用。macOS Desktop 已实测；Windows 要求见[支持范围与兼容性](docs/development.zh.md#scope-and-compatibility)。
 
-可选择 npm 官方源或中国大陆镜像。镜像尚未同步新版本时，先切回官方源。GitHub 安装地址为 `github:Biogod2020/dsh-article-review#v0.2.1-alpha.2`。若 GitHub 地址连接超时，可下载[预构建发行归档](https://codeload.github.com/Biogod2020/dsh-article-review/tar.gz/refs/tags/v0.2.1-alpha.2)，在 **Plugins → Add plugin** 中输入本地归档的绝对路径，无需解压或构建。`v0.2.1-alpha.1` 及更早 tag 保留旧包名，两种包名请选择一种安装。
+可选择 npm 官方源或中国大陆镜像。镜像尚未同步新版本时，先切回官方源。GitHub 安装地址为 `github:Biogod2020/dsh-article-review#v0.2.2-alpha.14`。若 GitHub 地址连接超时，可下载[预构建发行归档](https://codeload.github.com/Biogod2020/dsh-article-review/tar.gz/refs/tags/v0.2.2-alpha.14)，在 **Plugins → Add plugin** 中输入本地归档的绝对路径，无需解压或构建。`v0.2.1-alpha.1` 及更早 tag 保留旧包名，两种包名请选择一种安装。
 
 ### Web
 
 需要 Node.js 22（≥22.19）或 24+：
 
 ```sh
-dsh plugin --profile web add 'dsh-article-review@0.2.1-alpha.2'
+dsh plugin --profile web add 'dsh-article-review@0.2.2-alpha.14'
 dsh web
 ```
 
 安装后重启正在运行的 Web 配置。GitHub 安装请使用预构建 tag；`main` 是开发源码。
 
 ## 开始审阅
+
+导入文档或粘贴正文时，在阅读器文件操作区点击**导入文章**，或在对话中使用 `/paper-project-start` 并指定原稿。转换结果保存在当前对话工作区的新目录中。首次运行通过 `uv` 在项目内准备转换工具；无图文章跳过裁切，扫描件需要 OCR 和核对。见[文章导入说明](docs/user-guide.zh.md#从文章开始)。
 
 1. 在右侧栏选择**阅读、批注与局部修改**，打开 Markdown 稿件。
 2. 选中文字添加批注，附到对话输入框，发送修改要求。

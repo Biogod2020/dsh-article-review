@@ -1,6 +1,7 @@
 /** Version-pinned reader, annotation batches, proposal decisions and cumulative human-review diffs. */
 import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import type { ReactNode } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { diffWordsWithSpace } from 'diff'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import { fileAddressFor } from '@deepseek-ai/dsh-util-workspace-path'
@@ -22,12 +23,22 @@ import { authoredFigureBase, collectFigures, figureFilePath, pinnedFigure } from
 import type { PaperFigure } from './figures.ts'
 import { FigureGallery } from './figure-gallery.tsx'
 import { FigurePreview } from './figure-preview.tsx'
+import { FigureCompanion } from './figure-companion.tsx'
+import { FigurePeek, FigureWindow } from './figure-window.tsx'
+import type { FigureAnchor } from './figure-window.tsx'
+import { readingFigures, relatedReadingFigures } from './reading-figures.ts'
+import { readingSections, sectionForBlock } from './reading-sections.ts'
+import { readingColumnRatio, resolveFigurePlacement } from './figure-layout.ts'
+import { attachedPanelTargets } from '../figure-panels.ts'
+import readingCss from './reading.module.css'
 import { readingBlocks, reviewableBlocks } from '../review-blocks.ts'
 import { ReviewProgress } from './review-progress.tsx'
 import { blockPreview, reviewNavigation } from './review-navigation.ts'
 import { capturePaperPosition, restorePaperPosition, revealPaperTarget } from './reader-scroll.ts'
 import type { PaperScrollPosition } from './reader-scroll.ts'
 import { PaperFind, searchableBlocks } from './paper-find.tsx'
+import { ArticleImport } from './article-import.tsx'
+import type { ArticleInput } from '../article-input.ts'
 import type { SearchableBlock } from './paper-find.tsx'
 import { PaperIcon } from './icons.tsx'
 import { Versions, resolveVersionSelection } from './versions.tsx'
@@ -45,6 +56,8 @@ function preference(key: string): string | null {
 
 /** Operator actions carried over the authenticated DSH connection. */
 export interface PaperPanelActions {
+  /** Start the fixed article import skill without replacing a composer draft. */
+  startProject?: (input: ArticleInput, signal: AbortSignal, sessionId: string) => Promise<void>
   /** @param command - explicit operator gesture. @param signal - tab lifetime. @returns validated persisted state. */
   command: (command: PaperCommand, signal: AbortSignal, sessionId: string) => Promise<WorkbenchView>
   /** Read one immutable historical body on explicit comparison selection. */
@@ -80,6 +93,8 @@ export interface PaperPanelActions {
   figurePage: (path: string, signal: AbortSignal, sessionId: string) => Promise<string | undefined>
   /** @param path - workspace-relative figure. @returns complete local bytes within DSH's file limit. */
   figureBytes: (path: string, signal: AbortSignal, sessionId: string) => Promise<Uint8Array>
+  /** Load the bundled panel skill and start one user-requested turn in this idle conversation. */
+  preparePanels: (path: string, revision: string, intent: string, signal: AbortSignal, sessionId: string) => Promise<void>
   /** @param signal - tab lifetime. @param sessionId - idle native conversation. @returns when its normal tools have been restored. */
   leave: (signal: AbortSignal, sessionId: string) => Promise<void>
 }
@@ -129,7 +144,7 @@ function LazyWordDiff({ before, after, labels, markdownLabels, findId }: Paramet
 export function PaperPanel({
   useTabInfo, useSession, useInput, sessionId, inputActions, t, command, readRevision, listFiles,
   pickFile, currentFile, bibliography, bindBibliography, pickBibliography, pickFigure, listFigureFiles, replaceFigure,
-  figurePath, figureThumbnail, figurePage, figureBytes, leave,
+  figurePath, figureThumbnail, figurePage, figureBytes, preparePanels, startProject, leave,
 }: PaperPanelProps): ReactNode {
   const tab = useTabInfo().tab
   const running = useSession(s => s.running)
@@ -177,11 +192,18 @@ export function PaperPanel({
   const filePickController = useRef<AbortController>()
   const [pickerKind, setPickerKind] = useState<'md' | 'bib' | 'preview'>('md')
   const [controlsOpen, setControlsOpen] = useState(false)
+  const [readingToolsOpen, setReadingToolsOpen] = useState(false)
+  const readingTools = useRef<HTMLDivElement>(null)
+  const readingToolsButton = useRef<HTMLButtonElement>(null)
+  const readingToolsMenu = useRef<HTMLDivElement>(null)
+  const [readingToolsPosition, setReadingToolsPosition] = useState<{ top?: number; bottom?: number; right: number; maxHeight: number }>()
+  const readingToolsId = useId()
   const [headerCollapsed, setHeaderCollapsed] = useState(() => preference('paper-review:toolbar-collapsed') === 'true')
   const [previewFigure, setPreviewFigure] = useState<PaperFigure>()
   const [figureReplacement, setFigureReplacement] = useState<{ figure: PaperFigure; path: string; reason: string }>()
   const [figureListing, setFigureListing] = useState<FileListing>()
   const [figureBusy, setFigureBusy] = useState(false)
+  const [preparingPanels, setPreparingPanels] = useState(false)
   const figureDialog = useRef<HTMLDialogElement>(null)
   const baselineDialog = useRef<HTMLDialogElement>(null)
   const figurePickController = useRef<AbortController>()
@@ -189,8 +211,18 @@ export function PaperPanel({
   const [pickerBusy, setPickerBusy] = useState(false)
   const [pickerError, setPickerError] = useState('')
   const content = useRef<HTMLDivElement>(null)
+  const readingArea = useRef<HTMLDivElement>(null)
+  const [readingSize, setReadingSize] = useState({ width: 0, height: 0 })
+  const [figurePeek, setFigurePeek] = useState<{ key: string; anchor: FigureAnchor }>()
+  const peekTimer = useRef<ReturnType<typeof setTimeout>>()
+  const peekTrigger = useRef<HTMLElement>()
+  const suppressPeekFocus = useRef(false)
+  const figureWindowId = useId()
+  const [figureLaunchAnchor, setFigureLaunchAnchor] = useState<FigureAnchor>()
+  const [figureAspects, setFigureAspects] = useState<Record<string, number>>({})
   const scrollPositions = useRef(new Map<string, PaperScrollPosition>())
   const releaseNavigation = useRef<() => void>(() => {})
+  const pendingReaderRestore = useRef<PaperScrollPosition>()
   const panel = useRef<HTMLElement>(null)
   const picker = useRef<HTMLDivElement>(null)
   const controlsId = useId()
@@ -200,6 +232,57 @@ export function PaperPanel({
   const generation = useRef(0)
   const pickerGeneration = useRef(0)
   const doc = view?.document
+  useLayoutEffect(() => {
+    const node = readingArea.current
+    if (!node) return
+    const measure = (): void => { setReadingSize({ width: node.clientWidth, height: node.clientHeight }) }
+    measure()
+    const observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(measure)
+    observer?.observe(node); window.addEventListener('resize', measure)
+    return () => { observer?.disconnect(); window.removeEventListener('resize', measure) }
+  }, [])
+  useEffect(() => {
+    if (!readingToolsOpen) return
+    const outside = (event: PointerEvent): void => {
+      if (event.target instanceof Node && !readingTools.current?.contains(event.target) && !readingToolsMenu.current?.contains(event.target)) setReadingToolsOpen(false)
+    }
+    const escape = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape') return
+      event.preventDefault(); event.stopPropagation(); setReadingToolsOpen(false); readingToolsButton.current?.focus()
+    }
+    document.addEventListener('pointerdown', outside)
+    document.addEventListener('keydown', escape)
+    return () => { document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', escape) }
+  }, [readingToolsOpen])
+  useEffect(() => { setReadingToolsOpen(false) }, [mode, doc?.path])
+  const readerLayout = workbench.reader?.layout ?? 'text'
+  const readerPaging = workbench.reader?.paging ?? 'continuous'
+  const readerPinned = workbench.reader?.pinned ?? false
+  const figurePresentation = workbench.reader?.figurePresentation ?? 'peek'
+  const figuresDocked = figurePresentation === 'docked'
+  const readerFigureWidth = workbench.reader?.figureWidth ?? 'balanced'
+  const readerFiguresCollapsed = workbench.reader?.figuresCollapsed ?? false
+  useLayoutEffect(() => {
+    if (!readingToolsOpen) return
+    const place = (): void => {
+      const root = panel.current?.getBoundingClientRect(), button = readingToolsButton.current?.getBoundingClientRect()
+      if (!root || !button) return
+      const below = root.bottom - button.bottom - 12, above = button.top - root.top - 12
+      const opensBelow = below >= 220 || below >= above
+      setReadingToolsPosition({ right: Math.max(10, root.right - button.right), maxHeight: Math.max(100, Math.min(340, opensBelow ? below : above)),
+        ...(opensBelow ? { top: button.bottom - root.top + 6 } : { bottom: root.bottom - button.top + 6 }) })
+    }
+    place()
+    const observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(place)
+    if (panel.current) observer?.observe(panel.current)
+    window.addEventListener('resize', place)
+    return () => { observer?.disconnect(); window.removeEventListener('resize', place) }
+  }, [readingToolsOpen, readerLayout, readerFigureWidth, readerFiguresCollapsed])
+  const [readingBlockId, setReadingBlockId] = useState<string>()
+  const visibleBlocks = useMemo(() => readingBlocks(doc?.current.blocks ?? []), [doc?.current.blocks])
+  const sections = useMemo(() => readingSections(visibleBlocks), [visibleBlocks])
+  const pageIndex = sectionForBlock(sections, workbench.reader?.sectionBlockId ?? workbench.positions.read?.anchor?.blockId)
+  const pageBlocks = readerPaging === 'sections' ? sections[pageIndex]?.blocks ?? [] : visibleBlocks
   const saveWorkbench = (patch: Partial<WorkbenchState> = {}, renderState = true): void => {
     const target = current.current?.document.path
     if (!target) return
@@ -212,8 +295,11 @@ export function PaperPanel({
   }
   const rememberPosition = (): void => {
     const target = current.current?.document.path, viewport = content.current
-    if (target && viewport) scrollPositions.current.set(`${target}\0${mode}`,
-      mode === 'read' ? capturePaperPosition(viewport) : { top: viewport.scrollTop })
+    if (target && viewport) {
+      const position = mode === 'read' ? capturePaperPosition(viewport) : { top: viewport.scrollTop }
+      scrollPositions.current.set(`${target}\0${mode}`, position)
+      if (mode === 'read' && position.anchor) setReadingBlockId(position.anchor.blockId)
+    }
   }
   const saveDraft = (blockId: string, draft?: AnnotationDraft): void => {
     if (!doc) return
@@ -227,6 +313,96 @@ export function PaperPanel({
   const figureMedia = useMemo(() => ({ thumbnail: figureThumbnail, bytes: figureBytes, signal: tab.signal, sessionId }),
     [figureThumbnail, figureBytes, tab.signal, sessionId])
   const galleryFigures = useMemo(() => doc ? figures.map(figure => pinnedFigure(doc.current, figure)) : [], [doc?.current, figures])
+  const readingItems = useMemo(() => doc ? readingFigures(doc.path, figureBase, doc.current, figures, doc.figurePanels ?? []) : [],
+    [doc?.path, doc?.current, doc?.figurePanels, figureBase, figures])
+  const activeReadingId = readingBlockId ?? workbench.positions.read?.anchor?.blockId ?? pageBlocks[0]?.id
+  const activeReadingBlock = doc?.current.blocks.find(block => block.id === activeReadingId)
+  const paragraphFigures = relatedReadingFigures(activeReadingBlock, readingItems)
+  const relatedFigures = paragraphFigures.length || readerPaging !== 'sections' ? paragraphFigures
+    : [...new Map(pageBlocks.flatMap(block => relatedReadingFigures(block, readingItems)).map(item => [item.key, item])).values()]
+  const manualFigure = workbench.reader?.figureSelection === 'manual'
+  const lastFigure = readingItems.find(item => item.key === workbench.reader?.figureKey) ?? readingItems[0]
+  const companionFigure = readerPinned || manualFigure || figurePresentation === 'floating' ? lastFigure
+    : relatedFigures.find(item => item.key === workbench.reader?.figureKey) ?? relatedFigures[0]
+  const figureRelation = !readingItems.length ? 'none' : readerPinned ? 'pinned' : companionFigure && relatedFigures.some(item => item.key === companionFigure.key) ? 'linked'
+    : manualFigure && companionFigure ? 'manual' : 'none'
+  const placementPreference = workbench.reader?.figurePlacement ?? 'auto'
+  const figureAspect = figureAspects[companionFigure?.file ?? '']
+  const imagePlacement = resolveFigurePlacement(readingSize.width, figureAspect, placementPreference)
+  const figurePlacement = !figuresDocked ? 'ambient' : figureRelation === 'none' ? 'empty' : readerFiguresCollapsed ? 'top' : imagePlacement
+  const columnRatio = readingColumnRatio(workbench.reader?.columnRatio ?? (readerFigureWidth === 'compact' ? .64 : readerFigureWidth === 'wide' ? .42 : 1.3 / 2.3), readingSize.width)
+  const stalePanels = Boolean(doc?.figurePanels?.some(panel => attachedPanelTargets(panel, doc.current).length !== panel.targets.length))
+  const saveReader = (patch: Partial<NonNullable<WorkbenchState['reader']>>): void => {
+    saveWorkbench({ reader: { layout: 'text', paging: 'continuous', ...workbenchRef.current.reader, ...patch } })
+  }
+  const selectReadingFigure = (figureKey: string): void => {
+    saveReader({ figureKey, figureSelection: 'manual', ...(activeReadingId ? { manualBlockId: activeReadingId } : {}) })
+  }
+  const peekFigure = readingItems.find(item => item.key === figurePeek?.key)
+  const previewing = Boolean(figurePeek && peekFigure && figurePresentation === 'peek')
+  const floatingFigure = figurePresentation === 'floating' ? companionFigure : peekFigure
+  const keepFigurePeek = (): void => { clearTimeout(peekTimer.current) }
+  const closeFigurePeek = (): void => { clearTimeout(peekTimer.current); setFigurePeek(undefined) }
+  const leaveFigurePeek = (): void => { clearTimeout(peekTimer.current); peekTimer.current = setTimeout(() => { const focus = document.activeElement; if (focus && (peekTrigger.current === focus || document.getElementById(figureWindowId)?.contains(focus))) return; setFigurePeek(undefined) }, 500) }
+  const showFigurePeek = (key: string, trigger: HTMLElement, source = 'mouse'): void => {
+    clearTimeout(peekTimer.current)
+    if (source === 'touch' || (source === 'focus' && suppressPeekFocus.current)) return
+    if (source !== 'focus') suppressPeekFocus.current = false
+    if (figurePresentation !== 'peek') return
+    const area = readingArea.current?.getBoundingClientRect(), rect = trigger.getBoundingClientRect()
+    if (!area) return
+    peekTrigger.current = trigger
+    const anchor = { x: rect.left - area.left, y: rect.top - area.top, width: rect.width, height: rect.height }
+    peekTimer.current = setTimeout(() => { setFigurePeek({ key, anchor }) }, 350)
+  }
+  const openReadingFigure = (figureKey: string, dock = figuresDocked): void => {
+    const area = readingArea.current?.getBoundingClientRect(), trigger = peekTrigger.current?.getBoundingClientRect()
+    if (area && trigger && figurePresentation !== 'floating') setFigureLaunchAnchor({ x: trigger.left - area.left, y: trigger.top - area.top, width: trigger.width, height: trigger.height })
+    closeFigurePeek()
+    saveReader({ figureKey, figureSelection: 'manual', figurePresentation: dock ? 'docked' : 'floating', figuresCollapsed: false, ...(activeReadingId ? { manualBlockId: activeReadingId } : {}) })
+  }
+  useEffect(() => { closeFigurePeek(); return () => { clearTimeout(peekTimer.current) } }, [mode, doc?.path, readerLayout, pageIndex])
+  useEffect(() => {
+    const node = content.current
+    const scroll = (): void => { closeFigurePeek() }
+    node?.addEventListener('scroll', scroll, { passive: true })
+    return () => { node?.removeEventListener('scroll', scroll) }
+  }, [doc?.path])
+  const changeReading = (patch: Partial<NonNullable<WorkbenchState['reader']>>): void => {
+    rememberPosition()
+    const position = doc && scrollPositions.current.get(`${doc.path}\0read`)
+    const blockId = position?.anchor?.blockId ?? pageBlocks[0]?.id
+    if (doc && blockId && !position?.anchor) scrollPositions.current.set(`${doc.path}\0read`, { top: 0, anchor: { blockId, offset: 140 } })
+    if (doc) pendingReaderRestore.current = scrollPositions.current.get(`${doc.path}\0read`)
+    releaseNavigation.current()
+    saveReader({ ...patch, ...(blockId ? { sectionBlockId: blockId } : {}) })
+  }
+  const ensureReadingBlock = (blockId: string): void => {
+    setReadingBlockId(blockId)
+    if (readerPaging !== 'sections' || sections[pageIndex]?.blocks.some(block => block.id === blockId)) return
+    if (doc) scrollPositions.current.set(`${doc.path}\0read`, { top: 0, anchor: { blockId, offset: 140 } })
+    if (doc) pendingReaderRestore.current = scrollPositions.current.get(`${doc.path}\0read`)
+    saveReader({ sectionBlockId: blockId })
+  }
+  const turnSection = (index: number): void => {
+    const first = sections[index]?.blocks[0]
+    if (!doc || !first) return
+    releaseNavigation.current()
+    scrollPositions.current.set(`${doc.path}\0read`, { top: 0, anchor: { blockId: first.id, offset: 140 } })
+    pendingReaderRestore.current = scrollPositions.current.get(`${doc.path}\0read`)
+    saveReader({ sectionBlockId: first.id, figureSelection: 'follow' })
+    setReadingBlockId(first.id)
+  }
+  useEffect(() => {
+    if (mode !== 'read' || readerLayout !== 'figures' || readerPinned || figurePresentation === 'floating') return
+    if (manualFigure) {
+      if (workbench.reader?.manualBlockId && activeReadingId && workbench.reader.manualBlockId !== activeReadingId
+        && relatedFigures.length > 0 && !relatedFigures.some(item => item.key === workbench.reader?.figureKey)) saveReader({ figureSelection: 'follow' })
+      return
+    }
+    const related = relatedFigures.find(item => item.key === workbenchRef.current.reader?.figureKey) ?? relatedFigures[0]
+    if (related && related.key !== workbenchRef.current.reader?.figureKey) saveReader({ figureKey: related.key })
+  }, [mode, readerLayout, readerPinned, activeReadingId, manualFigure, readingItems, pageIndex, figurePresentation])
   const figuresByBlock = useMemo(() => {
     const grouped = new Map<string, PaperFigure[]>()
     for (const figure of figures) grouped.set(figure.blockId, [...(grouped.get(figure.blockId) ?? []), figure])
@@ -253,6 +429,10 @@ export function PaperPanel({
   useLayoutEffect(() => {
     if (!doc) return
     const saved = readWorkbenchState(sessionId, doc.path)
+    // Fresh illustrated articles start with unobtrusive inline previews; an
+    // existing reader choice always wins, including an explicit text-only view.
+    if (!saved.reader && collectFigures(doc.current.blocks).length)
+      saved.reader = { layout: 'figures', paging: 'continuous', figurePresentation: 'peek' }
     workbenchRef.current = saved; setWorkbench(saved); setMode(saved.mode)
     for (const [item, position] of Object.entries(saved.positions)) scrollPositions.current.set(`${doc.path}\0${item}`,
       { top: position.top, ...(position.anchor ? { anchor: position.anchor } : {}) })
@@ -271,18 +451,27 @@ export function PaperPanel({
     const targetPath = doc.path
     const flush = (): void => { clearTimeout(timer); if (current.current?.document.path === targetPath) saveWorkbench({}, false) }
     const scroll = (): void => { rememberPosition(); clearTimeout(timer); timer = setTimeout(flush, 200) }
+    const pagehide = (): void => {
+      // Lazy blocks may change the visible anchor without a final scroll event.
+      if (current.current?.document.path === targetPath) rememberPosition()
+      flush()
+    }
     viewport.addEventListener('scroll', scroll, { passive: true })
-    window.addEventListener('pagehide', flush)
-    return () => { viewport.removeEventListener('scroll', scroll); window.removeEventListener('pagehide', flush); flush() }
+    window.addEventListener('pagehide', pagehide)
+    return () => { viewport.removeEventListener('scroll', scroll); window.removeEventListener('pagehide', pagehide); flush() }
   }, [doc?.path, mode, sessionId])
+
+  useLayoutEffect(() => { releaseNavigation.current() }, [doc?.path, doc?.current.id])
 
   useLayoutEffect(() => {
     const viewport = content.current
-    if (!doc || !viewport || (locatedEdit && (mode === 'read' || mode === 'changes'))) return
+    if (!doc || !viewport || (!pendingReaderRestore.current && locatedEdit && (mode === 'read' || mode === 'changes'))) return
     releaseNavigation.current()
-    releaseNavigation.current = restorePaperPosition(viewport, scrollPositions.current.get(`${doc.path}\0${mode}`) ?? { top: 0 })
+    const position = (mode === 'read' && pendingReaderRestore.current) || scrollPositions.current.get(`${doc.path}\0${mode}`) || { top: 0 }
+    pendingReaderRestore.current = undefined
+    releaseNavigation.current = restorePaperPosition(viewport, position)
     return () => { releaseNavigation.current() }
-  }, [mode, doc?.path, locatedEdit])
+  }, [mode, doc?.path, doc?.current.id, locatedEdit, readerLayout, readerPaging, pageIndex, readerFigureWidth, readerFiguresCollapsed, figurePlacement, columnRatio, readingSize.width])
 
   const revealTarget = useCallback((selector: string, placeholder?: string): void => {
     releaseNavigation.current()
@@ -421,6 +610,13 @@ export function PaperPanel({
   }, [preferenceKey])
 
   useEffect(() => {
+    const requested = tab.navigation?.params?.paperPath
+    if (typeof requested === 'string' && requested && requested !== current.current?.document.path && !tab.signal.aborted)
+      void run({ action: 'open', path: requested })
+    // Explicit agent opens switch documents using each document's saved reading state.
+  }, [tab.navigation?.revision])
+
+  useEffect(() => {
     if (wasRunning.current && !running) void currentFile(tab.signal, sessionId).then((selected) => {
       if (tab.signal.aborted) return
       if (selected && selected !== current.current?.document.path) void run({ action: 'open', path: selected })
@@ -439,7 +635,7 @@ export function PaperPanel({
   }, [doc?.path, doc?.current.id, mode])
   useEffect(() => {
     figurePickController.current?.abort()
-    setLocatedEdit(undefined); setFigureReplacement(undefined); setFigureListing(undefined); releaseNavigation.current()
+    setLocatedEdit(undefined); setFigureReplacement(undefined); setFigureListing(undefined)
   }, [doc?.path, doc?.current.id])
 
   useEffect(() => {
@@ -516,8 +712,18 @@ export function PaperPanel({
   const attach = (intent: string, annotations: Annotation[], block?: PaperBlock): void => {
     if (doc) insert(reviewContext(doc, annotations, block, intent, { contextPath: t('contextPath'), contextRevision: t('contextRevision'), contextRules: t('contextRules'), contextData: t('contextData') }))
   }
+  const startPanelPreparation = async (): Promise<void> => {
+    if (!doc || running || preparingPanels) return
+    setPreparingPanels(true); setError(''); setNotice('')
+    try {
+      await preparePanels(doc.path, doc.current.id, t('preparePanelsIntent'), tab.signal, sessionId)
+      if (!tab.signal.aborted) setNotice(t('panelTaskStarted'))
+    } catch (error) { if (!tab.signal.aborted) setError(error instanceof Error ? error.message : String(error)) }
+    finally { if (!tab.signal.aborted) setPreparingPanels(false) }
+  }
   const focusBlock = (block: PaperBlock): void => {
     releaseNavigation.current()
+    ensureReadingBlock(block.id)
     setSelectedId(block.id)
     if (block.id !== selectedId) {
       const draft = draftsRef.current[block.id]
@@ -606,7 +812,6 @@ export function PaperPanel({
   }, [doc?.highlights])
   const activeBaselines = useMemo(() => doc?.baselines.filter(base => !base.archivedAt) ?? [], [doc?.baselines])
   const baselinesByBlock = useMemo(() => new Map(activeBaselines.map(base => [base.blockId, base])), [activeBaselines])
-  const visibleBlocks = useMemo(() => readingBlocks(doc?.current.blocks ?? []), [doc?.current.blocks])
   const progressBlocks = useMemo(() => reviewableBlocks(doc?.current.blocks ?? []), [doc?.current.blocks])
   const locations = useMemo(() => reviewNavigation(progressBlocks).locations, [progressBlocks])
   const notesFor = (blockId: string): Annotation[] => annotationsByBlock.get(blockId) ?? []
@@ -649,7 +854,8 @@ export function PaperPanel({
   }, [doc, mode, bib, visibleBlocks, visiblePending, workbench.versions, versionPair.revisions, t])
   const findTarget = useCallback((id: string): void => {
     if (id.startsWith('bib:')) setFocusedReference(id.slice(4))
-  }, [])
+    else if (mode === 'read') ensureReadingBlock(id)
+  }, [mode, readerPaging, pageIndex, sections])
   const compactHeader = Boolean(doc) && headerCollapsed
   const pickerTitle = pickerKind === 'preview' ? 'previewDocuments' : pickerKind === 'md' ? 'browse' : 'bibChoose'
 
@@ -667,20 +873,19 @@ export function PaperPanel({
   return <section className={css.panel} data-paper-review ref={panel} tabIndex={-1}>
     <div className={`${css.top} ${compactHeader ? css.topCollapsed : ''}`} data-paper-header>
       <div className={css.topBar}>
-        <div className={css.identity}><span className={css.modeBadge} title={t('reviewMode')} aria-label={t('reviewMode')}>{t('modeName')}</span>
+        <div className={css.identity}><span className={css.modeBadge} title={t('reviewMode')} aria-label={t('reviewMode')}><PaperIcon kind="read" size={17} /></span>
           {doc && <strong className={css.documentName} title={doc.path}>{doc.path}</strong>}</div>
-        {doc && !compactHeader && <div className={css.summary}><span>{t('notes')} {doc.annotations.filter(a => a.status === 'open').length}</span>
-          <span title={doc.current.id}>{t('version')} {doc.current.id.slice(0, 7)}</span></div>}
         {doc && <div className={css.topActions}>
-          {!compactHeader && <button title={t('nativePreviewHelp')} onClick={() => {
+          {!compactHeader && <button className={css.iconOnly} aria-label={t('nativePreview')} title={t('nativePreviewHelp')} onClick={() => {
             tab.actions.openResource(fileAddressFor(sessionId, undefined, doc.path), { preferNewPane: true })
-          }}>{t('nativePreview')}</button>}
+          }}><PaperIcon kind="preview" /></button>}
           {!compactHeader && <button className={`${css.refresh} ${css.iconOnly}`} aria-label={busy ? t('loading') : t('check')}
             title={busy ? t('loading') : t('check')} disabled={busy} onClick={() => { void run({ action: 'open', path: doc.path }, false) }}>
             <PaperIcon kind="refresh" />
           </button>}
-          {!compactHeader && <button className={css.controlsToggle} aria-expanded={controlsOpen} aria-controls={controlsId}
-            onClick={() => { setControlsOpen(!controlsOpen) }}>{t(controlsOpen ? 'hideControls' : 'showControls')}</button>
+          {!compactHeader && <button className={css.iconOnly} aria-expanded={controlsOpen} aria-controls={controlsId}
+            aria-label={t(controlsOpen ? 'hideControls' : 'showControls')} title={t(controlsOpen ? 'hideControls' : 'showControls')}
+            onClick={() => { setControlsOpen(!controlsOpen) }}><PaperIcon kind="folder" /></button>
           }
           <button className={`${css.toolbarToggle} ${css.iconOnly}`} aria-label={t(compactHeader ? 'showToolbar' : 'hideToolbar')}
             title={t(compactHeader ? 'showToolbar' : 'hideToolbar')} aria-expanded={!compactHeader} onClick={() => {
@@ -691,6 +896,7 @@ export function PaperPanel({
         </div>}
       </div>
       {!compactHeader && (!doc || controlsOpen) && <div id={controlsId} className={css.fileControls}>
+        {startProject && <ArticleImport running={running} t={t} start={(input, signal) => startProject(input, signal, sessionId)} onStarted={() => { setControlsOpen(false) }} />}
         <form className={css.open} onSubmit={(event) => { event.preventDefault(); setSelectedId(''); setQuote(''); setAnchor(undefined); setEditing(false); void run({ action: 'open', path }) }}>
           <input aria-label={t('path')} placeholder={t('pathHint')} value={path} onChange={(event) =>{  setPath(event.target.value) }} />
           <button type="button" disabled={busy || pickerBusy} onClick={() => { setPickerKind('md'); setPickerOpen(true); void browse('', 'md') }}><PaperIcon kind="folder" size={15} />{t('browse')}</button>
@@ -699,6 +905,8 @@ export function PaperPanel({
             setPickerKind('preview'); setPickerOpen(true); void browse('', 'preview')
           }}>{t('previewDocuments')}</button>
         </form>
+        {doc && <div className={css.summary}><span>{t('notes')} {doc.annotations.filter(a => a.status === 'open').length}</span>
+          <span title={doc.current.id}>{t('version')} {doc.current.id.slice(0, 7)}</span></div>}
         {doc && <button className={css.leave} disabled={busy || running} onClick={() => { void exitMode() }}>{t('leave')}</button>}
       </div>}
       {doc && !compactHeader && <nav className={css.tabs} aria-label={t('reviewSections')}>{(['read', 'changes', 'versions', 'history', 'references'] as const).map((item) => {
@@ -749,17 +957,64 @@ export function PaperPanel({
         else if (doc) void run({ action: 'refresh', path: doc.path, revision: doc.current.id })
         setSelectedId(''); setEditing(false)
       }}>{t('load')}</button></div>}
-    <div className={css.content} ref={content} data-paper-scroll>
+    <div className={readingCss.workarea} ref={readingArea} data-reader-layout={mode === 'read' ? readerLayout : 'text'}
+      data-figure-placement={figurePlacement} data-figure-width={readerFigureWidth}
+      style={{ '--reader-text-width': `${columnRatio * 100}%`, '--figure-top-height': `${Math.max(220, Math.min(readingSize.height * .55 || 420, (readingSize.width - 24) / (figureAspect || 3) + 148))}px` } as CSSProperties}>
+    <div className={css.content} ref={content} data-paper-scroll data-section-pages={mode === 'read' && readerPaging === 'sections'}>
       {doc && <PaperFind key={`find:${doc.path}`} panel={panel} content={content} blocks={visibleBlocks} bibliography={bib}
         mode={mode} entries={findEntries} onTarget={findTarget} onRead={() => { changeMode('read') }} onNavigate={cancelNavigation} t={t} />}
       {!doc && <div className={css.welcome}><span className={css.monogram}>¶</span><h2>{t('title')}</h2><p>{t('empty')}</p><p>{t('intro')}</p></div>}
       {doc && mode === 'read' && <>
-        <div className={css.readToolbar}>
+        <div className={css.readToolbar} data-read-toolbar data-paged={readerPaging === 'sections'}>
+          <div className={readingCss.readingOptions}>
+            <label><span className={css.srOnly}>{t('readingLayout')}</span><select aria-label={t('readingLayout')} title={t('readingLayout')} value={readerLayout}
+              onChange={event => { changeReading({ layout: event.target.value === 'figures' ? 'figures' : 'text' }) }}>
+              <option value="text">{t('textOnly')}</option><option value="figures">{t('textFigures')}</option>
+            </select></label>
+            <label><span className={css.srOnly}>{t('readingPaging')}</span><select aria-label={t('readingPaging')} title={t('readingPaging')} value={readerPaging}
+              onChange={event => { changeReading({ paging: event.target.value === 'sections' ? 'sections' : 'continuous' }) }}>
+              <option value="continuous">{t('continuousReading')}</option><option value="sections">{t('sectionReading')}</option>
+            </select></label>
+          </div>
+          {readerPaging === 'sections' && <nav className={readingCss.sectionSwitch} aria-label={t('sectionReading')}>
+            <button aria-label={t('previousSection')} title={t('previousSection')} disabled={pageIndex === 0} onClick={() => { turnSection(pageIndex - 1) }}>‹</button>
+            <select aria-label={t('readingSection')} value={pageIndex} onChange={event => { turnSection(Number(event.target.value)) }}>
+              {sections.map((section, index) => <option key={section.id} value={index}>{`${'\u2003'.repeat(Math.min(3, Math.max(0, section.level - 2)))}${section.title || t('sectionPreamble')}`}</option>)}
+            </select><output aria-live="polite">{pageIndex + 1}/{sections.length}</output>
+            <button aria-label={t('nextSection')} title={t('nextSection')} disabled={pageIndex >= sections.length - 1} onClick={() => { turnSection(pageIndex + 1) }}>›</button>
+          </nav>}
+          {readerLayout === 'figures' && readingItems.length > 0 && <button className={readingCss.figureLauncher}
+            aria-label={t('figureList')} title={t('figurePeekHint')} aria-haspopup="dialog" aria-controls={figureWindowId}
+            aria-expanded={figurePresentation === 'floating' || previewing}
+            onPointerEnter={event => { const item = relatedFigures[0] ?? lastFigure; if (item) showFigurePeek(item.key, event.currentTarget, event.pointerType) }}
+            onPointerLeave={leaveFigurePeek} onFocus={event => { const item = relatedFigures[0] ?? lastFigure; if (item) showFigurePeek(item.key, event.currentTarget, 'focus') }} onBlur={leaveFigurePeek}
+            onClick={event => { peekTrigger.current = event.currentTarget; const item = companionFigure ?? lastFigure; if (item) openReadingFigure(item.key, false) }}>
+            <PaperIcon kind="image" size={14} /><span>{t('figureList')}</span><small>{figures.length}</small>
+          </button>}
           {doc && mode === 'read' && <div className={css.progressAnchor}><ReviewProgress key={`progress:${doc.path}`} blocks={progressBlocks} baselines={activeBaselines} t={t}
         jump={(block) => {
           focusBlock(block)
           revealTarget(`[data-block="${CSS.escape(block.id)}"]`)
         }} /></div>}
+          <div className={css.readTools} ref={readingTools}>
+          <button ref={readingToolsButton} className={css.readToolsToggle} aria-label={t('readingTools')} title={t('readingToolsHelp')}
+            aria-expanded={readingToolsOpen} aria-controls={readingToolsId} onClick={() => { setReadingToolsOpen(!readingToolsOpen) }}>
+            <PaperIcon kind="options" size={15} /><span>{t('readingTools')}</span>
+          </button>
+          {readingToolsOpen && panel.current && createPortal(<div className={css.readToolsMenu} id={readingToolsId} ref={readingToolsMenu}
+            style={readingToolsPosition} role="group" aria-label={t('readingTools')}>
+          {readerLayout === 'figures' && <label className={css.balanceOption}>{t('figureDisplay')}<select aria-label={t('figureDisplay')} value={figurePresentation}
+            onChange={event => { const next = event.target.value as 'peek' | 'floating' | 'docked'; const selected = companionFigure ?? lastFigure; closeFigurePeek(); changeReading({ figurePresentation: next, figuresCollapsed: false, ...(next !== 'peek' && selected ? { figureKey: selected.key, figureSelection: 'manual', ...(activeReadingId ? { manualBlockId: activeReadingId } : {}) } : {}) }) }}>
+            <option value="peek">{t('figurePeek')}</option><option value="floating">{t('figureFloating')}</option><option value="docked">{t('figureDocked')}</option>
+          </select></label>}
+          {readerLayout === 'figures' && figuresDocked && <label className={css.balanceOption}>{t('figureWidth')}<select aria-label={t('figureWidth')} value={readerFigureWidth}
+            onChange={event => { const value = event.target.value as 'compact' | 'balanced' | 'wide'; changeReading({ figureWidth: value, columnRatio: value === 'compact' ? .64 : value === 'wide' ? .42 : 1.3 / 2.3 }) }}>
+            <option value="compact">{t('figureCompact')}</option><option value="balanced">{t('figureBalanced')}</option><option value="wide">{t('figureWide')}</option>
+          </select></label>}
+          {readerLayout === 'figures' && figuresDocked && <label className={css.balanceOption}>{t('figurePlacement')}<select aria-label={t('figurePlacement')} value={placementPreference}
+            onChange={event => { changeReading({ figurePlacement: event.target.value as 'auto' | 'side' | 'top' }) }}>
+            <option value="auto">{t('figureAuto')}</option><option value="side">{t('figureSide')}</option><option value="top">{t('figureTop')}</option>
+          </select></label>}
           <button aria-pressed={showHighlights} onClick={() => { setShowHighlights(!showHighlights) }}><PaperIcon kind="edit" size={15} />{t('highlights')} ({doc.highlights.filter(h => !h.removed).length})</button>
           <button aria-pressed={showNotes} onClick={() =>{  setShowNotes(!showNotes) }}><PaperIcon kind="changes" size={15} />{t('allNotes')}</button>
           {Object.keys(drafts).length > 0 && <button aria-pressed={showDrafts} onClick={() => { setShowDrafts(!showDrafts) }}>{t('drafts')} ({Object.keys(drafts).length})</button>}
@@ -778,6 +1033,11 @@ export function PaperPanel({
             setFocusReading(!focusReading)
           }}>
             <PaperIcon kind="read" size={15} />{t(focusReading ? 'exitFocus' : 'focusReading')}</button>
+          <button className={css.preparePanelsOption} disabled={running || busy || preparingPanels || view?.diskChanged || Boolean(incoming) || !figures.length}
+            title={t('preparePanelsHelp')} onClick={() => { setReadingToolsOpen(false); void startPanelPreparation() }}>
+            <PaperIcon kind="sparkle" size={15} />{t(preparingPanels ? 'loading' : 'preparePanels')}</button>
+          </div>, panel.current)}
+          </div>
         </div>
         {showDrafts && <aside className={css.notes} aria-label={t('drafts')}>
           {Object.entries(drafts).map(([blockId, draft]) => <div className={css.note} key={blockId}>
@@ -805,7 +1065,7 @@ export function PaperPanel({
         {showNotes && <aside className={css.notes}>{doc.annotations.map(annotationCard)}
           <button disabled={!selectedNotes.length} onClick={() =>{  attach(t('batchIntent'), doc.annotations.filter(a => selectedNotes.includes(a.id) && a.anchor === 'attached')) }}>{t('batch')} ({selectedNotes.length})</button>
         </aside>}
-        <article className={`${css.article} ${focusReading ? css.focusReading : ''}`}>{visibleBlocks.map((block) => {
+        <article className={`${css.article} ${focusReading ? css.focusReading : ''}`}>{pageBlocks.map((block) => {
           const baseline = baselinesByBlock.get(block.id)
           const state = !baseline ? 'unread' : baseline.text === block.text ? 'reviewed' : 'changed'
           const active = block.id === selectedId
@@ -821,7 +1081,8 @@ export function PaperPanel({
             </div>}
             {provenance
               ? <pre className={css.raw} onMouseUp={() => { selectText(block) }}>{block.text}</pre>
-              : <ReaderText block={block} highlights={highlightsByBlock.get(block.id) ?? []}
+              : <ReaderText block={block} figureReferences={readerLayout === 'figures' ? { items: readingItems, windowId: figureWindowId, selectedKey: previewing || figurePresentation === 'floating' ? floatingFigure?.key : undefined,
+                onPreview: showFigurePeek, onLeave: leaveFigurePeek, onOpen: (key, trigger) => { peekTrigger.current = trigger; openReadingFigure(key) } } : undefined} highlights={highlightsByBlock.get(block.id) ?? []}
                 annotations={notesFor(block.id)} labels={labels} bibliography={bib}
                 onSelect={(selection) => {
                   focusBlock(block)
@@ -840,7 +1101,7 @@ export function PaperPanel({
                   event.preventDefault(); focusBlock(block); setAnchor(selection); setQuote(selection.quote); setError('')
                   setMenu({ x: event.clientX, y: event.clientY, block, anchor: selection })
                 }} />}
-            {figuresByBlock.get(block.id)?.map((figure) => {
+            {readerLayout === 'text' && figuresByBlock.get(block.id)?.map((figure) => {
               const pinned = pinnedFigure(doc.current, figure)
               const file = figureFilePath(doc.path, figureBase, pinned.path)
               return file && <FigurePreview key={figure.path} figure={pinned} file={file} media={figureMedia} t={t}
@@ -848,14 +1109,16 @@ export function PaperPanel({
                   setFigureReplacement({ figure, path: '', reason: t('figureReplacementDefault') }); setFigureListing(undefined)
                 }} />
             })}
+            {readerLayout === 'figures' && figuresByBlock.get(block.id)?.map(figure => <button key={`replace:${figure.path}`}
+              onClick={() => { setFigureReplacement({ figure, path: '', reason: t('figureReplacementDefault') }); setFigureListing(undefined) }}>{t('replaceFigure')}</button>)}
             {positioned?.operation === 'insert-after' && <div className={css.locationMarker} data-location-marker="insert-after">
               <span>{positioned.proposalId ?? t('baseline')} · {t('locationAfterHere')}</span>
               <button onClick={() => { changeMode(positioned.returnTo ?? 'changes', true) }}><PaperIcon kind={positioned.returnTo ?? 'changes'} size={13} />{t(positioned.returnTo === 'references' ? 'backToReferences' : positioned.proposalId ? 'backToProposal' : 'backToReview')}</button>
             </div>}
             {active && <div className={css.actions}>
-              <button onClick={() =>{  setEditing(!editing) }}><PaperIcon kind="edit" size={14} />{t('annotate')}</button>
-              <button onClick={() =>{  attach(`${t('askIntent')} ${quote}`, [], block) }}><PaperIcon kind="sparkle" size={14} />{t('ask')}</button>
-              <button onClick={() =>{  attach(`${t('suggestIntent')} ${quote}`, notesFor(block.id).filter(a => a.status === 'open'), block) }}><PaperIcon kind="changes" size={14} />{t('suggest')}</button>
+              <button aria-label={t('annotate')} title={t('annotate')} onClick={() =>{  setEditing(!editing) }}><PaperIcon kind="edit" size={14} /><span>{t('annotate')}</span></button>
+              <button aria-label={t('ask')} title={t('ask')} onClick={() =>{  attach(`${t('askIntent')} ${quote}`, [], block) }}><PaperIcon kind="sparkle" size={14} /><span>{t('ask')}</span></button>
+              <button aria-label={t('suggest')} title={t('suggest')} onClick={() =>{  attach(`${t('suggestIntent')} ${quote}`, notesFor(block.id).filter(a => a.status === 'open'), block) }}><PaperIcon kind="changes" size={14} /><span>{t('suggest')}</span></button>
               <span className={css.spacer} />
               <button className={`${css.iconOnly} ${css.markAction}`} aria-label={t('mark')} title={t('mark')}
                 disabled={busy} onClick={() =>{  mark(block, false) }}><PaperIcon kind="check" size={15} /></button>
@@ -902,6 +1165,9 @@ export function PaperPanel({
             <summary>{t('sourceNote')}</summary>{blockView}
           </details> : blockView
         })}</article>
+        {readerPaging === 'sections' && pageIndex < sections.length - 1 && <nav className={readingCss.sectionEnd} aria-label={t('sectionNavigation')}>
+          <button onClick={() => { turnSection(pageIndex + 1) }}>{t('nextSection')} → <span>{sections[pageIndex + 1]?.title || t('sectionPreamble')}</span></button>
+        </nav>}
       </>}
       {doc && mode === 'changes' && <div className={css.review}>
         <div className={css.reviewHeading}><h3>{t('proposal')}</h3><button onClick={() => {
@@ -1030,11 +1296,52 @@ export function PaperPanel({
       {doc && mode === 'history' && <div className={css.history}>{doc.history.length === 0 ? t('noHistory') : [...doc.history].reverse().map((event, i) =>
         <div key={i} data-find-id={`history:${i}`} data-find-text><time>{new Date(event.at).toLocaleString()}</time><strong>{t(historyKeys[event.action] ?? 'history')}</strong><code>{event.detail}</code></div>)}</div>}
     </div>
+    {doc && mode === 'read' && readerLayout === 'figures' && figurePlacement === 'side' && <div className={readingCss.splitter} role="separator" tabIndex={0}
+      aria-label={t('resizeColumns')} aria-orientation="vertical" aria-valuemin={35} aria-valuemax={72} aria-valuenow={Math.round(columnRatio * 100)}
+      onDoubleClick={() => { changeReading({ columnRatio: 1.3 / 2.3 }) }}
+      onKeyDown={event => { if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return; event.preventDefault(); changeReading({ columnRatio: readingColumnRatio(columnRatio + (event.key === 'ArrowLeft' ? -.03 : .03), readingSize.width) }) }}
+      onPointerDown={event => { event.currentTarget.setPointerCapture(event.pointerId) }}
+      onPointerMove={event => { if (!event.currentTarget.hasPointerCapture(event.pointerId)) return; const rect = readingArea.current?.getBoundingClientRect(); if (rect?.width) changeReading({ columnRatio: readingColumnRatio((event.clientX - rect.left) / rect.width, rect.width) }) }}
+      onPointerUp={event => { if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId) }} />}
+    {doc && mode === 'read' && readerLayout === 'figures' && figuresDocked && <FigureCompanion key={doc.path} items={readingItems} selected={companionFigure}
+      defaultFit={imagePlacement === 'top' ? 'window' : 'width'} onFloat={() => { changeReading({ figurePresentation: 'floating', figuresCollapsed: false }) }}
+      pinned={readerPinned} relation={figureRelation} section={readerPaging === 'sections'} onBrowse={() => { if (lastFigure) selectReadingFigure(lastFigure.key) }}
+      onSelect={selectReadingFigure} onPin={() => { saveReader({ pinned: !readerPinned, figureSelection: 'follow' }) }}
+      views={workbench.reader?.figureViews} onViewChange={(file, value) => { if (current.current?.document.path !== doc.path) return; saveReader({ figureViews: { ...workbenchRef.current.reader?.figureViews, [file]: value } }) }}
+      onDimensions={(file, width, height) => { if (figureAspects[file] === width / height) return; rememberPosition(); setFigureAspects(previous => ({ ...previous, [file]: width / height })) }}
+      collapsed={readerFiguresCollapsed} onCollapse={() => { changeReading({ figuresCollapsed: !readerFiguresCollapsed }) }}
+      caption={renderedPlainText((doc.current.blocks.find(block => block.id === companionFigure?.figure.blockId)?.text ?? '')
+        .replace(/^>\s*/, '').replace(/^\*\*Figure\s+(?:\[[^\]]+\]|[\w.-]+)\*\*\s*\(\s*`[^`]+`\s*\)\s*:?\s*/i, '')) ?? ''}
+      onOpen={setPreviewFigure} media={figureMedia} fullPage={figurePage} stale={stalePanels} t={t}
+      onLocate={blockId => {
+        const block = doc.current.blocks.find(block => block.id === blockId)
+        if (block) { focusBlock(block); revealTarget(`[data-block="${CSS.escape(blockId)}"]`) }
+      }} />}
+    {doc && mode === 'read' && readerLayout === 'figures' && (previewing || figurePresentation === 'floating') && floatingFigure && <FigureWindow
+      key={doc.path} id={figureWindowId} preview={previewing} bounds={{ ...readingSize, top: content.current?.querySelector<HTMLElement>('[data-read-toolbar]')?.clientHeight ?? 0 }} anchor={previewing ? figurePeek?.anchor : figureLaunchAnchor}
+      saved={workbench.reader?.figureWindow} label={floatingFigure.figure.label} t={t}
+      onChange={rect => { if (current.current?.document.path === doc.path) saveReader({ figureWindow: rect }) }} onEnter={keepFigurePeek} onLeave={leaveFigurePeek}
+      onClose={() => { const returnFocus = document.getElementById(figureWindowId)?.contains(document.activeElement); suppressPeekFocus.current = true; closeFigurePeek(); if (!previewing) changeReading({ figurePresentation: 'peek' }); if (!previewing || returnFocus) peekTrigger.current?.focus({ preventScroll: true }); queueMicrotask(() => { suppressPeekFocus.current = false }) }}
+      onOpen={() => { openReadingFigure(floatingFigure.key, false) }}
+      onDock={() => { closeFigurePeek(); changeReading({ figurePresentation: 'docked', figureKey: floatingFigure.key, figureSelection: 'manual', figuresCollapsed: false, ...(activeReadingId ? { manualBlockId: activeReadingId } : {}) }) }}>
+      {previewing ? <FigurePeek item={floatingFigure} media={figureMedia} fullPage={figurePage} onOpen={() => { openReadingFigure(floatingFigure.key, false) }} t={t} />
+        : <FigureCompanion items={readingItems} selected={floatingFigure} defaultFit="window" pinned={readerPinned} relation={figureRelation === 'none' ? 'manual' : figureRelation}
+          collapsed={false} onCollapse={() => { changeReading({ figurePresentation: 'peek' }) }} onSelect={selectReadingFigure}
+          onPin={() => { saveReader({ pinned: !readerPinned }) }} caption={renderedPlainText((doc.current.blocks.find(block => block.id === floatingFigure.figure.blockId)?.text ?? '')
+            .replace(/^>\s*/, '').replace(/^\*\*Figure\s+(?:\[[^\]]+\]|[\w.-]+)\*\*\s*\(\s*`[^`]+`\s*\)\s*:?\s*/i, '')) ?? ''}
+          views={workbench.reader?.figureViews} onViewChange={(file, value) => { if (current.current?.document.path !== doc.path) return; saveReader({ figureViews: { ...workbenchRef.current.reader?.figureViews, [file]: value } }) }}
+          onOpen={setPreviewFigure} media={figureMedia} fullPage={figurePage} stale={stalePanels} t={t}
+          onLocate={blockId => { const block = doc.current.blocks.find(block => block.id === blockId); if (block) { focusBlock(block); revealTarget(`[data-block="${CSS.escape(blockId)}"]`) } }} />}
+    </FigureWindow>}
+    </div>
     {doc && (mode === 'read' || previewFigure) && (galleryFigures.length > 0 || previewFigure) && <FigureGallery
-      figures={galleryFigures.length ? galleryFigures : previewFigure ? [previewFigure] : []} showDock={mode === 'read'} manuscript={doc.path} base={figureBase}
+      figures={previewFigure?.file && !galleryFigures.some(figure => (figure.file ?? figureFilePath(doc.path, figureBase, figure.path)) === previewFigure.file) ? [...galleryFigures, previewFigure] : galleryFigures.length ? galleryFigures : previewFigure ? [previewFigure] : []} showDock={mode === 'read' && readerLayout === 'text'} manuscript={doc.path} base={figureBase}
       sessionId={sessionId} signal={tab.signal} thumbnail={figureThumbnail} fullPage={figurePage} bytes={figureBytes}
       selected={previewFigure} onSelect={setPreviewFigure}
-      onLocate={(figure) => { content.current?.querySelector(`[data-block="${CSS.escape(figure.blockId)}"]`)?.scrollIntoView({ block: 'center' }) }}
+      onLocate={(figure) => {
+        const block = doc.current.blocks.find(block => block.id === figure.blockId)
+        if (block) { focusBlock(block); revealTarget(`[data-block="${CSS.escape(block.id)}"]`) }
+      }}
       onNative={(figure) => { void openNativeFigure(figure) }}
       labels={{ figures: t('figureList'), pdf: t('figurePdf'), image: t('figureImage'), open: t('openFigure'), close: t('figureClose'), loading: t('loading'),
         failed: t('figureOpenFailed'), locate: t('locateFigure'), native: t('figureNative'),

@@ -1,5 +1,39 @@
 # User guide
 
+## Start from an article
+
+In the reader's file controls, choose **Import article**, enter a source path or paste exact prose, then choose **Import and read**. `/paper-project-start` provides the same workflow from the conversation. It accepts PDF, DOCX, LaTeX, Markdown, TXT, HTML, RTF and ODT; other readable text extensions follow the text path. Use this conversation's workspace for generated projects. The original input stays unchanged.
+
+The fixed skill runs a bundled normalizer, opens the generated `article.md`, and prepares local figures only when artwork exists. Captions without images remain text. Scans need OCR and visual verification; uncertain conversion or panel links are reported. The first run requires `uv` and network access to prepare pinned Python tools in `.paper-tools/`; later calls reuse them. No system Python installation is modified. Each imported project retains source bytes and `import.json` provenance, and an edited existing import is never overwritten.
+
+An explicit agent `paper_open` reveals the reader only in that conversation when it is active. Existing document positions and unsent composer drafts are retained; background tasks do not switch another conversation's reader.
+
+## Text, figures and section pages
+
+In **Read**, choose **Reading layout → Text and figures** and **Navigation → By section** independently. Figures start **On demand**: a subtle underline on printed figure references identifies related artwork without narrowing or moving the prose. Hover or focus a printed reference such as **Figure 1a** or **Fig. 1a** to preview it; click to open a persistent floating window. You can also drag the preview title or resize any edge or corner directly: it becomes a persistent window without jumping away. Arrow keys work on the title and lower-right handle. Later previews reuse the dimensions you chose, bounded by the reading area. Escape closes it. Touch users can open the same window by tapping. **Dock to reading area** turns it into a fixed comparison, and **Float figure window** brings it back. **Reading tools → Figure display** also selects these modes. Window geometry, image views and the current paragraph are saved locally.
+
+In docked view, wide diagrams automatically use the full reading width above the text; square and tall figures use side-by-side columns. Narrow panes place all figures above the text. Both surfaces scroll independently. Layout changes, navigation changes and reloads restore the current paragraph and relative position within it.
+
+The compact toolbar keeps layout, navigation and review progress visible. **Reading tools** contains highlights, annotations, review jumps, focus reading and column balance. It also contains **AI: split and link panels** in every reading layout. Click outside the tools or press Escape to close them. File controls hold the document version and annotation count.
+
+Select a **Whole figure** or an associated panel. Explicit body callouts and saved panel associations select the related image; printed figure references open it directly, without an extra row of figure buttons. **Pin figure** keeps the image while you continue reading; **Follow text** resumes automatic selection. Zoom, drag to pan, or open the image full screen. **Locate related text** opens its exact paragraph and switches section pages when needed.
+
+Use the **Whole figure / a / b / …** buttons to inspect a panel in context, and the arrow buttons to move to the previous or next figure. The figure selector lists only parent figures, keeping it short even when many panels exist. **Fit to width** gives tall figures room to scroll; **Fit to window** shows the complete image. Zoom keeps the area at the center of the image in view. Each image remembers its fit, zoom and pan, including when the panel is reopened. The size display shows the fitting mode at its default size, or the actual displayed pixel percentage when zoomed. Expand **Figure caption** to read the source caption beside the image. When a panel has several related paragraphs, each click on **Locate related text** visits the next one.
+
+Drag the divider or use its arrow keys to resize side-by-side columns; double-click to reset. **Reading tools → Figure placement** overrides the automatic layout with **Side by side** or **Above text**. **Column balance** also offers preset proportions. Narrow panes offer **Collapse image** to free space for the manuscript, while keeping the selected figure visible in the heading. Column balance and the collapsed state are remembered with your reading position.
+
+Click **AI: split and link panels** to load the bundled [paper-figure-panels skill](../skills/paper-figure-panels/SKILL.md) and start a task in the current DSH conversation without changing the unsent input draft. The AI inspects the actual artwork, caption and body text, creates panel crops and associates them with exact paragraphs. The button is disabled while a response runs; DSH's ordinary stop control can stop the task. The configured model and tools must support image inspection and local script execution; the helper uses `uv` with temporary Pillow and PyMuPDF dependencies. Uncertain panels stay as whole figures with an explanation rather than guessed associations.
+
+For multiple figures, the skill can use 2–3 available native workers with separate figure assignments and reuse still-valid saved panels. Bundled coordinate grids and crop contact sheets support visual checks; prepared JSON files keep exact paragraph text out of repeated model calls. Dependency helpers ignore unrelated Python project environments.
+
+Preparation targets the exact manuscript and workspace open in the reader. During that run, the parent conversation cannot open or register panels to a different copy. Context packets and registration files carry workspace identity; helpers reject reuse in another workspace. Completion checks report the actual destination, valid panel count and exact paragraph association count. A figure with no usable map shows **No panels available for this figure** beside **Whole figure**; installing the plugin alone does not create panel maps.
+
+Crops and associations are saved in the workspace without editing manuscript prose, original artwork or human review decisions. The reader checks for updates after the task; **Check updates** also reloads panel metadata. Changed source artwork or paragraphs require reconnecting affected panels. Back up `.paper-review/` and generated `figures/` directories with the manuscript.
+
+The reader distinguishes images linked to the current passage, manual browsing and pinned images. On-demand mode leaves unassociated sections unobstructed. In docked view, sections without associations collapse to a compact notice; **Browse figures** deliberately opens the previous image. Changing sections resumes following text unless the image is pinned.
+
+A single compact section selector and previous/next arrows share the reading toolbar. The end of a section has only a lightweight next-section link. Section pages follow Markdown headings and keep paragraphs, tables and lists whole. Use **Previous section**, **Next section** or the section selector. Manuscript search, outline, annotations, proposals and citation navigation still locate targets across pages.
+
 ## Native document previews
 
 Click **DSH preview** to inspect the current manuscript file on disk, or **Change file → Preview companion files** to open another workspace file with DSH’s native renderer. Markdown, PDF, images and Office use the viewers supplied by your DSH installation. Office conversion requires its local rendering runtime.

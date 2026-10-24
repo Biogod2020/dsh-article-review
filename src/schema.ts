@@ -1,5 +1,6 @@
 /** Validated on-disk and RPC records. Review baselines change only on an explicit human action. */
 import { z } from 'zod'
+import { FigurePanelSchema } from './figure-panels.ts'
 
 const id = z.string().min(1).max(160)
 const text = z.string().max(2_000_000)
@@ -63,6 +64,7 @@ export const DocumentSchema = z.object({
   schemaVersion: z.literal(1), path: z.string().min(1), current: RevisionSchema,
   revisions: z.array(RevisionSchema), annotations: z.array(AnnotationSchema), proposals: z.array(ProposalSchema),
   highlights: z.array(HighlightSchema).default([]),
+  figurePanels: z.array(FigurePanelSchema).optional(),
   baselines: z.array(BaselineSchema), history: z.array(z.object({ at: z.string(), action: z.string(), detail: z.string() })),
   reading: z.record(z.string(), z.string()),
 })

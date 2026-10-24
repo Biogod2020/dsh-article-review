@@ -14,9 +14,10 @@ import { PaperPanel, type PaperPanelActions } from './panel.tsx'
 import { en, zh } from './locales.ts'
 import { pickDesktopFile } from './desktop-file-picker.ts'
 import { PaperReviewIcon } from './icons.tsx'
+import { ReaderOpen } from './reader-open.tsx'
 
 /** Browser dependencies supplied by the Web profile. */
-export const inject = ['slots', 'locale', 'sidebarRightTabs', 'connection', 'remote', 'remote.workspaceFiles']
+export const inject = ['slots', 'locale', 'sidebarRightTabs', 'sidebarRight', 'connection', 'remote', 'remote.workspaceFiles']
 /**
  * Contribute the explicit Paper review page and its operator transport.
  * @param ctx - Client context with authenticated connection and native sidebar seats.
@@ -46,6 +47,10 @@ export function apply(ctx: Context): void {
     return z.object({ path: z.string() }).parse(result.value).path
   }
   const actions: PaperPanelActions = {
+    async startProject(input, signal, sessionId) {
+      const result = await connection.rpc.call('/api', 'paper-review/start-project', { sessionId, ...input, requestId: crypto.randomUUID() }, signal)
+      if (!result.ok) throw new Error(result.error.message)
+    },
     async command(command, signal, sessionId) {
       const result = await connection.rpc.call('/api', 'paper-review/command', { sessionId, command, projection: 'workbench' }, signal)
       if (!result.ok) throw new Error(result.error.message)
@@ -116,8 +121,26 @@ export function apply(ctx: Context): void {
       const result = await connection.rpc.call('/api', 'paper-review/leave', { sessionId }, signal)
       if (!result.ok) throw new Error(result.error.message)
     },
+    async preparePanels(path, revision, intent, signal, sessionId) {
+      const result = await connection.rpc.call('/api', 'paper-review/prepare-panels', { sessionId, path, revision, intent, requestId: crypto.randomUUID() }, signal)
+      if (!result.ok) throw new Error(result.error.message)
+    },
   }
   ctx.effect(() => ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({
     name: 'sidebar.right.pane.tab', key: id, locale: 'paperReview', inject: () => actions,
   }, PaperPanel)))
+  ctx.effect(() => ctx.slots.inject('conversation.composer.dock', () => ctx.slots.register({
+    name: 'conversation.composer.dock', id: 'paper-review-auto-open', inject: () => ({
+      mounted: ctx.sidebarRight.mounted,
+      async request(sessionId: string, signal: AbortSignal) {
+        const result = await connection.rpc.call('/api', 'paper-review/open-request', { sessionId }, signal)
+        if (!result.ok) throw new Error(result.error.message)
+        return z.object({ requestId: z.string(), path: z.string() }).nullable().parse(result.value)
+      },
+      reveal(sessionId: string, next: { requestId: string; path: string }) {
+        if (ctx.sidebarRight.mounted.getSnapshot() !== sessionId) return
+        ctx.sidebarRight.openTab('paper-review', { params: { paperPath: next.path, requestId: next.requestId } })
+      },
+    }),
+  }, ReaderOpen)))
 }

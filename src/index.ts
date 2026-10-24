@@ -3,12 +3,18 @@ import type { Context } from '@deepseek-ai/cordis'
 import ConfigSchema from '@deepseek-ai/schemastery'
 import { z } from 'zod'
 import { PdfPreviewCache } from './pdf-preview-cache.ts'
-import { realpath } from 'node:fs/promises'
+import { readFile, realpath } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
+import { fileURLToPath } from 'node:url'
+import { resolve } from 'node:path'
+import type {} from '@deepseek-ai/dsh-skill'
+import { panelAcknowledgement, PanelInputSchema } from './figure-panels.ts'
 import type {} from '@deepseek-ai/dsh-client-connection'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { CommandSchema, FigureReplacementSchema, ProposalInputSchema, ProposalRevisionInputSchema } from './schema.ts'
 import type { Proposal } from './schema.ts'
 import { PaperStore, reviewSessions } from './store.ts'
@@ -17,6 +23,7 @@ import { readManuscriptPage } from './manuscript-read.ts'
 import { workbenchView } from './workbench-view.ts'
 import { pickNativeBibliography, pickNativeFigure, pickNativeManuscript } from './native-file-picker.ts'
 import { selectedWorkspaceFile } from './selected-file.ts'
+import { ArticleInputSchema, prepareArticleInput } from './article-input.ts'
 
 /** Cordis plugin identity. */
 export const name = 'paper-review'
@@ -46,7 +53,7 @@ export const Config: ConfigSchema<Config> = ConfigSchema.object({
 /** Manuscript tools visible after a document opens; ordinary tools remain available. */
 export const PAPER_TOOLS = ['paper_read', 'paper_annotations', 'paper_propose', 'paper_revise', 'paper_delete', 'paper_check', 'paper_decide',
   'paper_bib_find', 'paper_bib_bind', 'paper_bib_list', 'paper_bib_get', 'paper_bib_add', 'paper_bib_replace',
-  'paper_figure_list', 'paper_figure_replace'] as const
+  'paper_figure_list', 'paper_figure_replace', 'paper_panel_set'] as const
 /** Manuscript discovery tools are available before a document opens. */
 export const PAPER_DISCOVERY_TOOLS = ['paper_list', 'paper_open'] as const
 
@@ -63,11 +70,27 @@ function modelProposal(proposal: Proposal) {
  * @param config - validated local project settings.
  */
 export async function apply(ctx: Context, config: Config): Promise<void> {
+  ctx.inject(['skills'], async (scope) => {
+    for (const [name, description] of [
+      ['paper-figure-panels', 'Split figure panels and place verified crops beside their exact manuscript paragraphs in Paper review.'],
+      ['paper-project-start', 'Import PDF, DOCX, LaTeX, TXT, Markdown, HTML or pasted article content, prepare available figures, and open Paper review.'],
+    ]) {
+      const path = fileURLToPath(new URL(`../skills/${name}/`, import.meta.url))
+      const content = await readFile(new URL(`../skills/${name}/SKILL.md`, import.meta.url), 'utf8')
+      scope.effect(() => scope.skills.register({ name: name!, description: description!,
+        source: 'dsh-article-review', path, resourceBase: { kind: 'directory', path },
+        content: content.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, ''),
+      }))
+    }
+  })
   const previews = new PdfPreviewCache(config.previewCacheBytes, config.previewConcurrency)
   ctx.effect(() => () => { previews.dispose() })
   const stores = new Map<string, Promise<PaperStore>>()
   const enabled = new Set<SessionId>()
   const scopes = new Map<Agent, () => void>()
+  const panelTargets = new Map<SessionId, { workspaceRoot: string; path: string }>()
+  const readerOpenRequests = new Map<SessionId, { requestId: string; path: string }>()
+  ctx.on('agent/status', ({ agent, status }) => { if (status === 'idle') panelTargets.delete(agent.id) })
   const rootFor = async (sessionId: SessionId): Promise<string> => {
     const header = ctx.sessions.get(sessionId)?.header ?? (await ctx.get('sessionPersistence')?.stat(sessionId))?.header
     if (!header) throw new Error('This conversation no longer exists. Open a local conversation before opening a manuscript')
@@ -91,6 +114,13 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   const modelStore = (agent: Agent | undefined): Promise<PaperStore> => {
     if (!agent || !enabled.has(agent.id)) throw new Error('Open a manuscript with paper_open or in the Paper review panel first')
     return storeFor(agent.id)
+  }
+  const assertPanelDestination = async (agent: Agent, path: string): Promise<void> => {
+    const target = panelTargets.get(agent.id)
+    if (!target) return
+    const root = await realpath(await rootFor(agent.id))
+    if (root !== target.workspaceRoot || resolve(root, path) !== resolve(root, target.path))
+      throw new Error(`Panel preparation is targeting ${JSON.stringify(target.path)} in ${JSON.stringify(target.workspaceRoot)}; keep this destination instead of a copy`)
   }
   ctx.effect(() => async () => {
     for (const dispose of scopes.values()) dispose()
@@ -132,17 +162,20 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     async execute(args, exec) {
       exec.signal.throwIfAborted()
       if (!exec.agent) throw new Error('A conversation is required')
+      await assertPanelDestination(exec.agent, args.path)
       const store = await storeFor(exec.agent.id)
       const { document, diskChanged } = await store.read(args.path)
       await enable(exec.agent.id, store, true)
       await store.selectPath(exec.agent.id, document.path)
+      readerOpenRequests.set(exec.agent.id, { requestId: randomUUID(), path: document.path })
       return { path: document.path, revision: document.current.id, blocks: document.current.blocks.length, diskChanged }
     },
     presentCall: () => ({ card: 'generic', kind: 'read', title: 'Open manuscript' }),
   })))
   // Validate conditional tool inputs explicitly rather than relying on loop-name inference.
   const readRequest = z.object({ path: z.string(), blockId: z.string().optional(), proposalId: z.string().optional(),
-    startBlock: z.number().optional(), maxBlocks: z.number().optional(), maxCharacters: z.number().optional(), revision: z.string().optional() })
+    startBlock: z.number().optional(), maxBlocks: z.number().optional(), maxCharacters: z.number().optional(), revision: z.string().optional(),
+    includePanels: z.boolean().optional() })
   for (const toolName of ['paper_read', 'paper_annotations', 'paper_check'] as const) {
     ctx.effect(() => ctx.tools.register(defineTool({
       name: toolName,
@@ -158,6 +191,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
             maxBlocks: { type: 'number' as const, description: 'Maximum whole blocks per page, integer 1–200; default 40.' },
             maxCharacters: { type: 'number' as const, description: 'Soft UTF-16 character budget, 1000–200000; default 32000. The first block remains whole.' },
             revision: { type: 'string' as const, description: 'Required for continuation pages; exact revision returned by the first page.' },
+            includePanels: { type: 'boolean' as const, description: 'Default true. Set false for compact paragraph reads that omit full panel maps and repeated before text.' },
           } : {}),
         },
       output,
@@ -184,6 +218,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
         if (args.blockId !== undefined && index === -1) throw new Error('Block no longer exists; reread the manuscript')
         const selectedBlock = document.current.blocks[index]
         return { path: document.path, revision: document.current.id, diskChanged,
+          ...(args.includePanels !== false && document.figurePanels ? { figurePanels: document.figurePanels.map(({ stale, ...panel }) => stale === undefined ? panel : { ...panel, stale }) } : {}),
           blocks: page?.blocks ?? (index === -1 ? document.current.blocks : document.current.blocks.slice(Math.max(0, index - 1), index + 2)),
           ...(page ? { page: page.page } : {}),
           ...(selectedBlock ? { beforeHash: revisionId(selectedBlock.text) } : {}),
@@ -194,9 +229,9 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     })))
   }
   ctx.effect(() => ctx.tools.register(defineTool({
-    name: 'paper_figure_list', description: 'List the exact local figures referenced by the current manuscript, with block ids, authored paths, workspace files and retained hashes. Read-only; missing files are not replaced by guessed versions.',
-    parameters: { path: pathParameter }, output,
-    async execute(args, exec) { exec.signal.throwIfAborted(); return (await modelStore(exec.agent)).listFigures(args.path) },
+    name: 'paper_figure_list', description: 'List the exact local figures referenced by the current manuscript, with block ids, authored paths, workspace files and source hashes. Optionally export a workspace JSON packet of these figures and current manuscript blocks for panel helpers; existing different files are never overwritten. Missing figures are not guessed.',
+    parameters: { path: pathParameter, packet: { type: 'string', description: 'Optional new workspace-relative .json context snapshot for panel helpers, outside .paper-review. Same content may be reused.' } }, output,
+    async execute(args, exec) { exec.signal.throwIfAborted(); return (await modelStore(exec.agent)).listFigures(args.path, args.packet) },
     presentCall: () => ({ card: 'generic', kind: 'read', title: 'List manuscript figures' }),
   })))
   ctx.effect(() => ctx.tools.register(defineTool({
@@ -217,6 +252,35 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       return { proposal: modelProposal(proposal), manuscriptWritten: false, originalFilesWritten: false }
     },
     presentCall: () => ({ card: 'generic', kind: 'other', title: 'Propose figure replacement' }),
+  })))
+  ctx.effect(() => ctx.tools.register(defineTool({
+    name: 'paper_panel_set',
+    description: 'Save verified PNG panel crops beside exact manuscript paragraphs. Use either manifest (a workspace JSON file of complete prepared arguments) or all inline fields. Replaces one figure map; an empty panels array removes it. Both forms validate the current revision, sourceHash, crops and exact paragraph text. Returns a compact confirmation; use paper_read for full metadata. Never edits artwork or manuscript prose.',
+    parameters: { path: pathParameter, manifest: { type: 'string', description: 'Workspace-relative .json file containing revision, figureBlockId, figure, sourceHash and panels; an optional path must match this manuscript. Omit inline fields when using it.' },
+      revision: { type: 'string' },
+      figureBlockId: { type: 'string' }, figure: { type: 'string' },
+      sourceHash: { type: 'string' },
+      panels: { type: 'array', items: { type: 'object', additionalProperties: false, properties: {
+        label: { type: 'string', required: true }, file: { type: 'string', required: true },
+        page: { type: 'integer', required: true }, region: { type: 'array', required: true, items: { type: 'number' } },
+        targets: { type: 'array', required: true, items: { type: 'object', additionalProperties: false, properties: {
+          blockId: { type: 'string', required: true }, before: { type: 'string', required: true },
+        } } },
+      } } },
+    }, output,
+    async execute(args, exec) {
+      exec.signal.throwIfAborted()
+      if (args.manifest !== undefined && [args.revision, args.figureBlockId, args.figure, args.sourceHash, args.panels].some(value => value !== undefined))
+        throw new Error('Supply a panel manifest or inline panel fields, not both')
+      if (!exec.agent) throw new Error('A conversation is required')
+      await assertPanelDestination(exec.agent, args.path)
+      const store = await modelStore(exec.agent)
+      const input = args.manifest === undefined ? PanelInputSchema.parse(args) : await store.readPanelManifest(args.path, args.manifest)
+      const result = await store.setPanels(args.path, input)
+      return { workspaceRoot: await realpath(await rootFor(exec.agent.id)), path: result.document.path,
+        revision: result.document.current.id, ...panelAcknowledgement(result.document.figurePanels ?? [], input) }
+    },
+    presentCall: () => ({ card: 'generic', kind: 'other', title: 'Arrange figure panels for reading' }),
   })))
   ctx.effect(() => ctx.tools.register(defineTool({
     name: 'paper_propose',
@@ -378,7 +442,10 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
 
   // Exact Fetch contributions share Connection's authenticated, size-limited /api carrier.
   // They coexist with the native session RPC interceptor without replacing it.
-  const methods = ['paper-review/command', 'paper-review/list-files', 'paper-review/pick-file', 'paper-review/current', 'paper-review/figure-path', 'paper-review/figure-thumbnail', 'paper-review/leave',
+  const panelLaunches = new Map<SessionId, string>()
+  const importLaunches = new Map<SessionId, string>()
+  const importing = new Set<SessionId>()
+  const methods = ['paper-review/start-project', 'paper-review/open-request', 'paper-review/prepare-panels', 'paper-review/command', 'paper-review/list-files', 'paper-review/pick-file', 'paper-review/current', 'paper-review/figure-path', 'paper-review/figure-thumbnail', 'paper-review/leave',
     'paper-review/bibliography', 'paper-review/bind-bibliography', 'paper-review/pick-bibliography',
     'paper-review/list-figures', 'paper-review/pick-figure', 'paper-review/replace-figure', 'paper-review/revision'] as const
   const envelope = z.object({ type: z.literal('client-request'), rpcId: z.string(), method: z.enum(methods), payload: z.unknown() })
@@ -393,8 +460,71 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
         request.signal.throwIfAborted()
         const payload = z.object({ sessionId: z.string().min(1), projection: z.literal('workbench').optional() }).parse(parsed.data.payload)
         const sessionId = SessionId(payload.sessionId)
+        if (parsed.data.method === 'paper-review/open-request') {
+          // The composer bridge also mounts in ordinary conversations. Checking
+          // its mailbox must never create .paper-review or acquire workspace locks.
+          await rootFor(sessionId)
+          return Response.json({ type: 'server-response', rpcId: parsed.data.rpcId,
+            result: { ok: true, value: readerOpenRequests.get(sessionId) ?? null } })
+        }
         const store = await storeFor(sessionId)
-        if (parsed.data.method === 'paper-review/revision') {
+        if (parsed.data.method === 'paper-review/start-project') {
+          const input = ArticleInputSchema.and(z.object({ requestId: z.string().uuid() })).parse(parsed.data.payload)
+          if (importLaunches.get(sessionId) === input.requestId) result = { ok: true, value: null }
+          else {
+            const agent = ctx.agents.get(sessionId)
+            if (!agent || agent.status === 'running') throw new Error('Wait for the current response to finish before importing an article')
+            if (importing.has(sessionId)) throw new Error('An article import is already being submitted')
+            // Claim before asynchronous staging so duplicate clicks cannot schedule two turns.
+            importLaunches.set(sessionId, input.requestId)
+            importing.add(sessionId)
+            try {
+              const workspaceRoot = await realpath(await rootFor(sessionId))
+              const cwd = agent.session.header.cwd
+              if (!cwd || await realpath(cwd) !== workspaceRoot) throw new Error(`Select ${JSON.stringify(workspaceRoot)} as this conversation's workspace before importing; the model must be able to write the destination`)
+              const source = await prepareArticleInput(workspaceRoot, input)
+              const skillPath = fileURLToPath(new URL('../skills/paper-project-start/', import.meta.url))
+              const skill = (await readFile(new URL('../skills/paper-project-start/SKILL.md', import.meta.url), 'utf8')).replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, '')
+              request.signal.throwIfAborted()
+              if (ctx.agents.get(sessionId) !== agent || ctx.agents.get(sessionId)?.status === 'running') throw new Error('The conversation changed; wait for its response and retry')
+              const prompt = `Start an article review using the paper-project-start skill.\n\nWorkspace: ${JSON.stringify(workspaceRoot)}\nInput article: ${JSON.stringify(source)}\n\nRun the bundled normalizer directly, then immediately call paper_open on its returned manuscript. Verify with paper_read(maxBlocks:6, includePanels:false) and paper_figure_list. If there are zero figures, finish immediately with the imported path and conversion warnings. This is an import operation: do not audit the whole paper, inspect unrelated directories, validate references, dump provenance, rewrite prose or start a review checklist. Only when artwork exists, continue with paper-figure-panels. Preserve the exact source and scientific content, other manuscripts, conversations, drafts and running tasks.`
+              const nativeSkill = ctx.get('skills') && ctx.tools.schemas(agent).some(tool => tool.name === 'skill')
+              const text = nativeSkill ? `/paper-project-start\n${prompt}` : `${prompt}\n\n<skill_content name="paper-project-start">\nBase directory for this skill: ${skillPath}\n\n${skill}\n</skill_content>`
+              agent.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text }] }))
+            } catch (error) { importLaunches.delete(sessionId); throw error }
+            finally { importing.delete(sessionId) }
+            result = { ok: true, value: null }
+          }
+        } else if (parsed.data.method === 'paper-review/prepare-panels') {
+          const input = z.object({ path: z.string(), revision: z.string(), intent: z.string().min(1).max(4000), requestId: z.string().uuid() }).parse(parsed.data.payload)
+          if (!enabled.has(sessionId)) throw new Error('Open a manuscript before arranging panels')
+          if (panelLaunches.get(sessionId) === input.requestId) result = { ok: true, value: null }
+          else {
+            const agent = ctx.agents.get(sessionId)
+            if (!agent || agent.status === 'running') throw new Error('Wait for the current response to finish before arranging panels')
+            const { document, diskChanged } = await store.read(input.path)
+            if (document.current.id !== input.revision || diskChanged || await store.selectedPath(sessionId) !== document.path)
+              throw new Error('Load the current manuscript before arranging panels')
+            const skillPath = fileURLToPath(new URL('../skills/paper-figure-panels/', import.meta.url))
+            const skill = (await readFile(new URL('../skills/paper-figure-panels/SKILL.md', import.meta.url), 'utf8')).replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, '')
+            request.signal.throwIfAborted()
+            if (ctx.agents.get(sessionId) !== agent || ctx.agents.get(sessionId)?.status === 'running') throw new Error('The conversation changed; wait for its response and retry')
+            panelLaunches.set(sessionId, input.requestId)
+            try {
+              const nativeSkill = ctx.get('skills') && ctx.tools.schemas(agent).some(tool => tool.name === 'skill')
+              const workspaceRoot = await realpath(await rootFor(sessionId))
+              panelTargets.set(sessionId, { workspaceRoot, path: document.path })
+              const prompt = `${input.intent}\n\nWorkspace: ${JSON.stringify(workspaceRoot)}\nManuscript: ${JSON.stringify(document.path)}\nReader revision: ${document.current.id}\n\nSave panels to this exact manuscript in this workspace. Do not substitute a scratch copy. Before reporting completion, call paper_figure_list for this path and verify the returned workspaceRoot, path, revision and validPanelCount.`
+              // Shipped profiles load slash-invoked skills through their native pre-step listener.
+              // Minimal hosts without that tool receive the same real skill body inline.
+              const text = nativeSkill ? `/paper-figure-panels\n${prompt}`
+                : `${prompt}\n\n<skill_content name="paper-figure-panels">\nBase directory for this skill: ${skillPath}\n\n${skill}\n</skill_content>`
+              agent.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text:
+                text }] }))
+            } catch (error) { panelLaunches.delete(sessionId); panelTargets.delete(sessionId); throw error }
+            result = { ok: true, value: null }
+          }
+        } else if (parsed.data.method === 'paper-review/revision') {
           if (!enabled.has(sessionId)) throw new Error('Open a manuscript before comparing versions')
           const input = z.object({ path: z.string().min(1), revision: z.string().min(1).max(160) }).parse(parsed.data.payload)
           const { document } = await store.read(input.path)

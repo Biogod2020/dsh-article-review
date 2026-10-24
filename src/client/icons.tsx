@@ -14,7 +14,7 @@ export function PaperReviewIcon({ size = 26, className }: IconProps): ReactNode 
 
 export type PaperIconKind = 'read' | 'changes' | 'versions' | 'history' | 'references'
   | 'refresh' | 'up' | 'down' | 'folder' | 'close' | 'edit' | 'sparkle'
-  | 'fullscreen' | 'check' | 'shield' | 'code'
+  | 'fullscreen' | 'check' | 'shield' | 'code' | 'options' | 'preview' | 'pin' | 'image' | 'dock' | 'float'
 
 const artwork: Record<PaperIconKind, ReactNode> = {
   read: <><path d="M5 2.5h7l3 3V17.5H5z" /><path d="M12 2.5v3h3M7.5 9h5M7.5 12h5M7.5 15h3" /></>,
@@ -33,6 +33,12 @@ const artwork: Record<PaperIconKind, ReactNode> = {
   check: <><circle cx="10" cy="10" r="7.5" /><path d="m6.5 10 2.3 2.3 4.7-4.7" /></>,
   shield: <><path d="M10 2.5 16 5v5c0 4-2.5 6.5-6 8-3.5-1.5-6-4-6-8V5z" /><path d="m7.5 10 1.8 1.8 3.5-3.5" /></>,
   code: <path d="m7.5 5-5 5 5 5m5-10 5 5-5 5m-1-12-3 14" />,
+  options: <><path d="M3 5h14M3 15h14M7 3v4M13 13v4" /><circle cx="7" cy="5" r="2" /><circle cx="13" cy="15" r="2" /></>,
+  preview: <><path d="M10 3H4v14h12v-6M12 3h5v5M9 11l8-8" /></>,
+  image: <><rect x="2.5" y="3.5" width="15" height="13" rx="2" /><circle cx="7" cy="7.5" r="1" /><path d="m3 14 4-4 3 3 3-5 4 6" /></>,
+  dock: <><rect x="2.5" y="3.5" width="15" height="13" rx="2" /><path d="M12 4v12" /></>,
+  float: <><path d="M10 3H4a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-6" /><rect x="9" y="2" width="9" height="8" rx="1.5" /></>,
+  pin: <path d="M7 3h6l-1 5 4 4H4l4-4-1-5ZM10 12v6" />,
 }
 
 /** Render a decorative review icon; its button supplies the localized accessible name.

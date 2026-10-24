@@ -18,7 +18,7 @@ const temporary = await mkdtemp(join(tmpdir(), 'paper-review-integration-'))
 try {
   const stage = join(temporary, 'paper-review')
   await mkdir(stage)
-  for (const entry of ['src', 'tests', 'package.json', 'cordis.patch.yml', 'review.overlay.yml']) await cp(join(repo, entry), join(stage, entry), { recursive: true })
+  for (const entry of ['src', 'tests', 'skills', 'package.json', 'cordis.patch.yml', 'review.overlay.yml']) await cp(join(repo, entry), join(stage, entry), { recursive: true })
   const modules = join(stage, 'node_modules')
   await mkdir(modules)
   const linked = new Set()

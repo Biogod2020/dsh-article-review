@@ -3,7 +3,7 @@
 /** A reader block's signed distance from the viewport top, with a pixel fallback. */
 export interface PaperScrollPosition {
   top: number
-  anchor?: { blockId: string; offset: number }
+  anchor?: { blockId: string; offset: number; fraction?: number | undefined }
 }
 
 /**
@@ -14,22 +14,24 @@ export interface PaperScrollPosition {
 export function capturePaperPosition(viewport: HTMLElement): PaperScrollPosition {
   const position: PaperScrollPosition = { top: viewport.scrollTop }
   const view = viewport.getBoundingClientRect()
-  if (!view.height || !position.top) return position
+  if (!view.height) return position
+  const readableTop = Math.max(view.top, viewport.querySelector('[data-read-toolbar]')?.getBoundingClientRect().bottom ?? view.top)
   const blocks = [...viewport.querySelectorAll<HTMLElement>('[data-block]')]
     .filter(block => !block.parentElement?.closest('[data-block]'))
   let low = 0, high = blocks.length
   while (low < high) {
     const middle = (low + high) >>> 1
     const block = blocks[middle]
-    if (block && block.getBoundingClientRect().bottom <= view.top) low = middle + 1
+    if (block && block.getBoundingClientRect().bottom <= readableTop) low = middle + 1
     else high = middle
   }
   for (const block of blocks.slice(low)) {
     const rect = block.getBoundingClientRect()
     if (rect.top >= view.bottom) break
     const blockId = block.dataset.block
-    if (blockId && rect.height && rect.bottom > view.top && rect.top < view.bottom) {
-      position.anchor = { blockId, offset: rect.top - view.top }
+    if (blockId && rect.height && rect.bottom > readableTop && rect.top < view.bottom) {
+      position.anchor = { blockId, offset: rect.top - view.top,
+        ...(rect.top < readableTop ? { fraction: Math.min(1, (readableTop - rect.top) / rect.height) } : {}) }
       break
     }
   }
@@ -45,7 +47,13 @@ export function capturePaperPosition(viewport: HTMLElement): PaperScrollPosition
 export function restorePaperPosition(viewport: HTMLElement, position: PaperScrollPosition): () => void {
   const target = position.anchor && viewport.querySelector<HTMLElement>(`[data-block="${CSS.escape(position.anchor.blockId)}"]`)
   if (target && position.anchor) {
-    const release = revealPaperTarget(viewport, target, '[data-reader-placeholder]', position.anchor.offset, true)
+    const anchor = position.anchor
+    const offset = anchor.fraction === undefined ? anchor.offset : () => {
+      const view = viewport.getBoundingClientRect()
+      const inset = Math.max(0, (viewport.querySelector('[data-read-toolbar]')?.getBoundingClientRect().bottom ?? view.top) - view.top)
+      return inset - (anchor.fraction ?? 0) * target.getBoundingClientRect().height
+    }
+    const release = revealPaperTarget(viewport, target, '[data-reader-placeholder]', offset, true)
     const cancel = (): void => {
       release()
       viewport.removeEventListener('wheel', cancel)
@@ -69,14 +77,15 @@ export function restorePaperPosition(viewport: HTMLElement, position: PaperScrol
  * @param target - exact block, proposal card or text range.
  * @param offset - optional signed target distance from the viewport top.
  */
-export function scrollPaperTarget(viewport: HTMLElement, target: Element | Range, offset?: number): void {
+export function scrollPaperTarget(viewport: HTMLElement, target: Element | Range, offset?: number | (() => number)): void {
   const rect = target.getBoundingClientRect()
   const view = viewport.getBoundingClientRect()
   if (!rect.height || !view.height) {
     if (target instanceof Element && typeof target.scrollIntoView === 'function') target.scrollIntoView({ block: 'center' })
     return
   }
-  const top = Math.max(0, viewport.scrollTop + rect.top - view.top - (offset ?? Math.min(view.height / 3, 120)))
+  const distance = typeof offset === 'function' ? offset() : offset
+  const top = Math.max(0, viewport.scrollTop + rect.top - view.top - (distance ?? Math.min(view.height / 3, 120)))
   viewport.scrollTo({ top, behavior: 'instant' as ScrollBehavior })
 }
 
@@ -90,7 +99,7 @@ export function scrollPaperTarget(viewport: HTMLElement, target: Element | Range
  * @returns releases the temporary observer and any queued scroll.
  */
 export function revealPaperTarget(viewport: HTMLElement, target: HTMLElement,
-  placeholder = '[data-reader-placeholder]', offset?: number, holdPosition = false): () => void {
+  placeholder = '[data-reader-placeholder]', offset?: number | (() => number), holdPosition = false): () => void {
   scrollPaperTarget(viewport, target, offset)
   if (!holdPosition && !target.querySelector(placeholder)) return () => {}
   let frame = 0
