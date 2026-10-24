@@ -1,0 +1,130 @@
+name: Verify and publish npm package
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: article-review-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: '24.16.0'
+          package-manager-cache: false
+      - run: npm install --global npm@11.15.0 pnpm@11.20.0 --ignore-scripts
+      - name: Verify prepared runtime and portable source
+        run: |
+          node scripts/check-release.mjs
+          npm ci --prefix validation --ignore-scripts --no-audit --no-fund
+          node validation/run.mjs
+          node validation/node_modules/typescript/bin/tsc -p validation/tsconfig.json
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          repository: deepseek-ai/deepseek-harness
+          ref: 86a402200d95fecef4529d969836f1fe13c6cb0d
+          path: .artifacts/dsh-source
+          persist-credentials: false
+      - name: Install rc.3 integration dependencies
+        run: |
+          node --input-type=module <<'JS'
+          import {readFile,writeFile,mkdir} from 'node:fs/promises'
+          const target=process.env.RUNNER_TEMP+'/dsh-rc3'
+          await mkdir(target)
+          const pkg=JSON.parse(await readFile('validation/harness/package.json','utf8'))
+          for(const key of Object.keys(pkg.dependencies))if(key.startsWith('@deepseek-ai/dsh'))pkg.dependencies[key]='0.2.1-rc.3'
+          pkg.dependencies['@deepseek-ai/dsh-util-workspace-path']='0.2.1-rc.3'
+          await writeFile(target+'/package.json',JSON.stringify(pkg))
+          JS
+          npm install --prefix "$RUNNER_TEMP/dsh-rc3" --ignore-scripts --no-audit --no-fund
+      - name: Check host/client types and full review integration in rc.3
+        run: node scripts/test-published.mjs
+        env:
+          DSH_HARNESS_SOURCE: ${{ github.workspace }}/.artifacts/dsh-source
+          DSH_HARNESS_RUNTIME: ${{ runner.temp }}/dsh-rc3/node_modules
+      - name: Pack and test the exact release archive
+        run: |
+          mkdir -p "$RUNNER_TEMP/release"
+          npm pack --ignore-scripts --pack-destination "$RUNNER_TEMP/release"
+          archive="$RUNNER_TEMP/release/dsh-article-review-$(node -p 'require("./package.json").version').tgz"
+          node scripts/runtime-smoke.mjs "$RUNNER_TEMP/dsh-rc3/node_modules/.bin/dsh" "$archive"
+          cd "$RUNNER_TEMP/release"
+          sha256sum *.tgz > SHA256SUMS
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: verified-npm-package
+          path: |
+            ${{ runner.temp }}/release/*.tgz
+            ${{ runner.temp }}/release/SHA256SUMS
+          if-no-files-found: error
+
+  publish:
+    needs: verify
+    if: github.repository == 'Biogod2020/dsh-article-review' && github.ref_type == 'tag'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: '24.16.0'
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - run: npm install --global npm@11.15.0 --ignore-scripts
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: verified-npm-package
+          path: release
+      - name: Publish tested archive with npm OIDC
+        working-directory: release
+        run: |
+          sha256sum --check SHA256SUMS
+          archives=(*.tgz)
+          test "${#archives[@]}" -eq 1
+          npm publish "${archives[0]}" --access public --tag next --ignore-scripts
+
+  verify-installation:
+    needs: publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: '24.16.0'
+          package-manager-cache: false
+      - run: npm install --global pnpm@11.20.0 --ignore-scripts
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: verified-npm-package
+          path: release
+      - name: Verify registry and mirror archive integrity
+        run: node scripts/verify-published.mjs release/*.tgz
+      - name: Install by package name from both registries in rc.3
+        run: |
+          npm install --prefix "$RUNNER_TEMP/dsh" --ignore-scripts --no-audit --no-fund @deepseek-ai/dsh@0.2.1-rc.3
+          version=$(node -p 'require("./package.json").version')
+          DSH_SMOKE_REGISTRY=https://registry.npmjs.org node scripts/runtime-smoke.mjs "$RUNNER_TEMP/dsh/node_modules/.bin/dsh" "dsh-article-review@$version"
+          DSH_SMOKE_REGISTRY=https://registry.npmmirror.com node scripts/runtime-smoke.mjs "$RUNNER_TEMP/dsh/node_modules/.bin/dsh" "dsh-article-review@$version"
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        if: always()
+        with:
+          name: npm-registry-verification
+          path: release/*.registries.json
+          if-no-files-found: ignore
