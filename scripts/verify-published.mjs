@@ -7,7 +7,7 @@ const archive = process.argv[2]
 assert(archive, 'usage: node scripts/verify-published.mjs <verified.tgz>')
 const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
 assert.equal(pkg.name, 'dsh-article-review')
-const tag = pkg.publishConfig?.tag ?? 'next'
+const tag = pkg.publishConfig?.tag ?? 'latest'
 const bytes = await readFile(archive)
 const expected = 'sha512-' + createHash('sha512').update(bytes).digest('base64')
 const official = 'https://registry.npmjs.org', mirror = 'https://registry.npmmirror.com'

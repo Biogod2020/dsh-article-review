@@ -4,6 +4,7 @@ import { readFile, readdir } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 const pkg = JSON.parse(await readFile('package.json', 'utf8'))
 assert.equal(pkg.name, 'dsh-article-review')
+assert.equal(pkg.publishConfig?.tag, 'latest', 'Default releases must support bare-name installation')
 if (process.env.GITHUB_REF_TYPE === 'tag') assert.equal(process.env.GITHUB_REF_NAME, `v${pkg.version}`)
 assert(!JSON.stringify(pkg).includes('workspace:'), 'Publish only the prepared release tag')
 assert(pkg.engines.dsh.includes('0.2.1-rc.3'))

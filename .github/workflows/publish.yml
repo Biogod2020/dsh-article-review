@@ -144,7 +144,7 @@ jobs:
           sha256sum --check SHA256SUMS
           archives=(*.tgz)
           test "${#archives[@]}" -eq 1
-          npm publish "${archives[0]}" --access public --tag next --ignore-scripts
+          npm publish "${archives[0]}" --access public --tag latest --ignore-scripts
 
   verify-installation:
     needs: publish
@@ -165,13 +165,13 @@ jobs:
           path: release
       - name: Verify registry and mirror archive integrity
         run: node scripts/verify-published.mjs release/*.tgz
-      - name: Install by package name from both registries in supported release lanes
+      - name: Install by bare package name from both registries in supported release lanes
         run: |
           version=$(node -p 'require("./package.json").version')
           for runtime in 0.2.1-rc.3 0.2.1-rc.4 0.2.2-alpha.2; do
             npm install --prefix "$RUNNER_TEMP/dsh-$runtime" --ignore-scripts --no-audit --no-fund "@deepseek-ai/dsh@$runtime"
-            DSH_SMOKE_REGISTRY=https://registry.npmjs.org node scripts/runtime-smoke.mjs "$RUNNER_TEMP/dsh-$runtime/node_modules/.bin/dsh" "dsh-article-review@$version"
-            DSH_SMOKE_REGISTRY=https://registry.npmmirror.com node scripts/runtime-smoke.mjs "$RUNNER_TEMP/dsh-$runtime/node_modules/.bin/dsh" "dsh-article-review@$version"
+            DSH_SMOKE_REGISTRY=https://registry.npmjs.org DSH_SMOKE_EXPECT_VERSION="$version" node scripts/runtime-smoke.mjs "$RUNNER_TEMP/dsh-$runtime/node_modules/.bin/dsh" dsh-article-review
+            DSH_SMOKE_REGISTRY=https://registry.npmmirror.com DSH_SMOKE_EXPECT_VERSION="$version" node scripts/runtime-smoke.mjs "$RUNNER_TEMP/dsh-$runtime/node_modules/.bin/dsh" dsh-article-review
           done
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         if: always()

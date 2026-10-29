@@ -20,6 +20,12 @@ await writeFile(join(workspace, 'article.md'), manuscript)
 const env = { ...process.env, HOME: home, DSH_HOME: join(home, '.dsh') }
 const registry = process.env.DSH_SMOKE_REGISTRY ? [`--registry=${process.env.DSH_SMOKE_REGISTRY}`] : []
 await promisify(execFile)(dsh, ['plugin', '--profile', 'web', 'add', source, ...registry], { env, timeout: 120000 })
+if (process.env.DSH_SMOKE_EXPECT_VERSION) {
+  const installed = JSON.parse(await readFile(join(env.DSH_HOME, 'profiles/web/node_modules/dsh-article-review/package.json'), 'utf8'))
+  assert.equal(installed.name, 'dsh-article-review')
+  assert.equal(installed.version, process.env.DSH_SMOKE_EXPECT_VERSION, 'Bare-name installation resolved an unexpected version')
+  console.log(`Installed ${source}: verified dsh-article-review@${installed.version}`)
+}
 await writeFile(join(env.DSH_HOME, 'profiles/web/cordis.patch.yml'), '- id: product-analytics\n  disabled: true\n- id: desktop-product-telemetry\n  disabled: true\n', { mode: 0o600 })
 let child
 async function stop() {

@@ -1,6 +1,6 @@
 {
   "name": "dsh-article-review",
-  "version": "0.2.2-alpha.16",
+  "version": "0.2.2-alpha.17",
   "description": "Annotation-driven Markdown manuscript review with proposals and human review baselines",
   "keywords": [
     "deepseek-harness",
@@ -26,7 +26,7 @@
   "publishConfig": {
     "access": "public",
     "registry": "https://registry.npmjs.org/",
-    "tag": "next"
+    "tag": "latest"
   },
   "engines": {
     "node": "^22.19.0 || >=24",
