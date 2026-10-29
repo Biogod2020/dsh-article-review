@@ -1,14 +1,17 @@
 /** Exercise the exact package in a private DSH home with a fictional manuscript and no model calls. */
 import assert from 'node:assert/strict'
+import { existsSync } from 'node:fs'
 import { mkdtemp, mkdir, readFile, writeFile, open } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { execFile, spawn } from 'node:child_process'
 import { promisify } from 'node:util'
 import { randomUUID } from 'node:crypto'
 
-const dsh = process.argv[2], source = process.argv[3]
-assert(dsh && source, 'usage: node scripts/runtime-smoke.mjs <dsh> <archive-or-package>')
+const dsh = process.argv[2], requested = process.argv[3]
+assert(dsh && requested, 'usage: node scripts/runtime-smoke.mjs <dsh> <archive-or-package>')
+// The installer runs inside a different profile directory; bare relative paths can be Git shorthands.
+const source = existsSync(requested) ? resolve(requested) : requested
 const root = await mkdtemp(join(tmpdir(), 'article-review-runtime-'))
 const home = join(root, 'home'), workspace = join(root, 'manuscript')
 await mkdir(home, { mode: 0o700 }); await mkdir(workspace)
