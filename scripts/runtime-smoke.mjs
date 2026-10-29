@@ -19,6 +19,15 @@ const manuscript = '# Compatibility fixture\n\nThis fictional manuscript checks 
 await writeFile(join(workspace, 'article.md'), manuscript)
 const env = { ...process.env, HOME: home, DSH_HOME: join(home, '.dsh') }
 const registry = process.env.DSH_SMOKE_REGISTRY ? [`--registry=${process.env.DSH_SMOKE_REGISTRY}`] : []
+if (process.env.DSH_SMOKE_ALLOW_RECENT_PACKAGE === '1') {
+  // Let DSH create its own profile; opt in only this package, retaining every other pnpm setting.
+  await promisify(execFile)(dsh, ['plugin', '--profile', 'web', 'list'], { env, timeout: 120000 })
+  const settings = join(env.DSH_HOME, 'profiles/web/pnpm-workspace.yaml')
+  const previous = await readFile(settings, 'utf8')
+  assert(!/^minimumReleaseAgeExclude:/m.test(previous), 'Fresh fixture unexpectedly has release-age exclusions')
+  await writeFile(settings, previous.trimEnd() + '\n\nminimumReleaseAgeExclude:\n  - dsh-article-review\n', { mode: 0o600 })
+  console.log('Fixture policy: allow a recent dsh-article-review release; retain pnpm age checks for other packages')
+}
 await promisify(execFile)(dsh, ['plugin', '--profile', 'web', 'add', source, ...registry], { env, timeout: 120000 })
 if (process.env.DSH_SMOKE_EXPECT_VERSION) {
   const installed = JSON.parse(await readFile(join(env.DSH_HOME, 'profiles/web/node_modules/dsh-article-review/package.json'), 'utf8'))

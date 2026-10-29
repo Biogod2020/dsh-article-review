@@ -165,13 +165,15 @@ jobs:
           path: release
       - name: Verify registry and mirror archive integrity
         run: node scripts/verify-published.mjs release/*.tgz
-      - name: Install by bare package name from both registries in supported release lanes
+      - name: Verify exact release and bare-name install with package-scoped recent-release opt-in
         run: |
           version=$(node -p 'require("./package.json").version')
           for runtime in 0.2.1-rc.3 0.2.1-rc.4 0.2.2-alpha.2; do
             npm install --prefix "$RUNNER_TEMP/dsh-$runtime" --ignore-scripts --no-audit --no-fund "@deepseek-ai/dsh@$runtime"
-            DSH_SMOKE_REGISTRY=https://registry.npmjs.org DSH_SMOKE_EXPECT_VERSION="$version" node scripts/runtime-smoke.mjs "$RUNNER_TEMP/dsh-$runtime/node_modules/.bin/dsh" dsh-article-review
-            DSH_SMOKE_REGISTRY=https://registry.npmmirror.com DSH_SMOKE_EXPECT_VERSION="$version" node scripts/runtime-smoke.mjs "$RUNNER_TEMP/dsh-$runtime/node_modules/.bin/dsh" dsh-article-review
+            for registry in https://registry.npmjs.org https://registry.npmmirror.com; do
+              DSH_SMOKE_REGISTRY="$registry" DSH_SMOKE_EXPECT_VERSION="$version" node scripts/runtime-smoke.mjs "$RUNNER_TEMP/dsh-$runtime/node_modules/.bin/dsh" "dsh-article-review@$version"
+              DSH_SMOKE_REGISTRY="$registry" DSH_SMOKE_EXPECT_VERSION="$version" DSH_SMOKE_ALLOW_RECENT_PACKAGE=1 node scripts/runtime-smoke.mjs "$RUNNER_TEMP/dsh-$runtime/node_modules/.bin/dsh" dsh-article-review
+            done
           done
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         if: always()

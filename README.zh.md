@@ -32,7 +32,7 @@ kind: "package-bundle"
 
 `0.2.2-alpha.17` 支持 DSH Web `0.2.1-alpha.4` 和 Desktop `0.2.0-rc.2` / `0.2.1-rc.2` / `0.2.1-rc.3` / `0.2.1-rc.4` / `0.2.2-alpha.2`，沿用现有模型配置。
 
-裸包名会安装 npm `latest` 通道的版本；当前默认为 `0.2.2-alpha.17`。需要固定版本时，填写 `dsh-article-review@0.2.2-alpha.17`。
+注册表 `latest` 指向 `0.2.2-alpha.17`。pnpm 11 默认有 24 小时新包观察期，当天裸名安装仍可能选择旧版。今天可填写完整版本 `dsh-article-review@0.2.2-alpha.17`，或按[说明仅对此包允许即时安装](docs/installation-channels.md#中文)；观察期后可直接使用裸名。
 
 ### Desktop App
 

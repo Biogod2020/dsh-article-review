@@ -1,0 +1,42 @@
+name: Verify published installation policy
+
+on:
+  workflow_dispatch:
+    inputs:
+      policy:
+        description: Use pnpm defaults, or opt in only this package before its 24-hour release age
+        type: choice
+        options: [default, package-exception]
+        default: default
+
+permissions:
+  contents: read
+
+jobs:
+  installation:
+    name: DSH ${{ matrix.runtime }} / ${{ matrix.registry }} / ${{ inputs.policy }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        runtime: [0.2.1-rc.3, 0.2.1-rc.4, 0.2.2-alpha.2]
+        registry: [official, mirror]
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: '24.16.0'
+          package-manager-cache: false
+      - run: npm install --global pnpm@11.20.0 --ignore-scripts
+      - name: Install the official DSH runtime
+        run: npm install --prefix "$RUNNER_TEMP/dsh" --ignore-scripts --no-audit --no-fund '@deepseek-ai/dsh@${{ matrix.runtime }}'
+      - name: Install bare name and verify version, API and restart recovery
+        run: |
+          export DSH_SMOKE_EXPECT_VERSION=$(node -p 'require("./package.json").version')
+          node scripts/runtime-smoke.mjs "$RUNNER_TEMP/dsh/node_modules/.bin/dsh" dsh-article-review
+        env:
+          DSH_SMOKE_REGISTRY: ${{ matrix.registry == 'official' && 'https://registry.npmjs.org' || 'https://registry.npmmirror.com' }}
+          DSH_SMOKE_ALLOW_RECENT_PACKAGE: ${{ inputs.policy == 'package-exception' && '1' || '0' }}

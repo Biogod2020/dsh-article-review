@@ -32,7 +32,7 @@ Across multiple revision rounds, each paragraph stays compared with **the last v
 
 Version `0.2.2-alpha.17` supports DSH Web `0.2.1-alpha.4` and Desktop `0.2.0-rc.2` / `0.2.1-rc.2` / `0.2.1-rc.3` / `0.2.1-rc.4` / `0.2.2-alpha.2`. Uses your existing model configuration.
 
-A bare package name installs the version on npm’s `latest` channel. The current default is `0.2.2-alpha.17`; use `dsh-article-review@0.2.2-alpha.17` to pin it.
+The registry’s `latest` tag points to `0.2.2-alpha.17`. pnpm 11 may choose an older release during its default 24-hour waiting period. For a fresh release today, pin `dsh-article-review@0.2.2-alpha.17` or use the [package-only opt-in](docs/installation-channels.md); after the waiting period, use the bare name.
 
 ### Desktop App
 

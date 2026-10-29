@@ -50,7 +50,7 @@ git tag v0.2.2-alpha.17
 git push origin v0.2.2-alpha.17
 ```
 
-在发行工作树中保留已验收的 `lib/index.js` / `lib/client.js` SHA-256 清单 `release-runtime-sha256.json`；`check-release.mjs` 据此拒绝未验收的运行文件。准备脚本将工作区依赖替换为可从注册表解析的依赖，并检查客户端模块名与包名一致、`zod` 已内联。不要直接发布含 `workspace:` 依赖的源码目录。正常验收后的发行发布到 `latest`，使裸名安装跟随当前版本；只有明确分开的预览才使用 `next`。仅将更高版本发布到 `next` 不会更新裸名安装。发布后从两个源使用裸名安装，并核对实际安装版本。上传前先用 `--dry-run` 检查同一个归档，并在隔离 DSH 配置中安装及启动验证。`publish.yml` 检查预构建标签、rc.3 / rc.4 / 0.2.2-alpha.2 完整集成与重启恢复，然后通过 npm OIDC 发布同一次验收的归档。首次在 npm 为 `Biogod2020/dsh-article-review`、`publish.yml` 配置 Trusted Publisher 并允许直接 `npm publish`，可能需要账号本人验证；后续发行复用该信任。流水线继续核对官方源与镜像归档完整性，并从两个源按包名安装。
+在发行工作树中保留已验收的 `lib/index.js` / `lib/client.js` SHA-256 清单 `release-runtime-sha256.json`；`check-release.mjs` 据此拒绝未验收的运行文件。准备脚本将工作区依赖替换为可从注册表解析的依赖，并检查客户端模块名与包名一致、`zod` 已内联。不要直接发布含 `workspace:` 依赖的源码目录。正常验收后的发行发布到 `latest`，使裸名安装跟随当前版本；只有明确分开的预览才使用 `next`。仅将更高版本发布到 `next` 不会更新裸名安装。发布后核对两个源的精确版本安装，以及明确只对此包例外时的裸名安装；未修改的 pnpm 11 配置有 24 小时观察期。独立安装验证保留默认策略模式，见[安装策略](installation-channels.md#中文)。上传前先用 `--dry-run` 检查同一个归档，并在隔离 DSH 配置中安装及启动验证。`publish.yml` 检查预构建标签、rc.3 / rc.4 / 0.2.2-alpha.2 完整集成与重启恢复，然后通过 npm OIDC 发布同一次验收的归档。首次在 npm 为 `Biogod2020/dsh-article-review`、`publish.yml` 配置 Trusted Publisher 并允许直接 `npm publish`，可能需要账号本人验证；后续发行复用该信任。流水线继续核对官方源与镜像归档完整性，并从两个源按包名安装。
 
 <a id="understand-the-implementation"></a>
 ## 理解实现
