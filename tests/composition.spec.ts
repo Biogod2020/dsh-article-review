@@ -16,9 +16,10 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import Skills from '@deepseek-ai/dsh-skill'
 import * as ToolSkill from '@deepseek-ai/dsh-tool-skill'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
-import ToolRuntime, { defineTool } from '@deepseek-ai/dsh-tools'
-import AgentRegistry from '@deepseek-ai/dsh-agent'
+import ToolRuntime, { defineTool, type ToolExecutionResult } from '@deepseek-ai/dsh-tools'
+import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
+import * as ToolPresentation from '@deepseek-ai/dsh-agent-tool-presentation'
 import Credentials from '@deepseek-ai/dsh-credentials-local'
 import WebServer from '@deepseek-ai/dsh-host-webserver'
 import * as Connection from '@deepseek-ai/dsh-client-connection'
@@ -34,6 +35,18 @@ const JsonlSessionPersistence = 'default' in JsonlPersistenceModule && typeof Js
 
 let root = ''
 let ctx: Context | undefined
+/** Exercise the shipped single-call or batch executor without bypassing host policy. */
+async function executeTool(input: { agent: Agent; callId: ToolCallId; name: string; arguments: object; signal: AbortSignal }): Promise<ToolExecutionResult> {
+  const tools = ctx!.tools
+  if ('setExecutor' in tools) {
+    const execute = tools.execute.bind(tools) as (input: object) => Promise<{ results: { result: ToolExecutionResult }[] }>
+    const batch = await execute({ agent: input.agent, signal: input.signal,
+      calls: [{ type: 'tool-call', callId: input.callId, name: input.name, arguments: JSON.stringify(input.arguments) }] })
+    expect(batch.results).toHaveLength(1)
+    return batch.results[0]!.result
+  }
+  return tools.execute(input)
+}
 afterEach(async () => { await ctx?.fiber.dispose(); ctx = undefined; if (root) await rm(root, { recursive: true, force: true }); root = '' })
 
 it('boots from a composition, keeps ordinary tools, and lets agents and operators manage proposals', async () => {
@@ -46,12 +59,12 @@ it('boots from a composition, keeps ordinary tools, and lets agents and operator
   const modules: Record<string, object> = {
     llm: LlmRuntime, sessions: SessionStore, projections: SessionProjectionRegistry, prompt: SystemPrompt,
     tools: ToolRuntime, agents: AgentRegistry, loop: AgentLoop, credentials: Credentials, server: WebServer,
-    connection: Connection, review: PaperReview, persistence: JsonlSessionPersistence,
+    connection: Connection, review: PaperReview, persistence: JsonlSessionPersistence, presentation: ToolPresentation,
   }
   await writeFile(configPath, JSON.stringify([
     { name: 'llm' }, { name: 'sessions' }, { name: 'projections' }, { name: 'prompt', config: { personaPrefix: '' } },
     { name: 'persistence', config: { root: join(root, 'session-logs'), compression: 'none' } },
-    { name: 'tools' }, { name: 'agents' }, { name: 'loop', config: { agents: [] } },
+    { name: 'tools' }, { name: 'presentation', config: { mode: 'native' } }, { name: 'agents' }, { name: 'loop', config: { agents: [] } },
     { name: 'credentials', config: { path: join(root, 'credentials.yml'), watch: false } },
     { name: 'server', config: { host: '127.0.0.1', port: 0 } }, { name: 'connection' },
     { id: 'paper-review', name: 'review', config: { maxBytes: 1000000 } },
@@ -107,17 +120,17 @@ it('boots from a composition, keeps ordinary tools, and lets agents and operator
   const envelope: unknown = await (await rpc({ action: 'open', path: 'article.md' })).json()
   const view = z.object({ result: z.object({ value: ViewSchema }) }).parse(envelope).result.value
   expect((await (await control('paper-review/current', {})).json() as { result: { value: { path: string } } }).result.value.path).toBe('article.md')
-  const firstPage = await ctx.tools.execute({ agent, callId: ToolCallId('read-first-page'), name: 'paper_read',
+  const firstPage = await executeTool({ agent, callId: ToolCallId('read-first-page'), name: 'paper_read',
     arguments: { path: 'article.md', startBlock: 0, maxBlocks: 1 }, signal: new AbortController().signal })
   expect(firstPage.isError).not.toBe(true)
   expect(JSON.stringify(firstPage)).toContain('nextStartBlock')
-  const continuation = await ctx.tools.execute({ agent, callId: ToolCallId('read-next-page'), name: 'paper_read',
+  const continuation = await executeTool({ agent, callId: ToolCallId('read-next-page'), name: 'paper_read',
     arguments: { path: 'article.md', startBlock: 1, maxBlocks: 1, revision: view.document.current.id }, signal: new AbortController().signal })
   expect(continuation.isError).not.toBe(true)
-  const stalePage = await ctx.tools.execute({ agent, callId: ToolCallId('read-stale-page'), name: 'paper_read',
+  const stalePage = await executeTool({ agent, callId: ToolCallId('read-stale-page'), name: 'paper_read',
     arguments: { path: 'article.md', startBlock: 1, revision: 'stale' }, signal: new AbortController().signal })
   expect(stalePage.isError).toBe(true)
-  const unpinnedPage = await ctx.tools.execute({ agent, callId: ToolCallId('read-unpinned-page'), name: 'paper_read',
+  const unpinnedPage = await executeTool({ agent, callId: ToolCallId('read-unpinned-page'), name: 'paper_read',
     arguments: { path: 'article.md', startBlock: 1 }, signal: new AbortController().signal })
   expect(unpinnedPage.isError).toBe(true)
   const block = view.document.current.blocks[1]!
@@ -151,14 +164,14 @@ it('boots from a composition, keeps ordinary tools, and lets agents and operator
   const modelSurface = adapter.requests.map(request => request.tools?.map(tool => tool.name))
   expect(modelSurface).toMatchSnapshot()
 
-  const bibFind = await ctx.tools.execute({ agent, callId: ToolCallId('bib-find'), name: 'paper_bib_find',
+  const bibFind = await executeTool({ agent, callId: ToolCallId('bib-find'), name: 'paper_bib_find',
     arguments: { path: 'references' }, signal: new AbortController().signal })
   expect(bibFind.isError).not.toBe(true)
   expect(JSON.stringify(bibFind)).toContain('main.bib')
-  const bibBind = await ctx.tools.execute({ agent, callId: ToolCallId('bib-bind'), name: 'paper_bib_bind',
+  const bibBind = await executeTool({ agent, callId: ToolCallId('bib-bind'), name: 'paper_bib_bind',
     arguments: { path: 'article.md', files: ['references/main.bib'] }, signal: new AbortController().signal })
   expect(bibBind.isError).not.toBe(true)
-  const bibAdd = await ctx.tools.execute({ agent, callId: ToolCallId('bib-add'), name: 'paper_bib_add',
+  const bibAdd = await executeTool({ agent, callId: ToolCallId('bib-add'), name: 'paper_bib_add',
     arguments: { path: 'article.md', file: 'references/main.bib',
       raw: '@article{jones2025, author={Jones, Bea}, title={A second study}, year={2025}}' }, signal: new AbortController().signal })
   expect(bibAdd.isError).not.toBe(true)
@@ -169,7 +182,7 @@ it('boots from a composition, keeps ordinary tools, and lets agents and operator
     output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
     async execute() { await writeFile(join(root, 'agent-note.txt'), 'written'); return 'written' },
   }))
-  const allowed = await ctx.tools.execute({ agent, callId: ToolCallId('ordinary-write'), name: 'write_workspace_note', arguments: {}, signal: new AbortController().signal })
+  const allowed = await executeTool({ agent, callId: ToolCallId('ordinary-write'), name: 'write_workspace_note', arguments: {}, signal: new AbortController().signal })
   expect(allowed.isError).not.toBe(true)
   expect(await readFile(join(root, 'agent-note.txt'), 'utf8')).toBe('written')
   expect(await readFile(join(root, 'article.md'), 'utf8')).toBe(source)
@@ -178,9 +191,9 @@ it('boots from a composition, keeps ordinary tools, and lets agents and operator
     output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
     async execute() { return 'ordinary tools remain available' },
   }))
-  const normalResult = await ctx.tools.execute({ agent: ordinary, callId: ToolCallId('ordinary'), name: 'ordinary_tool', arguments: {}, signal: new AbortController().signal })
+  const normalResult = await executeTool({ agent: ordinary, callId: ToolCallId('ordinary'), name: 'ordinary_tool', arguments: {}, signal: new AbortController().signal })
   expect(normalResult.isError).not.toBe(true)
-  const ordinaryPaper = await ctx.tools.execute({ agent: ordinary, callId: ToolCallId('ordinary-paper'), name: 'paper_read', arguments: { path: 'article.md' }, signal: new AbortController().signal })
+  const ordinaryPaper = await executeTool({ agent: ordinary, callId: ToolCallId('ordinary-paper'), name: 'paper_read', arguments: { path: 'article.md' }, signal: new AbortController().signal })
   expect(ordinaryPaper.isError).toBe(true)
   expect(await readFile(join(root, '.paper-review', 'sessions.json'), 'utf8')).toBe('["paper-review-recording"]')
   const accepted: unknown = await (await rpc({ action: 'decide', path: 'article.md', revision: view.document.current.id, proposalId: 'P1', accept: true })).json()
@@ -188,23 +201,23 @@ it('boots from a composition, keeps ordinary tools, and lets agents and operator
   expect(await readFile(join(root, 'article.md'), 'utf8')).toContain('Performance improved')
   const postView = z.object({ result: z.object({ value: ViewSchema }) }).parse(await (await rpc({ action: 'open', path: 'article.md' })).json()).result.value
   const nextBlock = postView.document.current.blocks[1]!
-  const proposed = await ctx.tools.execute({ agent, callId: ToolCallId('next-proposal'), name: 'paper_propose', arguments: {
+  const proposed = await executeTool({ agent, callId: ToolCallId('next-proposal'), name: 'paper_propose', arguments: {
     path: 'article.md', baseRevision: postView.document.current.id, annotationIds: [], reason: 'Another phrasing option.', meaning: 'style',
     edits: [{ blockId: nextBlock.id, before: nextBlock.text, after: 'Performance increased in three datasets (n = 42).' }],
   }, signal: new AbortController().signal })
   expect(proposed.isError).not.toBe(true)
-  const rejected = await ctx.tools.execute({ agent, callId: ToolCallId('reject-proposal'), name: 'paper_decide', arguments: {
+  const rejected = await executeTool({ agent, callId: ToolCallId('reject-proposal'), name: 'paper_decide', arguments: {
     path: 'article.md', revision: postView.document.current.id, proposalId: 'P2', decision: 'reject',
   }, signal: new AbortController().signal })
   expect(rejected.isError).not.toBe(true)
   expect(z.object({ result: z.object({ value: ViewSchema }) }).parse(await (await rpc({ action: 'open', path: 'article.md' })).json()).result.value.document.proposals[1]?.status).toBe('rejected')
   const heading = postView.document.current.blocks[0]!
-  const proposalThree = await ctx.tools.execute({ agent, callId: ToolCallId('third-proposal'), name: 'paper_propose', arguments: {
+  const proposalThree = await executeTool({ agent, callId: ToolCallId('third-proposal'), name: 'paper_propose', arguments: {
     path: 'article.md', baseRevision: postView.document.current.id, annotationIds: [], reason: 'Rename the section.', meaning: 'structure',
     edits: [{ blockId: heading.id, before: heading.text, after: '## Findings' }],
   }, signal: new AbortController().signal })
   expect(proposalThree.isError).not.toBe(true)
-  const acceptedByAgent = await ctx.tools.execute({ agent, callId: ToolCallId('accept-proposal'), name: 'paper_decide', arguments: {
+  const acceptedByAgent = await executeTool({ agent, callId: ToolCallId('accept-proposal'), name: 'paper_decide', arguments: {
     path: 'article.md', revision: postView.document.current.id, proposalId: 'P3', decision: 'accept',
   }, signal: new AbortController().signal })
   expect(acceptedByAgent.isError).not.toBe(true)
@@ -224,7 +237,7 @@ it('boots from a composition, keeps ordinary tools, and lets agents and operator
       method: 'paper-review/revision', payload: { sessionId: 'paper-review-recording', path: 'article.md', revision: view.document.current.id } }) })
   expect(unauthenticatedRevision.status).toBe(401)
   const insertionAnchor = insertionBase.document.current.blocks[1]!
-  const inserted = await ctx.tools.execute({ agent, callId: ToolCallId('insert-proposal'), name: 'paper_propose', arguments: {
+  const inserted = await executeTool({ agent, callId: ToolCallId('insert-proposal'), name: 'paper_propose', arguments: {
     path: 'article.md', baseRevision: insertionBase.document.current.id, annotationIds: [], reason: 'Add context.', meaning: 'structure',
     edits: [{ blockId: insertionAnchor.id, before: insertionAnchor.text, after: 'This result needs a separate explanation.', operation: 'insert-after' }],
   }, signal: new AbortController().signal })
@@ -236,7 +249,7 @@ it('boots from a composition, keeps ordinary tools, and lets agents and operator
   expect(await readFile(join(root, 'article.md'), 'utf8')).toContain('\n\nThis result needs a separate explanation.')
   const naturalBase = z.object({ result: z.object({ value: ViewSchema }) }).parse(await (await rpc({ action: 'open', path: 'article.md' })).json()).result.value
   const naturalAnchor = naturalBase.document.current.blocks[1]!
-  const natural = await ctx.tools.execute({ agent, callId: ToolCallId('natural-insert'), name: 'paper_propose', arguments: {
+  const natural = await executeTool({ agent, callId: ToolCallId('natural-insert'), name: 'paper_propose', arguments: {
     path: 'article.md', baseRevision: naturalBase.document.current.id, annotationIds: [],
     reason: 'Keep this explanation separate.', meaning: 'evidence',
     edits: [{ blockId: naturalAnchor.id, before: naturalAnchor.text,
@@ -247,7 +260,7 @@ it('boots from a composition, keeps ordinary tools, and lets agents and operator
   expect(naturalView.document.proposals.at(-1)?.edits[0]).toMatchObject({ operation: 'insert-after',
     after: 'The frozen reference uses a separate study set.' })
   expect(await readFile(join(root, 'article.md'), 'utf8')).not.toContain('frozen reference')
-  const headingInsertion = await ctx.tools.execute({ agent, callId: ToolCallId('heading-insert'), name: 'paper_propose', arguments: {
+  const headingInsertion = await executeTool({ agent, callId: ToolCallId('heading-insert'), name: 'paper_propose', arguments: {
     path: 'article.md', baseRevision: naturalBase.document.current.id, annotationIds: [],
     reason: 'Give the reference a subsection heading.', meaning: 'structure',
     edits: [{ blockId: naturalAnchor.id, before: naturalAnchor.text,
@@ -258,7 +271,7 @@ it('boots from a composition, keeps ordinary tools, and lets agents and operator
   expect(headingView.document.proposals.at(-1)?.edits[0]).toMatchObject({ operation: 'insert-before',
     after: '### Screening Reference Set' })
   expect(await readFile(join(root, 'article.md'), 'utf8')).not.toContain('### Screening Reference Set')
-  const grouped = await ctx.tools.execute({ agent, callId: ToolCallId('heading-and-paragraph'), name: 'paper_propose', arguments: {
+  const grouped = await executeTool({ agent, callId: ToolCallId('heading-and-paragraph'), name: 'paper_propose', arguments: {
     path: 'article.md', baseRevision: naturalBase.document.current.id, annotationIds: [],
     reason: 'Present the reference under a separate heading.', meaning: 'structure',
     edits: [
@@ -274,7 +287,7 @@ it('boots from a composition, keeps ordinary tools, and lets agents and operator
     '### Screening Reference Set', 'The frozen reference uses a separate study set.',
   ])
   const list = '- **Class A**: direct H&E.\n- **Class B**: indirect imaging.\n- **Class C**: excluded assays.'
-  const proposedList = await ctx.tools.execute({ agent, callId: ToolCallId('list-proposal'), name: 'paper_propose', arguments: {
+  const proposedList = await executeTool({ agent, callId: ToolCallId('list-proposal'), name: 'paper_propose', arguments: {
     path: 'article.md', baseRevision: naturalBase.document.current.id, annotationIds: [],
     reason: 'Show the three screening classes as a list.', meaning: 'structure',
     edits: [{ blockId: naturalAnchor.id, before: naturalAnchor.text, after: list, operation: 'insert-after' }],
@@ -283,7 +296,7 @@ it('boots from a composition, keeps ordinary tools, and lets agents and operator
   const listView = z.object({ result: z.object({ value: ViewSchema }) }).parse(await (await rpc({ action: 'open', path: 'article.md' })).json()).result.value
   const listProposal = listView.document.proposals.at(-1)!
   expect(listProposal.edits[0]?.after).toBe(list)
-  const revisedList = await ctx.tools.execute({ agent, callId: ToolCallId('revise-list-proposal'), name: 'paper_revise', arguments: {
+  const revisedList = await executeTool({ agent, callId: ToolCallId('revise-list-proposal'), name: 'paper_revise', arguments: {
     path: 'article.md', proposalId: listProposal.id, revision: listView.document.current.id,
     edits: [{ blockId: naturalAnchor.id, before: naturalAnchor.text,
       after: '- **Class A**: direct H&E.\n- **Class B**: indirect imaging or morphology.\n- **Class C**: excluded assays.',
@@ -298,15 +311,15 @@ it('boots from a composition, keeps ordinary tools, and lets agents and operator
   await writeFile(join(root, 'figure.md'), figureSource)
   await writeFile(join(root, 'old.pdf'), 'old figure bytes')
   await writeFile(join(root, 'new.pdf'), 'new figure bytes')
-  await ctx.tools.execute({ agent, callId: ToolCallId('open-figure-paper'), name: 'paper_open',
+  await executeTool({ agent, callId: ToolCallId('open-figure-paper'), name: 'paper_open',
     arguments: { path: 'figure.md' }, signal: new AbortController().signal })
   const figureView = z.object({ result: z.object({ value: ViewSchema }) }).parse(await (await rpc({ action: 'open', path: 'figure.md' })).json()).result.value
   const figureBlock = figureView.document.current.blocks[1]
   if (!figureBlock) throw new Error('Figure block missing')
-  const figureList = await ctx.tools.execute({ agent, callId: ToolCallId('list-figures'), name: 'paper_figure_list', arguments: { path: 'figure.md' }, signal: new AbortController().signal })
+  const figureList = await executeTool({ agent, callId: ToolCallId('list-figures'), name: 'paper_figure_list', arguments: { path: 'figure.md' }, signal: new AbortController().signal })
   expect(figureList.isError).not.toBe(true)
   expect(JSON.stringify(figureList)).toContain('old.pdf')
-  const figureProposal = await ctx.tools.execute({ agent, callId: ToolCallId('replace-figure'), name: 'paper_figure_replace', arguments: {
+  const figureProposal = await executeTool({ agent, callId: ToolCallId('replace-figure'), name: 'paper_figure_replace', arguments: {
     path: 'figure.md', revision: figureView.document.current.id, blockId: figureBlock.id, figure: 'old.pdf', replacement: 'new.pdf', reason: 'Updated artwork.',
   }, signal: new AbortController().signal })
   expect(figureProposal.isError).not.toBe(true)
@@ -367,7 +380,7 @@ it('boots from a composition, keeps ordinary tools, and lets agents and operator
     { blockId: unchanged.id, before: unchanged.text, after: 'Added context.', operation: 'insert-after' },
     { blockId: neighbor.id, before: neighbor.text, after: 'Revised neighboring paragraph.' },
   ].entries()) {
-    const result = await ctx.tools.execute({ agent, callId: ToolCallId(`independent-${index}`), name: 'paper_propose', arguments: {
+    const result = await executeTool({ agent, callId: ToolCallId(`independent-${index}`), name: 'paper_propose', arguments: {
       path: 'independent.md', baseRevision: independentView.document.current.id, annotationIds: [], reason: 'Independent changes.',
       meaning: 'structure', edits: [edit],
     }, signal: new AbortController().signal })
@@ -375,7 +388,7 @@ it('boots from a composition, keeps ordinary tools, and lets agents and operator
   }
   const advanced = z.object({ result: z.object({ ok: z.literal(true), value: ViewSchema }) }).parse(await (await rpc({ action: 'decide',
     path: 'independent.md', revision: independentView.document.current.id, proposalId: 'P2', accept: true })).json()).result.value
-  const checked = await ctx.tools.execute({ agent, callId: ToolCallId('independent-check'), name: 'paper_check',
+  const checked = await executeTool({ agent, callId: ToolCallId('independent-check'), name: 'paper_check',
     arguments: { path: 'independent.md', proposalId: 'P1' }, signal: new AbortController().signal })
   expect(checked.isError).not.toBe(true)
   const checkText = checked.content.find(item => item.type === 'text')
@@ -394,9 +407,9 @@ it('boots from a composition, keeps ordinary tools, and lets agents and operator
   expect(await readFile(join(root, '.paper-review', 'sessions.json'), 'utf8')).toBe('[]')
   expect(ctx.tools.schemas(agent).some(schema => schema.name === 'paper_read')).toBe(false)
   expect((await (await control('paper-review/current', {})).json() as { result: { value: { path: string | null } } }).result.value.path).toBeNull()
-  const ordinaryAfterExit = await ctx.tools.execute({ agent, callId: ToolCallId('ordinary-after-exit'), name: 'ordinary_tool', arguments: {}, signal: new AbortController().signal })
+  const ordinaryAfterExit = await executeTool({ agent, callId: ToolCallId('ordinary-after-exit'), name: 'ordinary_tool', arguments: {}, signal: new AbortController().signal })
   expect(ordinaryAfterExit.isError).not.toBe(true)
-  const deniedAfterExit = await ctx.tools.execute({ agent, callId: ToolCallId('paper-after-exit'), name: 'paper_read', arguments: { path: 'article.md' }, signal: new AbortController().signal })
+  const deniedAfterExit = await executeTool({ agent, callId: ToolCallId('paper-after-exit'), name: 'paper_read', arguments: { path: 'article.md' }, signal: new AbortController().signal })
   expect(deniedAfterExit.isError).toBe(true)
   const reopened = await (await rpc({ action: 'open', path: 'article.md' })).json() as { result: { ok: boolean } }
   expect(reopened.result.ok).toBe(true)
@@ -407,9 +420,9 @@ it('boots from a composition, keeps ordinary tools, and lets agents and operator
   await mkdir(secondRoot)
   await writeFile(join(secondRoot, 'article.md'), 'Different workspace, same file name.\n')
   const secondAgent = await ctx.agentLoop.create(SessionId('second-review'), { provider: 'mock', model: 'mock' }, { cwd: secondRoot })
-  const listed = await ctx.tools.execute({ agent: secondAgent, callId: ToolCallId('list-manuscripts'), name: 'paper_list', arguments: {}, signal: new AbortController().signal })
+  const listed = await executeTool({ agent: secondAgent, callId: ToolCallId('list-manuscripts'), name: 'paper_list', arguments: {}, signal: new AbortController().signal })
   expect(listed.isError).not.toBe(true)
-  const opened = await ctx.tools.execute({ agent: secondAgent, callId: ToolCallId('open-manuscript'), name: 'paper_open', arguments: { path: 'article.md' }, signal: new AbortController().signal })
+  const opened = await executeTool({ agent: secondAgent, callId: ToolCallId('open-manuscript'), name: 'paper_open', arguments: { path: 'article.md' }, signal: new AbortController().signal })
   expect(opened.isError).not.toBe(true)
   expect((await (await control('paper-review/current', {}, 'second-review')).json() as { result: { value: { path: string } } }).result.value.path).toBe('article.md')
   const second = z.object({ result: z.object({ value: ViewSchema }) }).parse(await (await rpc({ action: 'open', path: 'article.md' }, true, 'second-review')).json())
@@ -453,13 +466,13 @@ it.each([[false, false], [false, true], [true, false], [true, true]])('loads the
   await writeFile(join(root, 'crop.png'), png)
   const modules: Record<string, object> = { llm: LlmRuntime, sessions: SessionStore, projections: SessionProjectionRegistry,
     prompt: SystemPrompt, skills: Skills, persistence: JsonlSessionPersistence, tools: ToolRuntime,
-    agents: AgentRegistry, loop: AgentLoop, credentials: Credentials, server: WebServer, connection: Connection, review: PaperReview,
+    agents: AgentRegistry, loop: AgentLoop, credentials: Credentials, server: WebServer, connection: Connection, review: PaperReview, presentation: ToolPresentation,
     fs: LocalFileSystem, ...(directory ? { directory } : {}), skillTool: ToolSkill }
   const configPath = join(root, 'cordis.yml')
   await writeFile(configPath, JSON.stringify([
     { name: 'llm' }, { name: 'sessions' }, { name: 'projections' }, { name: 'prompt', config: { personaPrefix: '' } }, { name: 'skills' },
     { name: 'persistence', config: { root: join(root, 'logs'), compression: 'none' } },
-    { name: 'tools' }, { name: 'agents' }, { name: 'loop', config: { agents: [] } },
+    { name: 'tools' }, { name: 'presentation', config: { mode: 'native' } }, { name: 'agents' }, { name: 'loop', config: { agents: [] } },
     ...(nativeSkill ? [{ name: 'fs' }, ...(directory ? [{ name: 'directory' }] : []), { name: 'skillTool' }] : []),
     { name: 'credentials', config: { path: join(root, 'credentials.yml'), watch: false } },
     { name: 'server', config: { host: '127.0.0.1', port: 0 } }, { name: 'connection' }, { name: 'review', config: { maxBytes: 1_000_000 } },
@@ -515,7 +528,7 @@ it.each([[false, false], [false, true], [true, false], [true, true]])('loads the
     panels: [{ label: 'a', targetBlockIds: [block.id] }], manuscriptWritten: false, originalFilesWritten: false })
   expect(savedText.text).not.toContain('"before"')
   const execute = async (name: string, args: object, id: string) => {
-    const response = await ctx!.tools.execute({ agent, callId: ToolCallId(id), name, arguments: args, signal: new AbortController().signal })
+    const response = await executeTool({ agent, callId: ToolCallId(id), name, arguments: args, signal: new AbortController().signal })
     expect(response.isError).not.toBe(true)
     const text = response.content.find(item => item.type === 'text')
     if (text?.type !== 'text') throw new Error('Tool did not return text')

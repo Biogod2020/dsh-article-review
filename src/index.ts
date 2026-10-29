@@ -428,7 +428,10 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     const disposers: (() => void)[] = []
     try {
       if (!enabled.has(agent.id)) disposers.push(agent.ctx.tools.restrict({ deny: [...PAPER_TOOLS] }))
-      if (enabled.has(agent.id)) disposers.push(agent.ctx.tools.presentAs('native'))
+      // New hosts own executor selection; replacing it here would also break execution after exit.
+      const tools = agent.ctx.tools
+      if (enabled.has(agent.id) && 'presentAs' in tools && typeof tools.presentAs === 'function')
+        disposers.push(tools.presentAs('native'))
     } catch (error) { for (const dispose of disposers.reverse()) dispose(); throw error }
     scopes.set(agent, () => { for (const dispose of disposers.reverse()) dispose() })
   }

@@ -70,8 +70,57 @@ jobs:
             ${{ runner.temp }}/release/SHA256SUMS
           if-no-files-found: error
 
-  publish:
+  current-harness:
     needs: verify
+    name: DSH ${{ matrix.version }} / release acceptance
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - version: 0.2.1-rc.4
+            source: 504a01a9578abc2c6f1fb896b1dc322c9fe24f66
+          - version: 0.2.2-alpha.2
+            source: f3803c96974ad4a94195fb97e5c637e9c2a3afe3
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: '24.16.0'
+          package-manager-cache: false
+      - run: npm install --global pnpm@11.20.0 --ignore-scripts
+      - run: npm ci --prefix validation --ignore-scripts --no-audit --no-fund
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          repository: deepseek-ai/deepseek-harness
+          ref: ${{ matrix.source }}
+          path: .artifacts/dsh-source
+          persist-credentials: false
+      - name: Install the matching published runtime
+        run: |
+          node scripts/prepare-test-runtime.mjs '${{ matrix.version }}' "$RUNNER_TEMP/dsh-current"
+          npm install --prefix "$RUNNER_TEMP/dsh-current" --ignore-scripts --no-audit --no-fund
+      - name: Check host/client types and all review integration tests
+        run: node scripts/test-published.mjs
+        env:
+          DSH_HARNESS_SOURCE: ${{ github.workspace }}/.artifacts/dsh-source
+          DSH_HARNESS_RUNTIME: ${{ runner.temp }}/dsh-current/node_modules
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: verified-npm-package
+          path: release
+      - name: Exercise the exact archive, including restart recovery
+        run: |
+          cd release
+          sha256sum --check SHA256SUMS
+          cd ..
+          node scripts/runtime-smoke.mjs "$RUNNER_TEMP/dsh-current/node_modules/.bin/dsh" release/*.tgz
+
+  publish:
+    needs: [verify, current-harness]
     if: github.repository == 'Biogod2020/dsh-article-review' && github.ref_type == 'tag'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -116,12 +165,14 @@ jobs:
           path: release
       - name: Verify registry and mirror archive integrity
         run: node scripts/verify-published.mjs release/*.tgz
-      - name: Install by package name from both registries in rc.3
+      - name: Install by package name from both registries in supported release lanes
         run: |
-          npm install --prefix "$RUNNER_TEMP/dsh" --ignore-scripts --no-audit --no-fund @deepseek-ai/dsh@0.2.1-rc.3
           version=$(node -p 'require("./package.json").version')
-          DSH_SMOKE_REGISTRY=https://registry.npmjs.org node scripts/runtime-smoke.mjs "$RUNNER_TEMP/dsh/node_modules/.bin/dsh" "dsh-article-review@$version"
-          DSH_SMOKE_REGISTRY=https://registry.npmmirror.com node scripts/runtime-smoke.mjs "$RUNNER_TEMP/dsh/node_modules/.bin/dsh" "dsh-article-review@$version"
+          for runtime in 0.2.1-rc.3 0.2.1-rc.4 0.2.2-alpha.2; do
+            npm install --prefix "$RUNNER_TEMP/dsh-$runtime" --ignore-scripts --no-audit --no-fund "@deepseek-ai/dsh@$runtime"
+            DSH_SMOKE_REGISTRY=https://registry.npmjs.org node scripts/runtime-smoke.mjs "$RUNNER_TEMP/dsh-$runtime/node_modules/.bin/dsh" "dsh-article-review@$version"
+            DSH_SMOKE_REGISTRY=https://registry.npmmirror.com node scripts/runtime-smoke.mjs "$RUNNER_TEMP/dsh-$runtime/node_modules/.bin/dsh" "dsh-article-review@$version"
+          done
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         if: always()
         with:

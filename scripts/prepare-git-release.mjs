@@ -53,7 +53,7 @@ const dependencies = { ...sourceManifest.dependencies }
 for (const [name, version] of Object.entries({
   '@deepseek-ai/node-addon-system': '^0.1.2',
   '@deepseek-ai/dsh-native-command': sourceManifest.engines.dsh,
-  '@deepseek-ai/schemastery': '~3.18.4 || ~3.18.5-alpha.2',
+  '@deepseek-ai/schemastery': '~3.18.4 || ~3.18.5-alpha.2 || ~3.18.6-alpha.1',
 })) {
   if (!/^workspace:(?:\^|~|\*)$/.test(dependencies[name] ?? '') && dependencies[name] !== version) {
     throw new Error(`Unexpected source dependency: ${name}`)
@@ -67,7 +67,7 @@ delete dependencies.koffi
 delete dependencies['@deepseek-ai/dsh-native-command']
 releaseManifest.dependencies = dependencies
 releaseManifest.peerDependencies = {
-  '@deepseek-ai/cordis': '~4.0.4 || ~4.0.5-alpha.2',
+  '@deepseek-ai/cordis': '~4.0.4 || ~4.0.5-alpha.2 || ~4.0.6-alpha.1',
   '@deepseek-ai/dsh-native-command': sourceManifest.engines.dsh,
   koffi: '^3.1.0',
 }

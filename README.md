@@ -30,7 +30,7 @@ Across multiple revision rounds, each paragraph stays compared with **the last v
 <a id="installation"></a>
 ## Install
 
-Version `0.2.2-alpha.14` supports DSH Web `0.2.1-alpha.4` and Desktop `0.2.0-rc.2` / `0.2.1-rc.2` / `0.2.1-rc.3`. Uses your existing model configuration.
+Version `0.2.2-alpha.15` supports DSH Web `0.2.1-alpha.4` and Desktop `0.2.0-rc.2` / `0.2.1-rc.2` / `0.2.1-rc.3` / `0.2.1-rc.4` / `0.2.2-alpha.2`. Uses your existing model configuration.
 
 ### Desktop App
 
@@ -39,7 +39,7 @@ The App includes its runtime; no separate Node installation is needed.
 1. Open **Plugins** in the App's left sidebar, then click **Add plugin**.
 2. Paste the npm package name and version:
 
-   `dsh-article-review@0.2.2-alpha.14`
+   `dsh-article-review@0.2.2-alpha.15`
 
 3. After installation, click **Enable now** and follow any restart prompt.
 4. Choose a local workspace and open a conversation. In the right sidebar, choose **Read, annotate and revise**.
@@ -47,14 +47,14 @@ The App includes its runtime; no separate Node installation is needed.
 
 Desktop uses its own `desktop` profile. Installing into the `web` profile does not install into the App. If you previously installed `@deepseek-ai/dsh-experimental-paper-review` from GitHub, uninstall that package in Plugins before installing the npm package above and restarting. Workspace review records in `.paper-review/` continue to be used. macOS Desktop has been exercised; see [platform requirements](docs/development.md#scope-and-compatibility) for Windows.
 
-Choose the official npm registry or the mainland China mirror. If the mirror has not synced this version, use the official registry. GitHub installation is also available as `github:Biogod2020/dsh-article-review#v0.2.2-alpha.14`. If GitHub times out, download the [prebuilt release archive](https://codeload.github.com/Biogod2020/dsh-article-review/tar.gz/refs/tags/v0.2.2-alpha.14) and enter its absolute local path in **Plugins → Add plugin**, without extracting or building it. Tags through `v0.2.1-alpha.1` retain the old package name; install one package name at a time.
+Choose the official npm registry or the mainland China mirror. If the mirror has not synced this version, use the official registry. GitHub installation is also available as `github:Biogod2020/dsh-article-review#v0.2.2-alpha.15`. If GitHub times out, download the [prebuilt release archive](https://codeload.github.com/Biogod2020/dsh-article-review/tar.gz/refs/tags/v0.2.2-alpha.15) and enter its absolute local path in **Plugins → Add plugin**, without extracting or building it. Tags through `v0.2.1-alpha.1` retain the old package name; install one package name at a time.
 
 ### Web
 
-Requires Node.js 22 (≥22.19) or 24+:
+DSH `0.2.2-alpha.2` requires Node.js 24.9 or later. Earlier supported DSH versions retain their own Node.js requirements (22 ≥22.19 or 24+):
 
 ```sh
-dsh plugin --profile web add 'dsh-article-review@0.2.2-alpha.14'
+dsh plugin --profile web add 'dsh-article-review@0.2.2-alpha.15'
 dsh web
 ```
 

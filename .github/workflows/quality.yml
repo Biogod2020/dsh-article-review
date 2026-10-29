@@ -33,9 +33,19 @@ jobs:
       - name: Check core types
         run: npm run typecheck:core
   published-harness:
-    name: DSH 0.2.1-alpha.4 / integration
+    name: DSH ${{ matrix.version }} / integration
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - version: 0.2.1-alpha.4
+            source: 86a402200d95fecef4529d969836f1fe13c6cb0d
+          - version: 0.2.1-rc.4
+            source: 504a01a9578abc2c6f1fb896b1dc322c9fe24f66
+          - version: 0.2.2-alpha.2
+            source: f3803c96974ad4a94195fb97e5c637e9c2a3afe3
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
@@ -48,11 +58,14 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           repository: deepseek-ai/deepseek-harness
-          ref: 86a402200d95fecef4529d969836f1fe13c6cb0d # dsh-v0.2.1-alpha.4
+          ref: ${{ matrix.source }}
           path: .artifacts/dsh-source
       - run: npm run test:setup
-      - run: npm ci --prefix validation/harness --ignore-scripts
+      - run: |
+          node scripts/prepare-test-runtime.mjs '${{ matrix.version }}' "$RUNNER_TEMP/dsh-integration"
+          npm install --prefix "$RUNNER_TEMP/dsh-integration" --ignore-scripts --no-audit --no-fund
       - name: Check shipped host/client types and review integration
         run: npm run test:published
         env:
           DSH_HARNESS_SOURCE: ${{ github.workspace }}/.artifacts/dsh-source
+          DSH_HARNESS_RUNTIME: ${{ runner.temp }}/dsh-integration/node_modules

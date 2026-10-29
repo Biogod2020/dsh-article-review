@@ -7,13 +7,14 @@ import { spawnSync } from 'node:child_process'
 
 const repo = fileURLToPath(new URL('..', import.meta.url))
 const source = process.env.DSH_HARNESS_SOURCE
-if (!source) throw new Error('Set DSH_HARNESS_SOURCE to the dsh-v0.2.1-alpha.4 source checkout')
+if (!source) throw new Error('Set DSH_HARNESS_SOURCE to the matching DSH release source checkout')
 const harness = await realpath(source)
 const manifest = JSON.parse(await readFile(join(harness, 'package.json'), 'utf8'))
-if (manifest.version !== '0.2.1-alpha.4') throw new Error('The published lane requires matching DSH 0.2.1-alpha.4 fixtures')
 const runtime = process.env.DSH_HARNESS_RUNTIME ? await realpath(process.env.DSH_HARNESS_RUNTIME) : resolve(repo, 'validation/harness/node_modules')
 const runtimeManifest = JSON.parse(await readFile(join(runtime, '@deepseek-ai/dsh/package.json'), 'utf8'))
-if (!['0.2.0-rc.2', '0.2.1-alpha.4', '0.2.1-rc.2', '0.2.1-rc.3'].includes(runtimeManifest.version)) throw new Error('Choose a supported DSH runtime with declaration files')
+if (!['0.2.0-rc.2', '0.2.1-alpha.4', '0.2.1-rc.2', '0.2.1-rc.3', '0.2.1-rc.4', '0.2.2-alpha.2'].includes(runtimeManifest.version)) throw new Error('Choose a supported DSH runtime with declaration files')
+const legacyFixtures = manifest.version === '0.2.1-alpha.4' && ['0.2.0-rc.2', '0.2.1-alpha.4', '0.2.1-rc.2', '0.2.1-rc.3'].includes(runtimeManifest.version)
+if (manifest.version !== runtimeManifest.version && !legacyFixtures) throw new Error('Use fixtures from the same release as the DSH runtime')
 const args = process.argv.slice(2)
 if (args.some(arg => arg === '-u' || arg.startsWith('--update'))) throw new Error('Review snapshot changes in the source checkout; this runner never updates snapshots')
 const temporary = await mkdtemp(join(tmpdir(), 'paper-review-published-'))

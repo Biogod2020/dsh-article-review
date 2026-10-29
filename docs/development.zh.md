@@ -6,7 +6,7 @@
 
 ## npm 与 Git 安装
 
-安装命令见 [项目首页](../README.zh.md#installation)。安装器将本包的[组合配置](../cordis.patch.yml)加入 Web 层之后；无需额外启动器或模型配置。`0.2.2-alpha.14` 支持 DSH Web `0.2.1-alpha.4` 与 macOS Desktop `0.2.0-rc.2` / `0.2.1-rc.2` / `0.2.1-rc.3`。rc.3 的宿主/客户端类型检查和 298 项集成测试通过；安装包检查覆盖认证、打开稿件、批注、人工审阅基线及服务重启后的记录恢复。其他平台的要求见 [支持范围与兼容性](#scope-and-compatibility)。
+安装命令见 [项目首页](../README.zh.md#installation)。安装器将本包的[组合配置](../cordis.patch.yml)加入 Web 层之后；无需额外启动器或模型配置。`0.2.2-alpha.15` 支持 DSH Web `0.2.1-alpha.4` 与 macOS Desktop `0.2.0-rc.2` / `0.2.1-rc.2` / `0.2.1-rc.3` / `0.2.1-rc.4` / `0.2.2-alpha.2`。rc.3、rc.4 和 0.2.2-alpha.2 均通过宿主/客户端类型检查和各 298 项集成测试；安装包检查覆盖认证、打开稿件、批注、人工审阅基线及服务重启后的记录恢复。其他平台的要求见 [支持范围与兼容性](#scope-and-compatibility)。
 
 浏览器只接收当前正文与版本目录，历史正文按对比选择读取。段落共享可见性观察器；PDF 预览共用缓存和转换队列（`previewCacheBytes` 默认 4194304，`previewConcurrency` 默认 1）。见[性能测量](performance.zh.md)。
 
@@ -31,7 +31,7 @@ DSH_HARNESS_SOURCE=/absolute/path/to/dsh-v0.2.1-alpha.4 npm run test:published
 DSH_HARNESS_ROOT=/absolute/path/to/deepseek-harness npm run test:harness
 ```
 
-通过 `DSH_HARNESS_RUNTIME=/absolute/path/to/node_modules` 可指定已安装的 Desktop `0.2.0-rc.2` / `0.2.1-rc.2` / `0.2.1-rc.3` 运行时进行同样的兼容性检查；该目录须包含包的类型声明。默认使用 `validation/harness/node_modules` 中的 Web `0.2.1-alpha.4`。
+通过 `DSH_HARNESS_RUNTIME=/absolute/path/to/node_modules` 可指定已安装的 Desktop `0.2.0-rc.2` / `0.2.1-rc.2` / `0.2.1-rc.3` / `0.2.1-rc.4` / `0.2.2-alpha.2` 运行时进行同样的兼容性检查；该目录须包含包的类型声明。默认使用 `validation/harness/node_modules` 中的 Web `0.2.1-alpha.4`。 对于 rc.4 和 0.2.2-alpha.2，`DSH_HARNESS_SOURCE` 必须指向同一发行版本的源码。可先运行 `node scripts/prepare-test-runtime.mjs <version> <new-directory>`，再用 `npm install --prefix <new-directory> --ignore-scripts` 准备隔离依赖，并将 `DSH_HARNESS_RUNTIME` 指向其 `node_modules`。
 
 完整流程分别检查宿主/客户端类型，并在已安装依赖的上游工作区上运行真实组合测试，不修改该工作区。[使用体验报告](experience-review.zh.md)记录 DSH 0.2 的实测和剩余问题。
 
@@ -46,11 +46,11 @@ node scripts/prepare-git-release.mjs /absolute/path/to/release-directory
 cd /absolute/path/to/release-directory
 node scripts/check-release.mjs
 npm pack --ignore-scripts --pack-destination /absolute/path/to/artifacts
-git tag v0.2.2-alpha.14
-git push origin v0.2.2-alpha.14
+git tag v0.2.2-alpha.15
+git push origin v0.2.2-alpha.15
 ```
 
-在发行工作树中保留已验收的 `lib/index.js` / `lib/client.js` SHA-256 清单 `release-runtime-sha256.json`；`check-release.mjs` 据此拒绝未验收的运行文件。准备脚本将工作区依赖替换为可从注册表解析的依赖，并检查客户端模块名与包名一致、`zod` 已内联。不要直接发布含 `workspace:` 依赖的源码目录。预发布使用 `next` 标签；安装说明固定到完整版本。上传前先用 `--dry-run` 检查同一个归档，并在隔离 DSH 配置中安装及启动验证。`publish.yml` 检查预构建标签、rc.3 完整集成与重启恢复，然后通过 npm OIDC 发布同一次验收的归档。首次在 npm 为 `Biogod2020/dsh-article-review`、`publish.yml` 配置 Trusted Publisher 并允许直接 `npm publish`，可能需要账号本人验证；后续发行复用该信任。流水线继续核对官方源与镜像归档完整性，并从两个源按包名安装。
+在发行工作树中保留已验收的 `lib/index.js` / `lib/client.js` SHA-256 清单 `release-runtime-sha256.json`；`check-release.mjs` 据此拒绝未验收的运行文件。准备脚本将工作区依赖替换为可从注册表解析的依赖，并检查客户端模块名与包名一致、`zod` 已内联。不要直接发布含 `workspace:` 依赖的源码目录。预发布使用 `next` 标签；安装说明固定到完整版本。上传前先用 `--dry-run` 检查同一个归档，并在隔离 DSH 配置中安装及启动验证。`publish.yml` 检查预构建标签、rc.3 / rc.4 / 0.2.2-alpha.2 完整集成与重启恢复，然后通过 npm OIDC 发布同一次验收的归档。首次在 npm 为 `Biogod2020/dsh-article-review`、`publish.yml` 配置 Trusted Publisher 并允许直接 `npm publish`，可能需要账号本人验证；后续发行复用该信任。流水线继续核对官方源与镜像归档完整性，并从两个源按包名安装。
 
 <a id="understand-the-implementation"></a>
 ## 理解实现
@@ -83,7 +83,7 @@ git push origin v0.2.2-alpha.14
 
 #### 模型看到什么
 
-打开稿件前，模型就能使用 `paper_list` 和 `paper_open`。启用审阅后，还会收到原生 `paper_read`、`paper_annotations`、`paper_propose`、`paper_revise`、`paper_delete`、`paper_check`、`paper_decide` 和六个 `paper_bib_*` schema；精确 schema 保存在[组合测试快照](../tests/__snapshots__/composition.spec.ts.snap)中。读取结果包含精确区块 id、原文、版本和锁定状态。插入时用 `insert-before` 或 `insert-after`，`before` 填锚点的精确原文，`after` 可填完整 Markdown 片段，包括列表、表格、引用块、代码和多个区块。省略 `operation` 可用完整 Markdown 替换区块，也可把 `after` 设为空字符串来提议删除。兼容旧调用：若 `after` 含未改动的锚点及用空行分隔的新区块，也会按插入处理。提案返回 id、状态、词面提示及 `manuscriptWritten: false`。检查结果说明待审修改是否仍匹配未锁定原文；提供提案 ID 后还会返回该提案的完整内容。`paper_revise` 保留提案 ID，不修改稿件。`paper_decide` 可在冲突检查后拒绝或接受待审提案。BibTeX 新增和替换只写已绑定的 `.bib` 文件，并返回 `metadataVerified: false`。模型仍保留 DSH 权限模式允许的普通工具。 `paper_figure_list` 读取精确图引用及快照哈希；`paper_figure_replace` 保留两张图并返回 `originalFilesWritten: false`，不改图注。传入待审 `proposalId` 可改其图片目标路径并保留其他编辑；接受仍由 `paper_decide` 核对原文、锁定状态及快照哈希。
+打开稿件前，模型就能使用 `paper_list` 和 `paper_open`。启用审阅后，还会收到原生 `paper_read`、`paper_annotations`、`paper_propose`、`paper_revise`、`paper_delete`、`paper_check`、`paper_decide` 和六个 `paper_bib_*` schema；DSH 0.2.2-alpha.2 在进入和退出审阅时沿用宿主选择的原生或 PTC 执行器；旧宿主在审阅期间使用原生工具展示。精确 schema 保存在[组合测试快照](../tests/__snapshots__/composition.spec.ts.snap)中。读取结果包含精确区块 id、原文、版本和锁定状态。插入时用 `insert-before` 或 `insert-after`，`before` 填锚点的精确原文，`after` 可填完整 Markdown 片段，包括列表、表格、引用块、代码和多个区块。省略 `operation` 可用完整 Markdown 替换区块，也可把 `after` 设为空字符串来提议删除。兼容旧调用：若 `after` 含未改动的锚点及用空行分隔的新区块，也会按插入处理。提案返回 id、状态、词面提示及 `manuscriptWritten: false`。检查结果说明待审修改是否仍匹配未锁定原文；提供提案 ID 后还会返回该提案的完整内容。`paper_revise` 保留提案 ID，不修改稿件。`paper_decide` 可在冲突检查后拒绝或接受待审提案。BibTeX 新增和替换只写已绑定的 `.bib` 文件，并返回 `metadataVerified: false`。模型仍保留 DSH 权限模式允许的普通工具。 `paper_figure_list` 读取精确图引用及快照哈希；`paper_figure_replace` 保留两张图并返回 `originalFilesWritten: false`，不改图注。传入待审 `proposalId` 可改其图片目标路径并保留其他编辑；接受仍由 `paper_decide` 核对原文、锁定状态及快照哈希。
 
 #### Token 影响
 
