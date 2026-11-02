@@ -434,7 +434,7 @@ it('boots from a composition, keeps ordinary tools, and lets agents and operator
   await ctx.loader.create({ name: 'cordis:review', config: { maxBytes: 1000000 } })
   await ctx.loader.await()
   expect(ctx.tools.schemas(agent).map(schema => schema.name).sort())
-    .toEqual([...PaperReview.PAPER_TOOLS, ...PaperReview.PAPER_DISCOVERY_TOOLS].sort())
+    .toEqual([...PaperReview.PAPER_TOOLS, ...PaperReview.PAPER_DISCOVERY_TOOLS, ...PaperReview.PROJECT_TOOLS].sort())
   expect(ctx.tools.schemas(ordinary).filter(schema => schema.name.startsWith('paper_')).map(schema => schema.name).sort())
     .toEqual([...PaperReview.PAPER_DISCOVERY_TOOLS].sort())
   const restored = z.object({ result: z.object({ value: ViewSchema }) }).parse(await (await rpc({ action: 'open', path: 'article.md' })).json())
