@@ -145,8 +145,28 @@ def read_pdf(source: Path, rd: Path) -> dict:
             pages.append({'page': n, 'image': img.relative_to(rd.parent).as_posix(), 'words': len(text.split())})
             outline.append(f'- p{n:03d} ({len(text.split())} words)' + (f' · headings: {" | ".join(heads[:6])}' if heads else '')
                            + (f' · captions: {" | ".join(caps[:6])}' if caps else ''))
-    first = next((l.split(' · headings: ')[1].split(' | ')[0] for l in outline[:1] if ' · headings: ' in l), '')
-    return {'kind': 'pdf', 'pdf': str(source), 'pages': pages, 'outline': outline, 'title': meta_title or first.split(' · ')[0]}
+    return {'kind': 'pdf', 'pdf': str(source), 'pages': pages, 'outline': outline, 'title': meta_title or pdf_title(dicts[0] if dicts else {})}
+
+
+def pdf_title(page: dict) -> str:
+    """The title on the first page: the lines set in its largest type at the top, joined, since a long title wraps."""
+    lines = []
+    for b in page.get('blocks', []):
+        for l in b.get('lines', []):
+            text = ''.join(sp['text'] for sp in l['spans']).strip()
+            size = max((sp['size'] for sp in l['spans'] if sp['text'].strip()), default=0)
+            if text:
+                lines.append((size, text))
+    if not lines:
+        return ''
+    top = max(size for size, _ in lines)
+    start = next(i for i, (size, _) in enumerate(lines) if size >= top * 0.95)
+    title = []
+    for size, text in lines[start:]:
+        if size < top * 0.95:
+            break
+        title.append(text)
+    return ' '.join(title)[:300]
 
 
 # ---- LaTeX --------------------------------------------------------------------------------------------------------

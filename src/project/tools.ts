@@ -135,6 +135,10 @@ export async function applyTool(store: ProjectStore, args: Args, actor: string):
   const loose = v.numbers.filter(n => !n.where.startsWith('paragraph:') && touched.has(n.where.replace(/^claim:/, '')))
   if (loose.length) warnings.push(`${loose.length} numbers in these claims and their evidence are not registered (e.g. ${[...new Set(loose.map(n => n.value))].slice(0, 8).join(', ')}); register each with its source.`)
   if (v.project.claims.length >= 3 && !v.project.claims.some(c => c.role === 'core')) warnings.push('No claim is marked core; mark the claims the thesis cannot stand without.')
+  // a thesis titled with its label ("核心论点", "Thesis") says nothing on the story map
+  const thesisTitle = v.project.thesis.title.trim()
+  if (changes.some(c => c.op === 'set-thesis') && (/^(核心)?论点$|^主论点$|^thesis$|^main claim$/i.test(thesisTitle) || thesisTitle.length < 6))
+    warnings.push(`The thesis title "${thesisTitle}" is a label, not the finding; give it a short title that states the finding itself.`)
   const uncited = await uncitedRepoSources(store.root, v.project)
   if (uncited) warnings.push(uncited)
   // Paragraphs this call made stale: the tool result tells the agent to follow through, which a prompt alone did not.
