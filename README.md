@@ -1,5 +1,5 @@
 ---
-description: "Read, annotate and revise Markdown manuscripts in DSH with AI proposals, word-level diffs and persistent review baselines."
+description: "Read, annotate and revise manuscripts in DSH with AI proposals and word-level diffs, or build a paper project around its argument."
 kind: "package-bundle"
 ---
 
@@ -7,119 +7,120 @@ kind: "package-bundle"
 
 English | [中文](README.zh.md)
 
-Read, annotate and revise Markdown manuscripts alongside your [DSH](https://github.com/deepseek-ai/deepseek-harness) conversation. AI submits revision proposals; you inspect the changes, accept or reject them, or request another revision.
+A plugin for academic writing in [DSH (DeepSeek Harness)](https://github.com/deepseek-ai/deepseek-harness), the AI agent app that runs on your own computer as a Desktop app or in the browser; install DSH first by following [its README](https://github.com/deepseek-ai/deepseek-harness#readme). The plugin adds a panel beside your DSH conversation where you and the AI work on a paper: you read and annotate, the AI proposes changes, and you decide what is accepted.
 
-Across multiple revision rounds, each paragraph stays compared with **the last version you marked reviewed**, so you can see what still needs your attention.
+**Your data:** manuscripts and review records stay in the conversation's workspace folder on your computer. Text is sent only to the model you configured in DSH; the plugin itself contacts no other service. If unpublished work must not leave your computer, configure a local model in DSH.
 
 ![Review an AI proposal with rendered and source differences](docs/screenshots/review-proposal.png)
 
 *Screenshots use fictional manuscripts; proposals include real model runs.*
 
-## Features
+## What you can do
 
-- **Start from an article** — import PDF, DOCX, LaTeX, TXT, Markdown, HTML or pasted prose with `paper-project-start`; preserve the source, prepare available figures and open the reader.
-- **Read and annotate** — highlights, underlines, comments and manuscript search.
-- **Read text with figures** — whole figures or AI-prepared panels beside their paragraphs; optional section pages retain your reading position. See the [reading guide](docs/user-guide.md#text-figures-and-section-pages).
-- **Revise with AI** — propose replacements, insertions or deletions; revise pending proposals. Supports headings, lists and tables.
-- **Track your review** — mark and lock reviewed paragraphs; track later changes.
-- **Compare versions** — word-level comparisons and exact Markdown source diffs.
-- **Review figures** — preview and propose replacements; keep before/after copies.
-- **Preview companion documents** — open the manuscript or workspace files in DSH’s native preview alongside the review.
-- **Manage references** — bind BibTeX, jump to citations and check new citation keys.
-- **Paper projects (preview)** — build and review a paper around its argument: thesis, story beats, claims and the evidence and figure panels behind each claim; agents review it as editor, reviewer and reader. An existing manuscript can be turned into a project. See [Paper projects](#paper-projects-preview).
+**Manuscript review** — available now (`0.2.2-alpha.17`)
+
+- **You open** one Markdown manuscript. PDF, Word and LaTeX are converted to a Markdown copy first.
+- **You use it to** annotate, ask the AI for edits, accept or reject word-level changes, and track what you have reviewed.
+- **You get back** the Markdown file, edited where you accepted changes. There is no export to Word or LaTeX: carry accepted changes into your original yourself.
+- **Needs** any model you use in DSH. Interface in English or Chinese.
+
+**Paper projects** — in the next release (on `main` today)
+
+- **You open** a paper you already have (PDF, Word, LaTeX or Markdown); the agent builds a project from it.
+- **You use it to** see the argument as a map (the main claim, the storyline section by section, the claims under it, and the evidence and figure panels behind each), get comments from simulated editors, reviewers and readers, and read with figures beside the text.
+- **You get back** a project folder with the map, comments and rewrite drafts. Your original files are never changed, and nothing is exported back to Word or LaTeX.
+- **Needs** a model that can read images; time and model usage grow with length (a 4-page paper took about 12 minutes, a 45-page paper about an hour). Interface in Chinese.
 
 <a id="installation"></a>
 ## Install
 
-Version `0.2.2-alpha.17` supports DSH Web `0.2.1-alpha.4` and Desktop `0.2.0-rc.2` / `0.2.1-rc.2` / `0.2.1-rc.3` / `0.2.1-rc.4` / `0.2.2-alpha.2`. Uses your existing model configuration.
+**Requirements:** DSH Desktop (`0.2.0-rc.2` to `0.2.2-alpha.2`, runtime included) or DSH Web (`0.2.1-alpha.4`; DSH `0.2.2-alpha.2` on the web needs Node.js 24.9+). To import PDF, Word or LaTeX, install [`uv`](https://docs.astral.sh/uv/getting-started/installation/) once yourself; on first use it downloads Python with the PyMuPDF, Pandoc and Pillow packages (about 100 MB) into the workspace's `.paper-tools/` folder, so that first import needs network access. Nothing is installed into your system Python. The plugin uses your existing model configuration.
 
-The registry’s `latest` tag points to `0.2.2-alpha.17`. pnpm 11 may choose an older release during its default 24-hour waiting period. For a fresh release today, pin `dsh-article-review@0.2.2-alpha.17` or use the [package-only opt-in](docs/installation-channels.md); after the waiting period, use the bare name.
+**Desktop app**
 
-### Desktop App
+1. Open **Plugins** in the app's left sidebar and click **Add plugin**.
+2. Paste the package name `dsh-article-review`.
+3. Click **Enable now** and follow any restart prompt.
+4. Open a conversation in a local workspace (a folder on your computer) and choose the panel in the right sidebar.
 
-The App includes its runtime; no separate Node installation is needed.
-
-1. Open **Plugins** in the App's left sidebar, then click **Add plugin**.
-2. Paste the npm package name:
-
-   `dsh-article-review`
-
-3. After installation, click **Enable now** and follow any restart prompt.
-4. Choose a local workspace and open a conversation. In the right sidebar, choose **Read, annotate and revise**.
-5. Click **Browse workspace → Choose local file** to open a Markdown manuscript. The system dialog belongs to the App; the selected file must be inside this conversation's workspace. BibTeX and replacement figures use the same Desktop picker.
-
-Desktop uses its own `desktop` profile. Installing into the `web` profile does not install into the App. If you previously installed `@deepseek-ai/dsh-experimental-paper-review` from GitHub, uninstall that package in Plugins before installing the npm package above and restarting. Workspace review records in `.paper-review/` continue to be used. macOS Desktop has been exercised; see [platform requirements](docs/development.md#scope-and-compatibility) for Windows.
-
-Choose the official npm registry or the mainland China mirror. If the mirror has not synced this version, use the official registry. GitHub installation is also available as `github:Biogod2020/dsh-article-review#v0.2.2-alpha.17`. If GitHub times out, download the [prebuilt release archive](https://codeload.github.com/Biogod2020/dsh-article-review/tar.gz/refs/tags/v0.2.2-alpha.17) and enter its absolute local path in **Plugins → Add plugin**, without extracting or building it. Tags through `v0.2.1-alpha.1` retain the old package name; install one package name at a time.
-
-### Web
-
-DSH `0.2.2-alpha.2` requires Node.js 24.9 or later. Earlier supported DSH versions retain their own Node.js requirements (22 ≥22.19 or 24+):
+**Web**
 
 ```sh
 dsh plugin --profile web add dsh-article-review
 dsh web
 ```
 
-Restart a running Web profile after installation. For GitHub installation, use the prebuilt tag; `main` contains development source.
+Restart a running Web profile after installation.
 
-## Start reviewing
+<details>
+<summary>Other installation options and troubleshooting</summary>
 
-For a document or pasted article, choose **Import article** in the reader's file controls, or invoke `/paper-project-start` in the conversation and identify the source. Conversion creates a separate project in the conversation workspace. The first run uses `uv` to prepare document tools there. Text-only articles skip figure preparation; scans require OCR and verification. See the [import guide](docs/user-guide.md#start-from-an-article).
+- **Today's release:** the registry's `latest` tag points to `0.2.2-alpha.17`. pnpm 11 waits 24 hours before installing a new release by its bare name; to install it today, use `dsh-article-review@0.2.2-alpha.17` or the [package-only opt-in](docs/installation-channels.md).
+- **Mirror or GitHub:** you can use the official npm registry or the mainland China mirror (switch back to the official registry if the mirror has not synced). GitHub installation is `github:Biogod2020/dsh-article-review#v0.2.2-alpha.17`. If GitHub times out, download the [prebuilt release archive](https://codeload.github.com/Biogod2020/dsh-article-review/tar.gz/refs/tags/v0.2.2-alpha.17) and enter its absolute local path in **Plugins → Add plugin**, without extracting or building it. Use a prebuilt tag; `main` contains development source.
+- **Trying paper projects before the release:** build the plugin from `main` as described in [Development and compatibility](docs/development.md#packaging-and-publishing) and add the packed archive in **Plugins → Add plugin**.
+- **Desktop and Web are separate:** Desktop uses its own `desktop` profile, so installing into `web` does not install into the app.
+- **Earlier package name:** this plugin was first developed as `@deepseek-ai/dsh-experimental-paper-review` (tags up to `v0.2.1-alpha.1`). If you installed that package, uninstall it in Plugins before installing `dsh-article-review` and restart. Review records in `.paper-review/` are kept.
+- **Platforms:** macOS Desktop and Linux Web have been exercised. For Windows, see [platform requirements](docs/development.md#scope-and-compatibility). Earlier supported DSH versions need Node.js 22.19+ or 24+.
 
-1. Choose **Read, annotate and revise** in the right sidebar and open a Markdown manuscript.
+</details>
+
+## Manuscript review
+
+1. Choose **Read, annotate and revise** in the right sidebar and open a Markdown manuscript from the workspace (on Desktop, **Browse workspace → Choose local file** opens the system file dialog; the file must be inside the conversation's workspace). To start from a PDF, Word, LaTeX or pasted text, choose **Import article** in the reader's file controls, or type the import command `/paper-project-start` in the conversation (despite its name, it only imports the article for manuscript review and does not create a paper project); the converted Markdown copy opens in the reader and your original is kept.
 2. Select text, annotate it, attach the notes to the conversation and send your request.
-3. In **Review changes**, accept, reject or request a revision; check the result and mark it reviewed.
+3. In **Review changes**, accept, reject or request a revision of each proposal; check the result and mark it reviewed.
 
-Accepting updates the manuscript and keeps your review baseline. Back up `.paper-review/` with the manuscript and exclude it from public Git history. Paragraph locks apply within this plugin.
+Accepting a proposal updates the Markdown file. Each paragraph stays compared with **the last version you marked reviewed**, so later changes stand out. Review records live in `.paper-review/` next to the manuscript: back it up with the manuscript and keep it out of public Git history. See the [user guide](docs/user-guide.md) for figures, references and versions.
 
-## Paper projects (preview)
+<details>
+<summary>More screenshots</summary>
 
-Choose **Paper** in the right sidebar. Open a folder that holds a `project.json`, or fill in **Initialize from an existing manuscript** (PDF, Word, LaTeX, Markdown, with optional figures, existing comments and the research repository the paper comes from). The panel shows a default project folder and checks every path before it hands the work to the conversation's agent.
+<table>
+<tr>
+<td width="50%"><img src="docs/screenshots/select-text.png" alt="Selection actions"><br><sub>Select text and right-click to highlight or annotate.</sub></td>
+<td width="50%"><img src="docs/screenshots/annotate.png" alt="Annotations and highlights"><br><sub>Save annotations and attach revision requests to the conversation.</sub></td>
+</tr>
+<tr>
+<td><img src="docs/screenshots/review-outline.jpg" alt="Review progress and navigation"><br><sub>Check review progress and jump to sections or paragraphs.</sub></td>
+<td><img src="docs/screenshots/versions-rendered.jpg" alt="Version comparison"><br><sub>Compare two versions and see changed words directly.</sub></td>
+</tr>
+<tr>
+<td><img src="docs/screenshots/figure-pdf.jpg" alt="PDF preview"><br><sub>Preview PDF figures.</sub></td>
+<td><img src="docs/screenshots/figure-replacement.jpg" alt="Figure replacement"><br><sub>Review figure replacements before and after.</sub></td>
+</tr>
+<tr>
+<td><img src="docs/screenshots/references.jpg" alt="Reference browser"><br><sub>Browse references and check citation keys.</sub></td>
+<td><img src="docs/screenshots/narrow-zh-light.jpg" alt="Narrow-screen reading" width="300"><br><sub>Compact reading on narrow screens.</sub></td>
+</tr>
+</table>
 
-- **Initialization reads like a person.** The agent reads the manuscript page by page and copies it into the project as plain text, cuts each figure and panel by looking at the page on a coordinate grid, then reconstructs the argument and links paragraphs to claims. A check compares the copy with the manuscript and flags omitted pages, reworded paragraphs, paste artifacts and bad crops. The panel drives the work in rounds, shows progress, and can pause, resume (also after a restart) or stop it. The originals and the repository are only read.
-- **Review the argument.** The story canvas shows thesis, beats and claims with the evidence and panels under each; mark items reviewed and see what changed since.
-- **Read.** Paged reading with the figure panels each page cites beside the text; select text to comment.
-- **Comments and drafts.** People and simulated editors, reviewers and readers comment; agents revise claims and figures directly and propose paragraph rewrites as drafts you accept or discard.
+</details>
 
-Project mode was developed and tested against DSH 0.2.1-alpha.4. Design notes (Chinese): [docs/project-mode.zh.md](docs/project-mode.zh.md).
+## Paper projects (next release)
 
-## Screenshots
+Paper projects are on `main` and will be in the next npm release; the current release does not include them. The project panel's interface is in Chinese.
 
-Select text and right-click to highlight or annotate.
+Choose **Paper** (论文) in the right sidebar and start from a paper you already have:
 
-![Selection actions](docs/screenshots/select-text.png)
+1. Enter the manuscript, and optionally its figure folder, existing comments and the research repository it comes from. The panel proposes a project folder inside the workspace and checks every path before starting.
+2. Choose **交给 agent 初始化** (Hand to agent). The agent reads the paper page by page and copies the text into the project, cuts out each figure and its panels (the lettered parts a, b, c) by looking at the page, maps the argument, and finally checks its copy against your file and fixes what it missed. It runs as tasks in the current DSH conversation: the panel shows progress and can pause, resume or stop, and typing in that conversation pauses it.
+3. Work in the project:
+   - **Story map (故事流):** the main claim, the storyline section by section, and the claims under it, each with the evidence and figure panels behind it. Mark items reviewed; later changes are flagged.
+   - **Read (阅读):** the text in pages, with the figure panels each page cites beside it.
+   - **Comments and drafts:** you and simulated editors, reviewers and readers comment; the agent revises claims and figures directly and proposes paragraph rewrites as drafts you accept or discard.
 
-Save annotations and attach revision requests to the conversation.
+![A paper project's story map: the claims of a fictional paper, one claim opened with its evidence and figure panels](docs/screenshots/project-story.jpg)
 
-![Annotations and highlights](docs/screenshots/annotate.png)
+![Reading a paper project: the page on the left, the figure panels it cites on the right](docs/screenshots/project-reader.jpg)
 
-Check review progress and jump to sections or paragraphs.
+![Initializing a project from a manuscript: the agent copies the text in rounds while the panel shows progress](docs/screenshots/project-init.jpg)
 
-![Review progress and navigation](docs/screenshots/review-outline.jpg)
-
-Compare two versions and see changed words directly.
-
-![Version comparison](docs/screenshots/versions-rendered.jpg)
-
-Preview PDFs, review figure replacements and browse references.
-
-![PDF preview](docs/screenshots/figure-pdf.jpg)
-
-![Figure replacement](docs/screenshots/figure-replacement.jpg)
-
-![Reference browser](docs/screenshots/references.jpg)
-
-Compact reading on narrow screens.
-
-<img src="docs/screenshots/narrow-zh-light.jpg" alt="Narrow-screen reading" width="360">
+See the [paper projects guide](docs/user-guide.md#paper-projects-preview) for the steps, the files a project contains, and what changes are made directly or as drafts.
 
 ## Documentation
 
-- [User guide](docs/user-guide.md) — operations and configuration.
-- [Development and compatibility](docs/development.md) — builds, tools and persistence.
-- [Paper projects](docs/project-mode.zh.md) — design and validation notes for project mode (Chinese).
-
-Edit Markdown manuscripts; figures support images and PDFs. See [other formats and platforms](docs/development.md#scope-and-compatibility).
+- [User guide](docs/user-guide.md) — manuscript review, figures, references, configuration and paper projects.
+- [Development and compatibility](docs/development.md) — builds, releases, tools and persistence.
+- [Project mode design notes](docs/project-mode.zh.md) — how paper projects work inside (Chinese).
 
 [MIT License](LICENSE)

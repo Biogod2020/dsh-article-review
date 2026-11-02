@@ -44,6 +44,24 @@ English | [中文](user-guide.zh.md)
 
 This guide covers file selection, annotations, proposals, version comparison, figures and references. For installation, see the [project README](../README.md#installation).
 
+## Paper projects (preview)
+
+A paper project holds a paper's argument and its text together: the thesis, the story beats in reading order, the claims each beat carries, the evidence and figure panels behind each claim, the registered numbers, and the manuscript's sections and paragraphs, each linked to the claims it states. Choose **Paper** in the right sidebar to open one. The project panel's interface is currently in Chinese; the tab names below give the English meaning.
+
+**Open or create a project.** Enter a workspace folder that holds a `project.json` and choose **打开** (Open), or use **从已有稿件初始化** (Initialize from an existing manuscript):
+
+1. Enter the manuscript (PDF, Word, LaTeX, Markdown, TXT, HTML or RTF); **浏览…** (Browse) picks a file from the workspace. Optionally add the figure folder, a file of existing comments, and the research repository the paper comes from, whose plans, results and figure scripts are then checked against the paper.
+2. The new project folder defaults to `papers/<manuscript name>-project` inside the workspace. Paths are checked as you type: a path outside the workspace, a missing file or an existing folder is shown under its field. To keep the project elsewhere, open a workspace in that folder.
+3. Choose **交给 agent 初始化** (Hand to agent). The conversation's agent then works in rounds that the panel sends one at a time: it prepares page images, reads the manuscript a few pages per round and copies the text as plain paragraphs, cuts each figure and panel by looking at the page, reconstructs the argument and links paragraphs to claims, and finally checks its copy against the manuscript (omitted pages, reworded paragraphs, broken words or leftover markup, crops that cut into text) and fixes what the check finds. The panel shows the current round with **暂停** (Pause), **继续** (Resume) and **停止** (Stop). Typing in the conversation also pauses it; progress is saved in the project folder, so a run interrupted by a restart can be resumed. The project opens when the first round ends and fills in as the rounds continue.
+
+Initialization needs `uv` and network access on first use (about 100 MB of Python tools are cached in the workspace's `.paper-tools/`), and a model that can read images. The agent looks at every page, so a long paper takes time and model usage: a 4-page paper took about 12 minutes and a 45-page paper about an hour with gpt-6-luna. The original files and the repository are only read.
+
+**Work in the project.** **概览** (Overview) shows the stage and checklist. **故事流** (Story) draws the thesis, beats and claims with the evidence and panels under each; mark items reviewed and later changes are flagged. **图** (Figures) lists figures and their panels. **正文** (Text) shows the paragraphs with numbers missing from the registry and the rewrite drafts that wait for you. **阅读** (Read) shows the text in pages with the figure panels each page cites beside it; select text to comment. **意见** (Comments) collects your comments, comments from simulated editors, reviewers and readers, and problems found during initialization.
+
+**What changes, and how.** The agent changes claims, evidence and figures directly; each change records its reason and is marked as changed since your last review. It never replaces a paragraph directly: rewrites arrive as drafts with a word-level diff that you accept, edit or discard.
+
+**Files.** A project is an ordinary folder: `project.json` (the project), `.review/` (review state and history), `assets/` (figure and panel images), `reading/` (page images and the text layer used for checking) and `materials/` (copies of the inputs). There is no export back to Word or LaTeX yet.
+
 ## Configuration
 
 The default manuscript directory is the current conversation's local workspace. Stored conversations can reopen manuscripts after a server restart without sending a model message. Optional profile overrides target the `paper-review` row. The [review overlay](../review.overlay.yml) remains available for isolated development with an explicit `DSH_PAPER_REVIEW_ROOT`; it is not needed for native installation.
