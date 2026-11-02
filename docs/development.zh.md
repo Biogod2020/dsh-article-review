@@ -39,7 +39,7 @@ DSH_HARNESS_ROOT=/absolute/path/to/deepseek-harness npm run test:harness
 
 社区 npm 包名是 `dsh-article-review`。历史 GitHub tag 使用旧开发包名；客户端侧栏标识保留，以恢复已有审阅标签页。组合配置中的 `paper-review` 标识、私有审阅目录和数据格式不变。
 
-在兼容 DSH 工作区构建 `lib/` 后，准备一个包含相同包名和版本的独立发行目录，然后运行：
+在兼容 DSH 工作区构建 `lib/` 后，准备一个包含相同包名和版本的独立发行目录，然后运行下面的命令。发行版要在 `packages/experimental/` 之外构建（例如 `packages/community/dsh-article-review`，使用本仓库的 `package.json`）：DSH 的客户端打包隔离检查不允许非实验包名的源文件位于 `packages/experimental/` 下，而发行版客户端必须以 `dsh-article-review` 注册。先运行 `tsc -p tsconfig.host.json` 和 `tsc -p tsconfig.client.json` 生成 `lib/types`，再运行 `tsdown`。
 
 ```sh
 node scripts/prepare-git-release.mjs /absolute/path/to/release-directory

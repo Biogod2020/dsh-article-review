@@ -41,7 +41,7 @@ The full lane checks host/client types separately and runs the native compositio
 
 The community npm package is named `dsh-article-review`. Historical GitHub tags retain the old development package name. The client sidebar identity remains stable so saved review tabs reopen; the `paper-review` composition id, private review directory and data format also remain unchanged.
 
-Build `lib/` in a compatible DSH checkout, then prepare a separate release directory containing the same package name and version:
+Build `lib/` in a compatible DSH checkout, then prepare a separate release directory containing the same package name and version. Build the release outside `packages/experimental/` (for example in `packages/community/dsh-article-review`, with this repository's `package.json`): DSH's client-bundle isolation rejects a non-experimental package name whose sources sit under `packages/experimental/`, and the release client must register as `dsh-article-review`. Run `tsc -p tsconfig.host.json` and `tsc -p tsconfig.client.json` before `tsdown` so `lib/types` exists.
 
 ```sh
 node scripts/prepare-git-release.mjs /absolute/path/to/release-directory
