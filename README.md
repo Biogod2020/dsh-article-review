@@ -26,6 +26,7 @@ Across multiple revision rounds, each paragraph stays compared with **the last v
 - **Review figures** — preview and propose replacements; keep before/after copies.
 - **Preview companion documents** — open the manuscript or workspace files in DSH’s native preview alongside the review.
 - **Manage references** — bind BibTeX, jump to citations and check new citation keys.
+- **Paper projects (preview)** — build and review a paper around its argument: thesis, story beats, claims and the evidence and figure panels behind each claim; agents review it as editor, reviewer and reader. An existing manuscript can be turned into a project. See [Paper projects](#paper-projects-preview).
 
 <a id="installation"></a>
 ## Install
@@ -72,6 +73,17 @@ For a document or pasted article, choose **Import article** in the reader's file
 
 Accepting updates the manuscript and keeps your review baseline. Back up `.paper-review/` with the manuscript and exclude it from public Git history. Paragraph locks apply within this plugin.
 
+## Paper projects (preview)
+
+Choose **Paper** in the right sidebar. Open a folder that holds a `project.json`, or fill in **Initialize from an existing manuscript** (PDF, Word, LaTeX, Markdown, with optional figures, existing comments and the research repository the paper comes from). The panel shows a default project folder and checks every path before it hands the work to the conversation's agent.
+
+- **Initialization reads like a person.** The agent reads the manuscript page by page and copies it into the project as plain text, cuts each figure and panel by looking at the page on a coordinate grid, then reconstructs the argument and links paragraphs to claims. A check compares the copy with the manuscript and flags omitted pages, reworded paragraphs, paste artifacts and bad crops. The panel drives the work in rounds, shows progress, and can pause, resume (also after a restart) or stop it. The originals and the repository are only read.
+- **Review the argument.** The story canvas shows thesis, beats and claims with the evidence and panels under each; mark items reviewed and see what changed since.
+- **Read.** Paged reading with the figure panels each page cites beside the text; select text to comment.
+- **Comments and drafts.** People and simulated editors, reviewers and readers comment; agents revise claims and figures directly and propose paragraph rewrites as drafts you accept or discard.
+
+Project mode was developed and tested against DSH 0.2.1-alpha.4. Design notes (Chinese): [docs/project-mode.zh.md](docs/project-mode.zh.md).
+
 ## Screenshots
 
 Select text and right-click to highlight or annotate.
@@ -106,6 +118,7 @@ Compact reading on narrow screens.
 
 - [User guide](docs/user-guide.md) — operations and configuration.
 - [Development and compatibility](docs/development.md) — builds, tools and persistence.
+- [Paper projects](docs/project-mode.zh.md) — design and validation notes for project mode (Chinese).
 
 Edit Markdown manuscripts; figures support images and PDFs. See [other formats and platforms](docs/development.md#scope-and-compatibility).
 
