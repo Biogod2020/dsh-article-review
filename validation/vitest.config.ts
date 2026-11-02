@@ -14,7 +14,7 @@ export default defineConfig({
       'tests/manuscript-read.spec.ts', 'tests/review-queue.spec.ts', 'tests/change-evidence.client.spec.tsx',
       'tests/desktop-file-picker.client.spec.ts', 'tests/selected-file.spec.ts',
       'tests/bibliography.spec.ts', 'tests/block-pairing.client.spec.ts', 'tests/citation-display.client.spec.ts',
-      'tests/context.client.spec.ts', 'tests/figures.client.spec.ts', 'tests/selection.client.spec.ts', 'tests/pdf-preview-cache.spec.ts', 'tests/workbench-view.spec.ts', 'tests/near-viewport.client.spec.tsx', 'tests/revision-pair.client.spec.tsx'],
+      'tests/context.client.spec.ts', 'tests/figures.client.spec.ts', 'tests/selection.client.spec.ts', 'tests/pdf-preview-cache.spec.ts', 'tests/workbench-view.spec.ts', 'tests/near-viewport.client.spec.tsx', 'tests/revision-pair.client.spec.tsx', 'tests/project.spec.ts', 'tests/reader-pages.spec.ts'],
     pool: 'forks', maxWorkers: 2,
     execArgv: process.allowedNodeEnvironmentFlags.has('--webstorage') ? ['--no-webstorage'] : [],
   },
