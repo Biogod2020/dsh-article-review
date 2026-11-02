@@ -25,6 +25,8 @@ import { pickNativeBibliography, pickNativeFigure, pickNativeManuscript } from '
 import { selectedWorkspaceFile } from './selected-file.ts'
 import { ArticleInputSchema, prepareArticleInput } from './article-input.ts'
 import { applyProject } from './project-host.ts'
+/** Project-mode tools, available in every conversation (each call names its project directory). */
+export { PROJECT_TOOLS } from './project-host.ts'
 
 /** Cordis plugin identity. */
 export const name = 'paper-review'

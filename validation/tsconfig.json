@@ -36,6 +36,9 @@
       ],
       "fast-check": [
         "./node_modules/fast-check"
+      ],
+      "diff": [
+        "./node_modules/diff"
       ]
     }
   },

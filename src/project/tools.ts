@@ -12,6 +12,8 @@ import { ChangeSchema, CommentSchema, TargetSchema } from './model.ts'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Args = Record<string, any>
+/** What a tool returns to the model: plain JSON (DSH's JsonValue has the same shape). */
+export type Json = string | number | boolean | null | Json[] | { [key: string]: Json }
 
 /** The parts of a project view a model asks for; the whole view of a real paper is too large for one tool result. */
 export function modelView(v: ProjectView, include: string[], ids: string[]): object {
@@ -99,14 +101,14 @@ async function uncitedRepoSources(projectRoot: string, p: ProjectView['project']
 }
 
 
-export async function readTool(store: ProjectStore, args: Args): Promise<unknown> {
+export async function readTool(store: ProjectStore, args: Args): Promise<Json> {
   // a plain JSON copy: tool results must be JSON values
   const view = modelView(await store.view(), args.include ?? [], args.ids ?? []) as Record<string, unknown>
   if ((args.include ?? []).includes('numberMatches')) view.numberMatches = await numberMatches(store.root)
   return JSON.parse(JSON.stringify(view))
 }
 
-export async function applyTool(store: ProjectStore, args: Args, actor: string): Promise<unknown> {
+export async function applyTool(store: ProjectStore, args: Args, actor: string): Promise<Json> {
   // Validate each change on its own: valid ones are written, invalid ones come back with a short reason, so one bad
   // field does not discard a whole skeleton (seen in a live run, where the agent then resent only part of it).
   const raw = Array.isArray(args.changes) ? args.changes : []
@@ -145,7 +147,7 @@ export async function applyTool(store: ProjectStore, args: Args, actor: string):
     ...(stale.length ? { nextStep: `These ${stale.length} paragraphs still state the old claims: ${stale.join(', ')}. Before finishing, read them (project_read include sections, ids) and call project_draft with minimal rewrites that state the current claims, comments: ${JSON.stringify(h.comments)}.` } : {}) }
 }
 
-export async function commentTool(store: ProjectStore, args: Args): Promise<unknown> {
+export async function commentTool(store: ProjectStore, args: Args): Promise<Json> {
   const list = z.array(z.object({ source: z.enum(['editor', 'reviewer', 'audience', 'check']), target: TargetSchema, text: CommentSchema.shape.text })).max(30).parse(args.comments)
   const names = { editor: '期刊编辑', reviewer: '领域审稿人', audience: '目标读者', check: '初始化检查' } as const
   // the same finding recorded twice (an agent re-running its last step) is kept once
@@ -161,7 +163,7 @@ export async function commentTool(store: ProjectStore, args: Args): Promise<unkn
   return { recorded, skippedDuplicates: list.length - recorded }
 }
 
-export async function draftTool(store: ProjectStore, args: Args, actor: string): Promise<unknown> {
+export async function draftTool(store: ProjectStore, args: Args, actor: string): Promise<Json> {
   const list = z.array(z.object({ paragraph: z.string(), text: z.string().min(1).max(20_000), reason: z.string().max(2000), comments: z.array(z.string()).default([]) })).max(40).parse(args.drafts)
   const v = await store.view()
   const drafts = list.map(d => {
@@ -174,7 +176,7 @@ export async function draftTool(store: ProjectStore, args: Args, actor: string):
   return { proposed: drafts.length }
 }
 
-export async function linkTool(store: ProjectStore, args: Args, actor: string): Promise<unknown> {
+export async function linkTool(store: ProjectStore, args: Args, actor: string): Promise<Json> {
   const links = z.record(z.string(), z.array(z.string())).parse(args.links)
   const r = await store.linkParagraphs(links, actor, String(args.reason ?? '把段落对应到分论点'))
   const paras = r.view.project.sections.flatMap(s => s.paragraphs)
@@ -195,7 +197,7 @@ export async function linkTool(store: ProjectStore, args: Args, actor: string): 
     ...(warnings.length ? { warnings } : {}) }
 }
 
-export async function numberHintsTool(store: ProjectStore, args: Args): Promise<unknown> {
+export async function numberHintsTool(store: ProjectStore, args: Args): Promise<Json> {
   const list = z.array(z.object({ key: z.string(), kind: z.enum(['result', 'parameter', 'citation', 'other']), note: z.string().max(400).default('') })).parse(args.hints)
   await store.setNumberHints(Object.fromEntries(list.map(h => [h.key, { kind: h.kind, note: h.note }])))
   return { recorded: list.length }
