@@ -3,6 +3,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-slots'
 
 /** Chinese interface dictionary. */
 export const zh = {
+  projectTitle: '论文', projectDescription: '论文项目（故事流、论点与图、成文、阅读审核），也可逐段审阅一份稿件',
   importArticle: '导入文章', importArticleHelp: '支持 PDF、Word、LaTeX、TXT、Markdown、HTML 或直接粘贴正文。AI 会保留原稿、准备已有图片并打开阅读面板。',
   importArticleFile: '文件', importArticleText: '粘贴正文', importArticlePath: '文章文件路径', startArticleReview: '导入并开始阅读',
   panelTaskStarted: '已加载 panel 切分 skill，任务已提交到当前对话。',
@@ -111,6 +112,7 @@ export const zh = {
 export type PaperReviewKey = keyof typeof zh
 /** English interface dictionary. */
 export const en: Record<PaperReviewKey, string> = {
+  projectTitle: 'Paper', projectDescription: 'Paper projects (story flow, claims and figures, draft, reading review), or paragraph review of one manuscript',
   importArticle: 'Import article', importArticleHelp: 'Use PDF, Word, LaTeX, TXT, Markdown, HTML or pasted prose. AI preserves the source, prepares available figures and opens the reader.',
   importArticleFile: 'File', importArticleText: 'Paste article text', importArticlePath: 'Article file path', startArticleReview: 'Import and read',
   panelTaskStarted: 'Panel skill loaded. Task submitted to this conversation.',

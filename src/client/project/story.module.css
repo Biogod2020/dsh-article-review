@@ -1,0 +1,80 @@
+/* Story canvas, matching the paper-argument frontend (graph.html): same palette, node shapes and connectors. */
+.main { position: relative; display: flex; height: 100%; min-height: 0 }
+.vp { flex: 1; position: relative; overflow: hidden; cursor: grab; user-select: none; touch-action: none; background: var(--bg) }
+.vp img { -webkit-user-drag: none }
+.drag { cursor: grabbing }
+.world { position: absolute; left: 0; top: 0; transform-origin: 0 0 }
+.edges { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none }
+.n { position: absolute; background: var(--paper); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; cursor: pointer; user-select: none;
+  transition: box-shadow .15s, border-color .15s; box-sizing: border-box; color: var(--ink) }
+.n:hover { border-color: #b9b6ab; box-shadow: 0 2px 10px rgba(0,0,0,.06) }
+.sel { border-color: var(--accent) !important; box-shadow: 0 0 0 3px rgba(31,95,166,.18) !important }
+.thesis { background: var(--thesisBg); color: #fff; border: 0; padding: 14px 18px }
+.thesis .eyebrow { color: #c9c7bf } .thesis .tt { font-size: 16px; color: #fff }
+.eyebrow { font-size: 11.5px; color: var(--muted); letter-spacing: .02em }
+.tt { font-weight: 600; font-size: 14.5px; line-height: 1.45 }
+.sub { font-size: 12.5px; color: var(--ink2); margin-top: 2px }
+.beat { border-width: 1.5px; border-color: var(--beatLine) }
+.num { display: inline-block; width: 22px; height: 22px; border-radius: 50%; background: var(--ink); color: var(--paper); font-size: 12px; text-align: center; line-height: 22px; margin-right: 6px }
+.claim { }
+.core { border: 2px solid var(--accent); background: var(--accentBg) }
+.supp { background: var(--suppBg) } .supp .tt { color: var(--ink2) }
+.missingClaim { color: var(--neg); border-style: dashed }
+.role { float: right; font-size: 11px; border-radius: 5px; padding: 0 6px; background: var(--chip); color: var(--ink2) }
+.core .role { background: var(--accent); color: #fff }
+.sbar { display: flex; gap: 3px; margin-top: 8px } .sbar i { height: 6px; flex: 1; border-radius: 3px }
+.exp { font-size: 12px; color: var(--accent); margin-top: 6px }
+.badges { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 6px } .badges:empty { display: none }
+.badge, .badgeOk, .badgeWarn { display: inline-block; font-size: 11px; border-radius: 5px; padding: 0 6px; margin-left: 4px }
+.badges .badge, .badges .badgeOk, .badges .badgeWarn { margin-left: 0 }
+.badge { background: #fff4c2; color: #7a5200 } .badgeOk { background: var(--okBg); color: #085041 } .badgeWarn { background: var(--negBg); color: #a12b1d }
+.ref { padding: 6px 12px; border-style: dashed; background: transparent; color: var(--ink2); font-size: 12.5px }
+.ev { display: flex; gap: 10px; padding: 8px 10px }
+.txt { flex: 1; min-width: 0; font-size: 13px; line-height: 1.45 }
+.lab { font-size: 11.5px; font-weight: 600; margin-bottom: 2px }
+.ev img { width: 96px; height: 68px; object-fit: contain; background: #fff; border: 1px solid #eee; border-radius: 4px; flex: none; cursor: zoom-in }
+.todo { width: 96px; height: 68px; border: 1.5px dashed var(--line); border-radius: 4px; flex: none; font-size: 11px; color: var(--muted); display: flex; align-items: center; justify-content: center; text-align: center; padding: 4px; box-sizing: border-box }
+.todoEv { border-style: dashed }
+.rl { display: inline-block; font-size: 11px; font-weight: 600; border-radius: 4px; padding: 0 6px }
+.rl_support { background: var(--okBg); color: #085041 } .rl_limit { background: var(--partBg); color: #633806 } .rl_gap { background: var(--chip); color: var(--ink2) }
+.ev_limit { background: var(--limitBg) } .ev_gap { background: var(--gapEvBg) }
+.fig { padding: 10px 12px; cursor: zoom-in; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(31,95,166,.12) }
+.fig img { display: block; width: 100%; background: #fff; border: 1px solid #eee; border-radius: 6px }
+.cap { font-size: 12px; color: var(--ink2); margin-top: 6px; line-height: 1.45 }
+.todo2 { border: 2px dashed var(--line); border-radius: 8px; padding: 14px; cursor: default }
+.rvdot { position: absolute; right: -5px; top: -5px; width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--paper); box-shadow: 0 0 0 1px rgba(0,0,0,.08); pointer-events: none }
+.rv_reviewed { background: var(--ok) } .rv_changed { background: var(--chg) } .rv_new { background: #c9c7bf }
+.legend { position: absolute; left: 14px; bottom: 14px; background: var(--legendBg); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; font-size: 12px; color: var(--ink2) }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin: 0 4px -1px 10px }
+.legend .lgTodo { border: 1.5px dashed var(--muted); width: 8px; height: 8px; background: transparent }
+.legend .lgDot { border-radius: 50% }
+.lgCore { color: var(--accent); margin-left: 10px } .lgSep { display: inline-block; width: 1px; height: 10px; background: var(--line); margin: 0 4px 0 10px }
+.zoomui { position: absolute; right: 14px; top: 14px; display: flex; gap: 6px }
+/* the canvas controls hint lives on the canvas, not in the top bar, so the bar stays the same on every tab */
+.canvasHint { position: absolute; right: 14px; top: 50px; font-size: 11.5px; color: var(--muted); background: var(--legendBg); border-radius: 6px; padding: 2px 8px; pointer-events: none }
+.btn { font: inherit; font-size: 13px; border: 1px solid var(--line); background: var(--paper); border-radius: 8px; padding: 5px 10px; cursor: pointer; color: var(--ink) }
+.btn:hover { background: var(--hover) }
+.empty { padding: 48px; text-align: center; color: var(--muted) }
+/* floating detail window */
+.float { position: absolute; z-index: 30; display: flex; flex-direction: column; background: var(--paper); border: 1px solid var(--line); border-radius: 12px;
+  box-shadow: 0 14px 40px rgba(0,0,0,.18); resize: both; overflow: hidden; min-width: 300px; min-height: 180px }
+.fhead { display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 14px; border-bottom: 1px solid var(--line); cursor: move; user-select: none; touch-action: none; flex: none }
+.ftitle { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; font-weight: 600; color: var(--ink2) }
+.fhead .btn { padding: 1px 9px; font-size: 15px; line-height: 1.3 }
+.side { flex: 1; min-height: 0; overflow: auto; padding: 0 4px 40px }
+.unit { padding: 10px 14px } .unit h2 { font-size: 18px; margin: 4px 0 8px; line-height: 1.4 }
+.stmt { background: var(--accentBg); border-radius: 8px; padding: 8px 12px; line-height: 1.7 }
+.k { font-size: 12px; font-weight: 600; color: var(--ink2); margin: 16px 0 4px }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap }
+.muted { color: var(--muted); font-size: 12.5px }
+.lb { position: fixed; inset: 0; background: rgba(0,0,0,.78); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 50; cursor: zoom-out }
+.lb img { max-width: 94vw; max-height: 86vh; background: #fff }
+.lbcap { color: #fff; font-size: 13px; margin-top: 10px; max-width: 90vw; text-align: center }
+/* dark appearance (lib/theme.css of the frontend) */
+[data-theme=dark] .badge { background: #3d3313; color: #f3d27a }
+[data-theme=dark] .badgeOk { background: #163a2c; color: #93e3b8 }
+[data-theme=dark] .badgeWarn { background: #3f1d1d; color: #ffa29a }
+[data-theme=dark] .rl_support { background: #163a2c; color: #93e3b8 } [data-theme=dark] .rl_limit { background: #3b2c12; color: #f3c77a } [data-theme=dark] .rl_gap { background: #2f2f32; color: #b8b5ab }
+[data-theme=dark] .n:hover { border-color: #5d5b55; box-shadow: 0 2px 10px rgba(0,0,0,.4) }
+[data-theme=dark] .ev img, [data-theme=dark] .fig img { border-color: #444; filter: brightness(.9) }
+[data-theme=dark] .core .role { color: #0f1722 }

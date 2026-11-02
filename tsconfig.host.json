@@ -1,7 +1,7 @@
 {
   "extends": "../../../tsconfig.base.json",
   "compilerOptions": { "rootDir": "src", "outDir": "lib/types", "tsBuildInfoFile": "lib/host.tsbuildinfo" },
-  "include": ["src/*.ts"],
+  "include": ["src/*.ts", "src/project/*.ts"],
   "references": [
     { "path": "../../../native/system/packages/entry" },
     { "path": "../../../vendor/cordis" }, { "path": "../../../vendor/schemastery" },

@@ -24,6 +24,7 @@ import { workbenchView } from './workbench-view.ts'
 import { pickNativeBibliography, pickNativeFigure, pickNativeManuscript } from './native-file-picker.ts'
 import { selectedWorkspaceFile } from './selected-file.ts'
 import { ArticleInputSchema, prepareArticleInput } from './article-input.ts'
+import { applyProject } from './project-host.ts'
 
 /** Cordis plugin identity. */
 export const name = 'paper-review'
@@ -74,6 +75,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     for (const [name, description] of [
       ['paper-figure-panels', 'Split figure panels and place verified crops beside their exact manuscript paragraphs in Paper review.'],
       ['paper-project-start', 'Import PDF, DOCX, LaTeX, TXT, Markdown, HTML or pasted article content, prepare available figures, and open Paper review.'],
+      ['paper-project-init', 'Turn an existing manuscript, its figures and comments into a new paper project (story flow, claims, figures, numbers, linked paragraphs) without changing the originals.'],
     ]) {
       const path = fileURLToPath(new URL(`../skills/${name}/`, import.meta.url))
       const content = await readFile(new URL(`../skills/${name}/SKILL.md`, import.meta.url), 'utf8')
@@ -127,6 +129,8 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     scopes.clear()
     await Promise.all([...stores.values()].map(async (pending) => { const store = await pending; await store.close() }))
   })
+  // Project mode (story flow, claims, drafts) shares the conversation workspace with manuscript review.
+  applyProject(ctx, rootFor)
   ctx.effect(() => ctx.tools.guard(exec => PAPER_TOOLS.some(tool => tool === exec.name) && (!exec.agent || !enabled.has(exec.agent.id))
     ? 'Open a manuscript with paper_open or in the Paper review panel first.' : undefined))
 

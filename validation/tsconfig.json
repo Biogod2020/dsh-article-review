@@ -62,6 +62,25 @@
     "../src/figure-panels.ts",
     "../src/client/reading-sections.ts",
     "../src/client/reading-figures.ts",
-    "../tests/reading-layout.spec.ts"
+    "../tests/reading-layout.spec.ts",
+    "../src/project/model.ts",
+    "../src/project/units.ts",
+    "../src/project/store.ts",
+    "../src/project/prompts.ts",
+    "../tests/project.spec.ts",
+    "../tests/reader-pages.spec.ts",
+    "../src/client/css.d.ts",
+    "../src/client/project/actions.ts",
+    "../src/client/project/common.tsx",
+    "../src/client/project/StoryFlow.tsx",
+    "../src/client/project/Figures.tsx",
+    "../src/client/project/Manuscript.tsx",
+    "../src/client/project/Reader.tsx",
+    "../src/project/reader-pages.ts",
+    "../src/client/project/Panels.tsx",
+    "../src/client/project/ProjectWorkbench.tsx",
+    "../demo/main.tsx",
+    "../demo/server.ts",
+    "../src/client/project/StoryCanvas.tsx"
   ]
 }

@@ -15,6 +15,7 @@ import { en, zh } from './locales.ts'
 import { pickDesktopFile } from './desktop-file-picker.ts'
 import { PaperReviewIcon } from './icons.tsx'
 import { ReaderOpen } from './reader-open.tsx'
+import { ProjectPanel } from './project-panel.tsx'
 
 /** Browser dependencies supplied by the Web profile. */
 export const inject = ['slots', 'locale', 'sidebarRightTabs', 'sidebarRight', 'connection', 'remote', 'remote.workspaceFiles']
@@ -38,7 +39,7 @@ export function apply(ctx: Context): void {
   ctx.effect(() => ctx.locale.register('paperReview', { zh, en }))
   ctx.effect(() => ctx.sidebarRightTabs.register({
     id, kind: 'paper-review', priority: 'extension', title: () => t('title'),
-    guide: [{ id: 'paper', order: 5, title: () => t('guide'), description: () => t('description'), icon: PaperReviewIcon }],
+    // no start-page entry of its own: the Paper project tab is the single entry and opens this review when asked
     keepMounted: true,
   }))
   const resolveFigure = async (path: string, signal: AbortSignal, sessionId: string): Promise<string> => {
@@ -129,6 +130,24 @@ export function apply(ctx: Context): void {
   ctx.effect(() => ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({
     name: 'sidebar.right.pane.tab', key: id, locale: 'paperReview', inject: () => actions,
   }, PaperPanel)))
+  // Project mode: a second tab with its own identity, so manuscript review tabs are unaffected.
+  const projectId = '@deepseek-ai/dsh-experimental-paper-review/project'
+  ctx.effect(() => ctx.sidebarRightTabs.register({
+    id: projectId, kind: 'paper-project', priority: 'extension', title: () => t('projectTitle'),
+    guide: [{ id: 'paper-project', order: 6, title: () => t('projectTitle'), description: () => t('projectDescription'), icon: PaperReviewIcon }],
+    keepMounted: true,
+  }))
+  const projectRpc = {
+    async call(method: string, payload: Record<string, unknown>, signal?: AbortSignal) {
+      const result = await connection.rpc.call('/api', method, payload, signal)
+      if (!result.ok) throw new Error(result.error.message)
+      return result.value
+    },
+  }
+  ctx.effect(() => ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({
+    name: 'sidebar.right.pane.tab', key: projectId,
+    inject: () => ({ rpc: projectRpc, openManuscriptReview: () => ctx.sidebarRight.openTab('paper-review') }),
+  }, ProjectPanel)))
   ctx.effect(() => ctx.slots.inject('conversation.composer.dock', () => ctx.slots.register({
     name: 'conversation.composer.dock', id: 'paper-review-auto-open', inject: () => ({
       mounted: ctx.sidebarRight.mounted,

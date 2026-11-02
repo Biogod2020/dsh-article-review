@@ -107,22 +107,32 @@ def expand_tex(source, root, project, seen=None):
     copied.parent.mkdir(parents=True, exist_ok=True)
     if not copied.exists():
         shutil.copy2(path, copied)
+    # TeX resolves \input and \includegraphics from the main file's folder (root), not the including file's;
+    # try the including file's folder first for projects written that way, then the main folder.
+    def located(name, suffixes):
+        for base in dict.fromkeys((path.parent, Path(root))):
+            target = inside(root, base / name)
+            if not target.suffix:
+                target = next((target.with_suffix(s) for s in suffixes if target.with_suffix(s).is_file()), target)
+            if target.is_file():
+                return target
+        return None
     def include(match):
-        included = path.parent / match[1]
-        if not included.suffix:
-            included = included.with_suffix('.tex')
+        included = located(match[1], ('.tex',)) or path.parent / (match[1] if Path(match[1]).suffix else match[1] + '.tex')
         return expand_tex(included, root, project, seen.copy())
-    text = re.sub(r'\\(?:input|include)\s*\{([^}]+)\}', include, text)
     # Resolve media to confined absolute paths before Pandoc; no TeX commands run.
     def image(match):
-        target = inside(root, path.parent / match[2])
-        if not target.suffix:
-            target = next((target.with_suffix(s) for s in ('.pdf', '.png', '.jpg', '.svg') if target.with_suffix(s).is_file()), target)
-        if not target.is_file():
+        # a macro argument such as \includegraphics{#1} inside \newcommand is not a file
+        if '#' in match[2]:
+            return match[0]
+        target = located(match[2], ('.pdf', '.png', '.jpg', '.svg'))
+        if target is None:
             raise ValueError(f'Missing LaTeX figure: {match[2]}')
         copied_asset = asset(project, target)
         return '\\includegraphics' + (match[1] or '') + '{' + str(project / copied_asset) + '}'
-    return re.sub(r'\\includegraphics(\[[^\]]*\])?\s*\{([^}]+)\}', image, text)
+    # images first: expanded includes already carry their own rewritten (absolute) image paths
+    text = re.sub(r'\\includegraphics(\[[^\]]*\])?\s*\{([^}]+)\}', image, text)
+    return re.sub(r'\\(?:input|include)\s*\{([^}]+)\}', include, text)
 
 
 def pandoc(source, project, warnings):
