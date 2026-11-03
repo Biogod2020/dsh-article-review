@@ -20,7 +20,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        runtime: [0.2.1-rc.3, 0.2.1-rc.4, 0.2.2-alpha.2]
+        runtime: [0.2.1-rc.3, 0.2.1-rc.4, 0.2.1-rc.5, 0.2.2-alpha.2]
         registry: [official, mirror]
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803

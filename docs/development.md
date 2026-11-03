@@ -6,7 +6,7 @@ This document covers local builds, manuscript tools, persistence and platform co
 
 ## npm and Git installation
 
-For installation commands, see the [project README](../README.md#installation). The installer adds the package's [bundle patch](../cordis.patch.yml) after the Web layer; no separate launcher or model configuration is needed. Version `0.2.2-alpha.17` supports DSH Web `0.2.1-alpha.4` and macOS Desktop `0.2.0-rc.2` / `0.2.1-rc.2` / `0.2.1-rc.3` / `0.2.1-rc.4` / `0.2.2-alpha.2`. The rc.3, rc.4 and 0.2.2-alpha.2 lanes each pass host/client type checks and 298 integration tests. Its installed-package check covers authentication, manuscript opening, annotations, human review baselines and recovery after a server restart. For other hosts, see [scope and compatibility](#scope-and-compatibility).
+For installation commands, see the [project README](../README.md#installation). The installer adds the package's [bundle patch](../cordis.patch.yml) after the Web layer; no separate launcher or model configuration is needed. Version `1.0.0` supports DSH Web `0.2.1-alpha.4` and macOS Desktop `0.2.0-rc.2` / `0.2.1-rc.2` / `0.2.1-rc.3` / `0.2.1-rc.4` / `0.2.1-rc.5` / `0.2.2-alpha.2`. The rc.4, rc.5 and 0.2.2-alpha.2 lanes run host/client type checks and the full integration suite in CI. Its installed-package check covers authentication, manuscript opening, annotations, human review baselines and recovery after a server restart. For other hosts, see [scope and compatibility](#scope-and-compatibility).
 
 The browser receives the current manuscript plus a revision index; historical bodies load only for the selected comparison pair. Reader blocks share viewport observers. PDF previews share a byte-bounded cache and converter queue (`previewCacheBytes`, default 4194304; `previewConcurrency`, default 1). See the [performance measurements](performance.zh.md).
 
@@ -31,9 +31,9 @@ DSH_HARNESS_SOURCE=/absolute/path/to/dsh-v0.2.1-alpha.4 npm run test:published
 DSH_HARNESS_ROOT=/absolute/path/to/deepseek-harness npm run test:harness
 ```
 
-Set `DSH_HARNESS_RUNTIME=/absolute/path/to/node_modules` to check an installed Desktop `0.2.0-rc.2` / `0.2.1-rc.2` / `0.2.1-rc.3` / `0.2.1-rc.4` / `0.2.2-alpha.2` runtime with declaration files; the default is the Web `0.2.1-alpha.4` runtime under `validation/harness/node_modules`.
+Set `DSH_HARNESS_RUNTIME=/absolute/path/to/node_modules` to check an installed Desktop `0.2.0-rc.2` / `0.2.1-rc.2` / `0.2.1-rc.3` / `0.2.1-rc.4` / `0.2.1-rc.5` / `0.2.2-alpha.2` runtime with declaration files; the default is the Web `0.2.1-alpha.4` runtime under `validation/harness/node_modules`.
 
-For rc.4 and 0.2.2-alpha.2, set `DSH_HARNESS_SOURCE` to the matching release source and use `node scripts/prepare-test-runtime.mjs <version> <new-directory>` followed by `npm install --prefix <new-directory> --ignore-scripts` to prepare isolated dependencies. Set `DSH_HARNESS_RUNTIME` to its `node_modules`.
+For rc.4, rc.5 and 0.2.2-alpha.2, set `DSH_HARNESS_SOURCE` to the matching release source and use `node scripts/prepare-test-runtime.mjs <version> <new-directory>` followed by `npm install --prefix <new-directory> --ignore-scripts` to prepare isolated dependencies. Set `DSH_HARNESS_RUNTIME` to its `node_modules`.
 
 The full lane checks host/client types separately and runs the native composition tests against the installed upstream checkout. It never edits that checkout. See the [hands-on review](experience-review.zh.md) for the DSH 0.2 test matrix and remaining issues.
 
@@ -48,8 +48,8 @@ node scripts/prepare-git-release.mjs /absolute/path/to/release-directory
 cd /absolute/path/to/release-directory
 node scripts/check-release.mjs
 npm pack --ignore-scripts --pack-destination /absolute/path/to/artifacts
-git tag v0.2.2-alpha.17
-git push origin v0.2.2-alpha.17
+git tag v1.0.0
+git push origin v1.0.0
 ```
 
 Keep the SHA-256 manifest of the tested `lib/index.js` / `lib/client.js` files as `release-runtime-sha256.json` in the release worktree; `check-release.mjs` refuses different runtime files. The preparation script replaces workspace dependencies with registry-resolvable versions and checks that the client module name matches the package name and that `zod` is inlined. Do not publish the source directory with `workspace:` dependencies. Normal tested releases publish to `latest` so bare-name installation stays current. Reserve `next` for deliberately separate previews; a higher version published only to `next` does not update bare-name installs. Immediate post-publication checks verify the exact version and bare-name installs with an explicit exception only for this package; unmodified pnpm 11 profiles have a 24-hour release-age delay. The separate installation workflow retains a default-policy mode. See [installation policy](installation-channels.md). Before uploading, check the same archive with `--dry-run`, then install and start it in an isolated DSH profile. The `publish.yml` workflow checks the prebuilt tag, full rc.3 / rc.4 / 0.2.2-alpha.2 integration and restart recovery, then publishes its exact verified archive through npm OIDC. Configure the package's Trusted Publisher once for `Biogod2020/dsh-article-review`, workflow `publish.yml`, with direct `npm publish` permission. Initial owner verification may be required; ordinary releases use the existing trust. The workflow verifies official npm and mirror archive integrity and installs by package name from both registries.

@@ -9,6 +9,7 @@ if (process.env.GITHUB_REF_TYPE === 'tag') assert.equal(process.env.GITHUB_REF_N
 assert(!JSON.stringify(pkg).includes('workspace:'), 'Publish only the prepared release tag')
 assert(pkg.engines.dsh.includes('0.2.1-rc.3'))
 assert(pkg.engines.dsh.includes('0.2.1-rc.4'))
+assert(pkg.engines.dsh.includes('0.2.1-rc.5'))
 assert(pkg.engines.dsh.includes('0.2.2-alpha.2'))
 assert.equal(pkg.peerDependencies['@deepseek-ai/dsh-native-command'], pkg.engines.dsh)
 const hashes = JSON.parse(await readFile('release-runtime-sha256.json', 'utf8'))

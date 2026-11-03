@@ -81,6 +81,8 @@ jobs:
         include:
           - version: 0.2.1-rc.4
             source: 504a01a9578abc2c6f1fb896b1dc322c9fe24f66
+          - version: 0.2.1-rc.5
+            source: b830ec950faba0a46dda564be3e2d854afed94f1
           - version: 0.2.2-alpha.2
             source: f3803c96974ad4a94195fb97e5c637e9c2a3afe3
     steps:
@@ -168,7 +170,7 @@ jobs:
       - name: Verify exact release and bare-name install with package-scoped recent-release opt-in
         run: |
           version=$(node -p 'require("./package.json").version')
-          for runtime in 0.2.1-rc.3 0.2.1-rc.4 0.2.2-alpha.2; do
+          for runtime in 0.2.1-rc.3 0.2.1-rc.4 0.2.1-rc.5 0.2.2-alpha.2; do
             npm install --prefix "$RUNNER_TEMP/dsh-$runtime" --ignore-scripts --no-audit --no-fund "@deepseek-ai/dsh@$runtime"
             for registry in https://registry.npmjs.org https://registry.npmmirror.com; do
               DSH_SMOKE_REGISTRY="$registry" DSH_SMOKE_EXPECT_VERSION="$version" node scripts/runtime-smoke.mjs "$RUNNER_TEMP/dsh-$runtime/node_modules/.bin/dsh" "dsh-article-review@$version"
