@@ -17,14 +17,14 @@ kind: "package-bundle"
 
 ## 能做什么
 
-**稿件审阅**：现在可用（`1.0.0`）
+**稿件审阅**：现在可用（`1.0.1`）
 
 - **打开：** 一份 Markdown 稿件。PDF、Word、LaTeX 会先转成一份 Markdown 副本。
 - **用途：** 批注、让 AI 修改、逐词接受或拒绝改动，并记录哪些已经审过。
 - **得到：** 改好的 Markdown 文件（只改你接受的地方）。不能导出成 Word 或 LaTeX，接受的修改需要你自己改回原稿。
 - **需要：** 你在 DSH 里用的任何模型。界面有中文和英文。
 
-**论文项目**：现在可用（`1.0.0`）
+**论文项目**：现在可用（`1.0.1`）
 
 - **打开：** 你已有的论文（PDF、Word、LaTeX 或 Markdown），由 agent 建成项目。
 - **用途：** 把论证画成一张图（核心论点、按顺序的叙事主线、其下的分论点，以及每个分论点背后的论据和图表面板），让模拟的编辑、审稿人、读者提意见，对照图表阅读。
@@ -55,8 +55,8 @@ dsh web
 <details>
 <summary>其他安装方式与常见问题</summary>
 
-- **当天发布的版本：** 注册表 `latest` 指向 `1.0.0`。pnpm 11 对新版本有 24 小时观察期，期间按包名安装可能装到旧版；当天要装新版，请填 `dsh-article-review@1.0.0`，或按[说明仅对此包允许即时安装](docs/installation-channels.md#中文)。
-- **镜像或 GitHub：** 可以用 npm 官方源或中国大陆镜像（镜像没同步时切回官方源）。GitHub 安装地址是 `github:Biogod2020/dsh-article-review#v1.0.0`。GitHub 连接超时时，可以下载[预构建发行归档](https://codeload.github.com/Biogod2020/dsh-article-review/tar.gz/refs/tags/v1.0.0)，在 **Plugins → Add plugin** 中输入归档的本地绝对路径，无需解压或构建。请使用预构建 tag；`main` 是开发源码。
+- **当天发布的版本：** 注册表 `latest` 指向 `1.0.1`。pnpm 11 对新版本有 24 小时观察期，期间按包名安装可能装到旧版；当天要装新版，请填 `dsh-article-review@1.0.1`，或按[说明仅对此包允许即时安装](docs/installation-channels.md#中文)。
+- **镜像或 GitHub：** 可以用 npm 官方源或中国大陆镜像（镜像没同步时切回官方源）。GitHub 安装地址是 `github:Biogod2020/dsh-article-review#v1.0.1`。GitHub 连接超时时，可以下载[预构建发行归档](https://codeload.github.com/Biogod2020/dsh-article-review/tar.gz/refs/tags/v1.0.1)，在 **Plugins → Add plugin** 中输入归档的本地绝对路径，无需解压或构建。请使用预构建 tag；`main` 是开发源码。
 - **桌面版和网页版分开安装：** 桌面版使用自己的 `desktop` 配置，装到 `web` 不会同时装到 App。
 - **早期包名：** 这个插件最早以 `@deepseek-ai/dsh-experimental-paper-review` 开发（`v0.2.1-alpha.1` 及更早的 tag）。装过旧包的话，先在 Plugins 中卸载旧包，再安装 `dsh-article-review` 并重启；`.paper-review/` 里的审阅记录继续使用。
 - **平台：** macOS 桌面版和 Linux 网页版已实测。Windows 要求见[支持范围与兼容性](docs/development.zh.md#scope-and-compatibility)。此前支持的 DSH 版本需要 Node.js 22.19+ 或 24+。
@@ -123,3 +123,7 @@ dsh web
 - [项目模式设计说明](docs/project-mode.zh.md)：论文项目的内部工作方式。
 
 [MIT 许可证](LICENSE)
+
+## 自动更新
+
+安装 **1.0.1** 后，打开 **论文项目 → 插件更新**，开启 **自动更新文章审阅插件** 一次。默认关闭。支持 Windows 当前用户任务计划（无需管理员权限）、macOS LaunchAgent 和 Linux 用户 systemd。独立更新程序在启动时及每 6 小时检查 npm 上兼容当前 DSH 的新版，验证 SHA-512，等待 DSH 退出后安装，下次启动生效。关闭开关会移除计划任务。稿件、审阅记录、会话和模型配置不参与替换。旧版用户需要先手动升级到本版一次。

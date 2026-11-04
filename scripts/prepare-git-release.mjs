@@ -30,6 +30,8 @@ async function copyDeclarations(directory) {
 }
 
 await copyArtifact('lib/index.js')
+await copyArtifact('lib/update-worker.js')
+for (const file of ['THIRD-PARTY-NOTICES', 'LICENSE.updater-Apache-2.0', 'README.md']) await copyArtifact(file)
 await cp(join(source, 'skills'), join(target, 'skills'), { recursive: true,
   filter: path => basename(path) !== '__pycache__' && !path.endsWith('.pyc') })
 await copyArtifact('lib/client.js')
@@ -66,6 +68,7 @@ if (dependencies.koffi !== '^3.1.0' && !(dependencies.koffi === undefined && rel
 delete dependencies.koffi
 delete dependencies['@deepseek-ai/dsh-native-command']
 releaseManifest.dependencies = dependencies
+releaseManifest.optionalDependencies = { ...releaseManifest.optionalDependencies, koffi: '^3.1.0' }
 releaseManifest.peerDependencies = {
   '@deepseek-ai/cordis': '~4.0.4 || ~4.0.5-alpha.2 || ~4.0.6-alpha.1',
   '@deepseek-ai/dsh-native-command': sourceManifest.engines.dsh,

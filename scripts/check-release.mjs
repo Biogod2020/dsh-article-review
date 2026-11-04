@@ -13,7 +13,7 @@ assert(pkg.engines.dsh.includes('0.2.1-rc.5'))
 assert(pkg.engines.dsh.includes('0.2.2-alpha.2'))
 assert.equal(pkg.peerDependencies['@deepseek-ai/dsh-native-command'], pkg.engines.dsh)
 const hashes = JSON.parse(await readFile('release-runtime-sha256.json', 'utf8'))
-for (const file of ['lib/index.js', 'lib/client.js']) {
+for (const file of ['lib/index.js', 'lib/client.js', 'lib/update-worker.js']) {
   const source = await readFile(file)
   assert.equal(createHash('sha256').update(source).digest('hex'), hashes[file], `Untested runtime file: ${file}`)
   assert(!source.toString().includes('/Users/jay/'), 'Release must not contain private builder paths')

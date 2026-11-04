@@ -6,6 +6,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
 import type { ProjectView } from '../project/store.ts'
 import type { Project } from '../project/model.ts'
 import type { ProjectActions } from './project/actions.ts'
+import { PluginUpdates } from './plugin-updates.tsx'
 import { ProjectWorkbench } from './project/ProjectWorkbench.tsx'
 import css from './project/project.module.css'
 
@@ -208,7 +209,7 @@ export function ProjectPanel({ sessionId, useSession, rpc, openManuscriptReview 
     </div>
   }
 
-  if (!actions) return <div className={css.app}><div className={css.empty}>
+  if (!actions) return <div className={css.app}><PluginUpdates rpc={rpc} /><div className={css.empty}>
     <p>打开一个论文项目：工作区里包含 <code>project.json</code> 的文件夹。</p>
     <div className={css.row} style={{ justifyContent: 'center' }}>
       <input className={css.reasonInput} value={input} onChange={e => setInput(e.target.value)} placeholder="例如 papers/my-paper" aria-label="项目文件夹"
@@ -236,7 +237,7 @@ export function ProjectPanel({ sessionId, useSession, rpc, openManuscriptReview 
       <button className={css.btn} onClick={openManuscriptReview}>打开逐段审阅</button>
     </div>
   </div></div>
-  return <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+  return <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}><PluginUpdates rpc={rpc} />
     <div className={css.projectBar}><span className={css.muted}>项目：{project}</span>
       {job && job.output === project && <JobLine job={job} onControl={a => void control(a)} />}
       <button className={css.linkBtn} onClick={() => { setProject(''); try { localStorage.removeItem(key) } catch { /* ignore */ } }}>换一个</button></div>

@@ -1,0 +1,2 @@
+The standalone updater (src/self-update.ts and src/update-*.ts), its acceptance tests and the standalone bundle utilities (scripts/tsdown.client.ts and scripts/web-platform.ts) are adapted from Biogod2020/dsh-ssh, licensed under Apache-2.0.
+See LICENSE.updater-Apache-2.0 and https://github.com/Biogod2020/dsh-ssh.
