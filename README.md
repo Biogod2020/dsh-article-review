@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 A plugin for academic writing in [DSH (DeepSeek Harness)](https://github.com/deepseek-ai/deepseek-harness), the AI agent app that runs on your own computer as a Desktop app or in the browser; install DSH first by following [its README](https://github.com/deepseek-ai/deepseek-harness#readme). The plugin adds a panel beside your DSH conversation where you and the AI work on a paper: you read and annotate, the AI proposes changes, and you decide what is accepted.
 
-**Your data:** manuscripts and review records stay in the conversation's workspace folder on your computer. Text is sent only to the model you configured in DSH; the plugin itself contacts no other service. If unpublished work must not leave your computer, configure a local model in DSH.
+**Your data:** manuscripts and review records stay in the conversation's workspace folder on your computer. Manuscript text is sent only to the model you configured in DSH. If you enable automatic plugin updates, the updater contacts npm for version metadata and package downloads; it does not upload manuscripts or review records. If unpublished work must not leave your computer, configure a local model in DSH.
 
 ![Review an AI proposal with rendered and source differences](docs/screenshots/review-proposal.png)
 

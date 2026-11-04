@@ -9,7 +9,7 @@ kind: "package-bundle"
 
 这是 [DSH（DeepSeek Harness）](https://github.com/deepseek-ai/deepseek-harness) 的学术写作插件。DSH 是在你自己电脑上运行的 AI agent 应用，有桌面版和网页版；使用本插件前请先按 [DSH 的说明](https://github.com/deepseek-ai/deepseek-harness#readme)安装 DSH。插件在 DSH 对话旁边加一个面板，你和 AI 在里面一起改论文：你阅读、批注，AI 提出修改，接不接受由你决定。
 
-**数据去向：** 稿件和审阅记录都保存在你电脑上当前对话的工作区文件夹里。文字只发给你在 DSH 里配置的模型；插件本身不连接任何其他服务。如果未发表的内容不能离开你的电脑，请在 DSH 里配置本地模型。
+**数据去向：** 稿件和审阅记录都保存在你电脑上当前对话的工作区文件夹里。稿件文字只发给你在 DSH 里配置的模型。开启插件自动更新后，更新程序会连接 npm 查询版本和下载插件包，不上传稿件或审阅记录。如果未发表的内容不能离开你的电脑，请在 DSH 里配置本地模型。
 
 ![查看 AI 提案的渲染效果与源码差异](docs/screenshots/review-proposal.png)
 
