@@ -134,3 +134,5 @@ Only change the selected blocks; insert complete Markdown before or after an exa
 ## Panel 准备流程
 
 `paper_figure_list({path, packet})` 可在稿件旁独占创建只读上下文快照；`prepare_panels.py` 从中填入精确目标原文，生成裁切和核对预览。`paper_panel_set({path, manifest})` 最多读取 1 MiB 的工作区内 JSON，仍走与 inline 参数相同的版本、原图、裁切与段落校验。保存响应只含当前图的紧凑确认。普通 `paper_read` 可传 `includePanels:false` 避免重复整份关联原文；`savedPanels` 将原图、正文和保留裁切失效都标为 stale。受限原生并行与旧宿主回退见随附 skill。
+
+自动更新验收覆盖 Windows 当前用户计划任务的创建、执行、删除，以及实际包安装、批注/人工基线和重启恢复。alpha.2 的测试运行时固定到其发行源码中的 Cordis `4.0.6-alpha.1` 及对应 loader/include/timer；npm 自动选择的后续框架预览版会使 DSH 自身无法创建标准会话，在没有安装本插件时也能复现。原始依赖组合的完整运行验收仍保留。

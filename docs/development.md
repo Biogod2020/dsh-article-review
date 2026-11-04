@@ -33,6 +33,8 @@ DSH_HARNESS_ROOT=/absolute/path/to/deepseek-harness npm run test:harness
 
 Set `DSH_HARNESS_RUNTIME=/absolute/path/to/node_modules` to check an installed Desktop `0.2.0-rc.2` / `0.2.1-rc.2` / `0.2.1-rc.3` / `0.2.1-rc.4` / `0.2.1-rc.5` / `0.2.2-alpha.2` runtime with declaration files; the default is the Web `0.2.1-alpha.4` runtime under `validation/harness/node_modules`.
 
+For alpha.2, the fixture pins the framework to the versions in its release source (Cordis `4.0.6-alpha.1` and matching loader/include/timer). npm otherwise resolves newer framework prereleases that make DSH itself reject a new standard session, even without Article Review. The full manuscript and restart checks still run against that original cohort.
+
 For rc.4, rc.5 and 0.2.2-alpha.2, set `DSH_HARNESS_SOURCE` to the matching release source and use `node scripts/prepare-test-runtime.mjs <version> <new-directory>` followed by `npm install --prefix <new-directory> --ignore-scripts` to prepare isolated dependencies. Set `DSH_HARNESS_RUNTIME` to its `node_modules`.
 
 The full lane checks host/client types separately and runs the native composition tests against the installed upstream checkout. It never edits that checkout. See the [hands-on review](experience-review.zh.md) for the DSH 0.2 test matrix and remaining issues.
