@@ -1,4 +1,5 @@
 /** Cross-process workspace ownership with automatic release on process exit. */
+import { createRequire } from 'node:module'
 import { createHash, randomUUID } from 'node:crypto'
 import { constants } from 'node:fs'
 import { link, lstat, open, unlink } from 'node:fs/promises'
@@ -58,7 +59,11 @@ type CloseHandle = (handle: number) => number
 type GetLastError = () => number
 
 async function windowsLock(path: string): Promise<Release> {
-  const koffi = (await import('koffi')).default
+  // These platform packages contain the prebuilt Node-API binding and no install script.
+  const koffi = createRequire(import.meta.url)(`@koromix/koffi-win32-${process.arch}`) as {
+    version: string; load(name: string): { func(abi: string, name: string, result: string, args: string[]): unknown }
+  }
+  if (koffi.version !== '3.1.1') throw new Error('Unsupported Windows lock binding')
   const kernel32 = koffi.load('kernel32.dll')
   const create = kernel32.func('__stdcall', 'CreateSemaphoreW', 'intptr', ['void*', 'int', 'int', 'str16']) as CreateSemaphoreW
   const wait = kernel32.func('__stdcall', 'WaitForSingleObject', 'uint', ['intptr', 'uint']) as WaitForSingleObject
