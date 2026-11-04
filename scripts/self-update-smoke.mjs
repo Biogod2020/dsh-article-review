@@ -116,7 +116,7 @@ try {
   const configFile = join(state, 'config.json')
   const config = JSON.parse(await readFile(configFile, 'utf8')); config.enabled = true
   const wrapper = join(root, 'package-manager.cjs')
-  await writeFile(wrapper, `const fs=require('fs'),cp=require('child_process');const out=fs.openSync(${JSON.stringify(join(root, 'package-manager.log'))},'a',0o600);const child=cp.spawn(process.argv[2],process.argv.slice(3),{stdio:['ignore',out,out]});child.on('error',()=>process.exit(1));child.on('exit',code=>process.exit(code??1));`)
+  await writeFile(wrapper, `const fs=require('fs'),cp=require('child_process');const out=fs.openSync(${JSON.stringify(join(root, 'package-manager.log'))},'a',0o600);const child=cp.spawn(process.argv[2],process.argv.slice(3),{stdio:['ignore',out,out]});process.on('SIGTERM',()=>{child.kill('SIGTERM');process.exit(143)});child.on('error',()=>process.exit(1));child.on('exit',code=>process.exit(code??1));`)
   config.packageManager = { command: process.execPath, args: [wrapper, config.packageManager.command, ...config.packageManager.args], env: config.packageManager.env }
   await writeFile(configFile, JSON.stringify(config), { mode: 0o600 })
   const worker = join(pkgDir, 'lib/update-worker.js')
@@ -143,7 +143,7 @@ try {
   assert.equal(await readFile(join(workspace,'article.md'),'utf8'),manuscript)
   await host.setEnabled(false)
   host.child.kill('SIGTERM'); await new Promise(resolve => host.child.once('exit', resolve))
-  await exec(config.packageManager.command, [...config.packageManager.args, 'install', '--frozen-lockfile', '--ignore-scripts', '--ignore-pnpmfile', '--registry=' + registry],
+  await exec(config.packageManager.command, [...config.packageManager.args, 'install', '--frozen-lockfile', '--offline', '--ignore-scripts', '--ignore-pnpmfile', '--registry=' + registry],
     { cwd: profile, env: { ...env, ...config.packageManager.env }, timeout: 120000 })
   assert.equal(JSON.parse(await readFile(join(profile, 'node_modules/dsh-article-review/package.json'), 'utf8')).version, version)
   console.log('Self-update acceptance passed: real pnpm, verified archive, active Host protection, exit installation, retained article data, and new version after restart')
