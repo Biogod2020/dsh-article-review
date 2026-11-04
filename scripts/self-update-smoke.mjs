@@ -69,6 +69,7 @@ async function startHost(label) {
     const response = await fetch(login.origin + '/api/paper-review/update', { method: 'POST',
       headers: { ...headers, 'Content-Type': 'application/json' },
       body: JSON.stringify({ type:'client-request',rpcId:'update-smoke',method:'paper-review/update',payload }), signal: AbortSignal.timeout(45000) })
+    if (response.status === 404) throw Object.assign(new Error('Plugin is still loading'), { code: 'PLUGIN_LOADING' })
     assert.equal(response.status, 200, label + ' updater carrier')
     const envelope = await response.json(); assert.equal(envelope.result.ok,true,JSON.stringify(envelope.result)); return envelope.result.value
   }
@@ -76,7 +77,13 @@ async function startHost(label) {
   assert.equal(unauth.status,401)
   const crossSite = await fetch(login.origin + '/api/paper-review/update', { method:'POST',headers:{...headers,Origin:'https://untrusted.invalid','Content-Type':'application/json'},body:'{}' })
   assert.equal(crossSite.status,403)
-  const view = () => call({})
+  const view = async () => {
+    let value
+    try {
+      await wait(async () => { try { value = await call({}); return true } catch (error) { if (error.code === 'PLUGIN_LOADING') return false; throw error } }, 45000)
+    } catch (error) { console.error(output.replace(/token=[^&\s]+/g, 'token=<redacted>')); throw error }
+    return value
+  }
   const setEnabled = enabled => call({ enabled })
   const rpc = async (method, payload) => {
     const response = await fetch(login.origin + '/api/' + method, {method:'POST',headers:{...headers,'Content-Type':'application/json'},body:JSON.stringify({type:'client-request',rpcId:'fixture',method,payload})})
