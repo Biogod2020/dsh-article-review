@@ -17,20 +17,20 @@ A plugin for academic writing in [DSH (DeepSeek Harness)](https://github.com/dee
 
 ### Automatic updates
 
-After installing **1.0.2**, open **Paper → 插件更新** and enable **自动更新文章审阅插件** once. It is off by default. The independent helper checks at startup and every six hours, downloads only a newer npm release compatible with the installed DSH, verifies its SHA-512 checksum, waits for DSH to exit, and activates it on the next launch. Manuscripts, review records, sessions and model settings stay in place.
+After installing **1.0.3**, open **Paper → 插件更新** and enable **自动更新文章审阅插件** once. It is off by default. The independent helper checks at startup and every six hours, downloads only a newer npm release compatible with the installed DSH, verifies its SHA-512 checksum, waits for DSH to exit, and activates it on the next launch. Manuscripts, review records, sessions and model settings stay in place.
 
 Supported schedulers: Windows current-user Task Scheduler (no elevation), macOS LaunchAgent, and Linux user systemd. The account must be logged in / have its user service running, and the captured Node/DSH runtime and npm network access must remain available. Turning the setting off removes the scheduled job. Existing users need to install this release once before the switch becomes available.
 
 ## What you can do
 
-**Manuscript review** — available now (`1.0.2`)
+**Manuscript review** — available now (`1.0.3`)
 
 - **You open** one Markdown manuscript. PDF, Word and LaTeX are converted to a Markdown copy first.
 - **You use it to** annotate, ask the AI for edits, accept or reject word-level changes, and track what you have reviewed.
 - **You get back** the Markdown file, edited where you accepted changes. There is no export to Word or LaTeX: carry accepted changes into your original yourself.
 - **Needs** any model you use in DSH. Interface in English or Chinese.
 
-**Paper projects** — available now (`1.0.2`)
+**Paper projects** — available now (`1.0.3`)
 
 - **You open** a paper you already have (PDF, Word, LaTeX or Markdown); the agent builds a project from it.
 - **You use it to** see the argument as a map (the main claim, the storyline section by section, the claims under it, and the evidence and figure panels behind each), get comments from simulated editors, reviewers and readers, and read with figures beside the text.
@@ -61,8 +61,8 @@ Restart a running Web profile after installation.
 <details>
 <summary>Other installation options and troubleshooting</summary>
 
-- **Today's release:** the registry's `latest` tag points to `1.0.2`. pnpm 11 waits 24 hours before installing a new release by its bare name; to install it today, use `dsh-article-review@1.0.2` or the [package-only opt-in](docs/installation-channels.md).
-- **Mirror or GitHub:** you can use the official npm registry or the mainland China mirror (switch back to the official registry if the mirror has not synced). GitHub installation is `github:Biogod2020/dsh-article-review#v1.0.2`. If GitHub times out, download the [prebuilt release archive](https://codeload.github.com/Biogod2020/dsh-article-review/tar.gz/refs/tags/v1.0.2) and enter its absolute local path in **Plugins → Add plugin**, without extracting or building it. Use a prebuilt tag; `main` contains development source.
+- **Today's release:** the registry's `latest` tag points to `1.0.3`. pnpm 11 waits 24 hours before installing a new release by its bare name; to install it today, use `dsh-article-review@1.0.3` or the [package-only opt-in](docs/installation-channels.md).
+- **Mirror or GitHub:** you can use the official npm registry or the mainland China mirror (switch back to the official registry if the mirror has not synced). GitHub installation is `github:Biogod2020/dsh-article-review#v1.0.3`. If GitHub times out, download the [prebuilt release archive](https://codeload.github.com/Biogod2020/dsh-article-review/tar.gz/refs/tags/v1.0.3) and enter its absolute local path in **Plugins → Add plugin**, without extracting or building it. Use a prebuilt tag; `main` contains development source.
 - **Desktop and Web are separate:** Desktop uses its own `desktop` profile, so installing into `web` does not install into the app.
 - **Earlier package name:** this plugin was first developed as `@deepseek-ai/dsh-experimental-paper-review` (tags up to `v0.2.1-alpha.1`). If you installed that package, uninstall it in Plugins before installing `dsh-article-review` and restart. Review records in `.paper-review/` are kept.
 - **Platforms:** macOS Desktop and Linux Web have been exercised. For Windows, see [platform requirements](docs/development.md#scope-and-compatibility). Earlier supported DSH versions need Node.js 22.19+ or 24+.

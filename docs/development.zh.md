@@ -6,7 +6,7 @@
 
 ## npm 与 Git 安装
 
-安装命令见 [项目首页](../README.zh.md#installation)。安装器将本包的[组合配置](../cordis.patch.yml)加入 Web 层之后；无需额外启动器或模型配置。`1.0.2` 支持 DSH Web `0.2.1-alpha.4` 与 macOS Desktop `0.2.0-rc.2` / `0.2.1-rc.2` / `0.2.1-rc.3` / `0.2.1-rc.4` / `0.2.1-rc.5` / `0.2.2-alpha.2`。rc.4、rc.5 和 0.2.2-alpha.2 在 CI 中运行宿主/客户端类型检查和完整集成测试；安装包检查覆盖认证、打开稿件、批注、人工审阅基线及服务重启后的记录恢复。其他平台的要求见 [支持范围与兼容性](#scope-and-compatibility)。
+安装命令见 [项目首页](../README.zh.md#installation)。安装器将本包的[组合配置](../cordis.patch.yml)加入 Web 层之后；无需额外启动器或模型配置。`1.0.3` 支持 DSH Web `0.2.1-alpha.4` 与 macOS Desktop `0.2.0-rc.2` / `0.2.1-rc.2` / `0.2.1-rc.3` / `0.2.1-rc.4` / `0.2.1-rc.5` / `0.2.2-alpha.2`。rc.4、rc.5 和 0.2.2-alpha.2 在 CI 中运行宿主/客户端类型检查和完整集成测试；安装包检查覆盖认证、打开稿件、批注、人工审阅基线及服务重启后的记录恢复。其他平台的要求见 [支持范围与兼容性](#scope-and-compatibility)。
 
 浏览器只接收当前正文与版本目录，历史正文按对比选择读取。段落共享可见性观察器；PDF 预览共用缓存和转换队列（`previewCacheBytes` 默认 4194304，`previewConcurrency` 默认 1）。见[性能测量](performance.zh.md)。
 
@@ -46,8 +46,8 @@ node scripts/prepare-git-release.mjs /absolute/path/to/release-directory
 cd /absolute/path/to/release-directory
 node scripts/check-release.mjs
 npm pack --ignore-scripts --pack-destination /absolute/path/to/artifacts
-git tag v1.0.2
-git push origin v1.0.2
+git tag v1.0.3
+git push origin v1.0.3
 ```
 
 在发行工作树中保留已验收的 `lib/index.js` / `lib/client.js` SHA-256 清单 `release-runtime-sha256.json`；`check-release.mjs` 据此拒绝未验收的运行文件。准备脚本将工作区依赖替换为可从注册表解析的依赖，并检查客户端模块名与包名一致、`zod` 已内联。不要直接发布含 `workspace:` 依赖的源码目录。正常验收后的发行发布到 `latest`，使裸名安装跟随当前版本；只有明确分开的预览才使用 `next`。仅将更高版本发布到 `next` 不会更新裸名安装。发布后核对两个源的精确版本安装，以及明确只对此包例外时的裸名安装；未修改的 pnpm 11 配置有 24 小时观察期。独立安装验证保留默认策略模式，见[安装策略](installation-channels.md#中文)。上传前先用 `--dry-run` 检查同一个归档，并在隔离 DSH 配置中安装及启动验证。`publish.yml` 检查预构建标签、rc.3 / rc.4 / 0.2.2-alpha.2 完整集成与重启恢复，然后通过 npm OIDC 发布同一次验收的归档。首次在 npm 为 `Biogod2020/dsh-article-review`、`publish.yml` 配置 Trusted Publisher 并允许直接 `npm publish`，可能需要账号本人验证；后续发行复用该信任。流水线继续核对官方源与镜像归档完整性，并从两个源按包名安装。
@@ -134,5 +134,7 @@ Only change the selected blocks; insert complete Markdown before or after an exa
 ## Panel 准备流程
 
 `paper_figure_list({path, packet})` 可在稿件旁独占创建只读上下文快照；`prepare_panels.py` 从中填入精确目标原文，生成裁切和核对预览。`paper_panel_set({path, manifest})` 最多读取 1 MiB 的工作区内 JSON，仍走与 inline 参数相同的版本、原图、裁切与段落校验。保存响应只含当前图的紧凑确认。普通 `paper_read` 可传 `includePanels:false` 避免重复整份关联原文；`savedPanels` 将原图、正文和保留裁切失效都标为 stale。受限原生并行与旧宿主回退见随附 skill。
+
+安装验收使用与当前 DSH 桌面包一致的 pnpm `11.28.5`。较早的 pnpm 11 可能安装完成后仍有工作线程阻止进程退出；上游[工作线程修复](https://github.com/pnpm/pnpm/pull/13226)已在 `11.23.0` 发布。验收仍要求进程正常退出，并通过冻结锁文件安装。
 
 自动更新验收覆盖 Windows 当前用户计划任务的创建、执行、删除，以及实际包安装、批注/人工基线和重启恢复。alpha.2 的测试运行时固定到其发行源码中的 Cordis `4.0.6-alpha.1` 及对应 loader/include/timer；npm 自动选择的后续框架预览版会使 DSH 自身无法创建标准会话，在没有安装本插件时也能复现。原始依赖组合的完整运行验收仍保留。
