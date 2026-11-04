@@ -1,0 +1,5 @@
+{
+  "lib/index.js": "30bf39d01fa1eb7c75eb5b57df5e06f030bc8d697fe899c2d27776be5d0ccce9",
+  "lib/client.js": "aab76bb12d776a236f5d0f2b8a6412c075f1faf21c88a64f8c8db1ebac99a57a",
+  "lib/update-worker.js": "f022827a90e27bcd91f6a4829a8d4527ae9885e55ba6b70c2b7d89d18d23cf44"
+}
