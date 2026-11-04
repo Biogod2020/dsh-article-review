@@ -2,7 +2,7 @@
 import { defineConfig } from 'vitest/config'
 import { realpathSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-const packages = ['vitest', 'fast-check', 'zod', 'mdast-util-from-markdown', 'mdast-util-gfm',
+const packages = ['semver', 'vitest', 'fast-check', 'zod', 'mdast-util-from-markdown', 'mdast-util-gfm',
   'micromark-extension-gfm', 'diff', 'react', 'react/jsx-runtime', 'react/jsx-dev-runtime',
   'react-dom', 'react-dom/client', 'react-dom/test-utils', '@testing-library/react', '@testing-library/dom']
 export default defineConfig({
@@ -10,7 +10,7 @@ export default defineConfig({
   resolve: { alias: packages.map(name => ({ find: new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`), replacement: fileURLToPath(import.meta.resolve(name)) })) },
   oxc: { tsconfig: false, jsx: { runtime: 'automatic' } },
   test: {
-    include: ['tests/reading-layout.spec.ts', 'tests/document.spec.ts', 'tests/change-audit.spec.ts', 'tests/document-properties.spec.ts',
+    include: ['tests/plugin-updates.client.spec.tsx', 'tests/self-update.spec.ts', 'tests/reading-layout.spec.ts', 'tests/document.spec.ts', 'tests/change-audit.spec.ts', 'tests/document-properties.spec.ts',
       'tests/manuscript-read.spec.ts', 'tests/review-queue.spec.ts', 'tests/change-evidence.client.spec.tsx',
       'tests/desktop-file-picker.client.spec.ts', 'tests/selected-file.spec.ts',
       'tests/bibliography.spec.ts', 'tests/block-pairing.client.spec.ts', 'tests/citation-display.client.spec.ts',

@@ -30,6 +30,8 @@ async function copyDeclarations(directory) {
 }
 
 await copyArtifact('lib/index.js')
+await copyArtifact('lib/update-worker.js')
+for (const file of ['THIRD-PARTY-NOTICES', 'LICENSE.updater-Apache-2.0', 'README.md']) await copyArtifact(file)
 await cp(join(source, 'skills'), join(target, 'skills'), { recursive: true,
   filter: path => basename(path) !== '__pycache__' && !path.endsWith('.pyc') })
 await copyArtifact('lib/client.js')
@@ -60,18 +62,14 @@ for (const [name, version] of Object.entries({
   }
   dependencies[name] = version
 }
-if (dependencies.koffi !== '^3.1.0' && !(dependencies.koffi === undefined && releaseManifest.peerDependencies?.koffi === '^3.1.0')) {
-  throw new Error('Unexpected koffi source dependency')
-}
-delete dependencies.koffi
 delete dependencies['@deepseek-ai/dsh-native-command']
 releaseManifest.dependencies = dependencies
+releaseManifest.optionalDependencies = { ...sourceManifest.optionalDependencies }
 releaseManifest.peerDependencies = {
   '@deepseek-ai/cordis': '~4.0.4 || ~4.0.5-alpha.2 || ~4.0.6-alpha.1',
   '@deepseek-ai/dsh-native-command': sourceManifest.engines.dsh,
-  koffi: '^3.1.0',
 }
-releaseManifest.peerDependenciesMeta = { koffi: { optional: true } }
+delete releaseManifest.peerDependenciesMeta
 releaseManifest.engines = { ...sourceManifest.engines }
 delete releaseManifest.devDependencies
 delete releaseManifest.scripts
