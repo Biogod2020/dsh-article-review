@@ -24,7 +24,7 @@ jobs:
         with:
           node-version: '24.16.0'
           package-manager-cache: false
-      - run: npm install --global npm@11.15.0 pnpm@11.20.0 --ignore-scripts
+      - run: npm install --global npm@11.15.0 pnpm@11.28.5 --ignore-scripts
       - name: Verify prepared runtime and portable source
         run: |
           node scripts/check-release.mjs
@@ -93,7 +93,7 @@ jobs:
         with:
           node-version: '24.16.0'
           package-manager-cache: false
-      - run: npm install --global pnpm@11.20.0 --ignore-scripts
+      - run: npm install --global pnpm@11.28.5 --ignore-scripts
       - run: npm ci --prefix validation --ignore-scripts --no-audit --no-fund
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
@@ -135,7 +135,7 @@ jobs:
         with:
           node-version: '24.16.0'
           package-manager-cache: false
-      - run: npm install --global pnpm@11.20.0 --ignore-scripts
+      - run: npm install --global pnpm@11.28.5 --ignore-scripts
       - run: npm ci --prefix validation --ignore-scripts --no-audit --no-fund
       - run: node validation/run.mjs tests/self-update.spec.ts tests/plugin-updates.client.spec.tsx
       - run: node scripts/windows-update-service-smoke.mjs
@@ -187,7 +187,7 @@ jobs:
         with:
           node-version: '24.16.0'
           package-manager-cache: false
-      - run: npm install --global pnpm@11.20.0 --ignore-scripts
+      - run: npm install --global pnpm@11.28.5 --ignore-scripts
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
         with:
           name: verified-npm-package

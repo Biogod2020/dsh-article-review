@@ -30,7 +30,7 @@ jobs:
         with:
           node-version: '24.16.0'
           package-manager-cache: false
-      - run: npm install --global pnpm@11.20.0 --ignore-scripts
+      - run: npm install --global pnpm@11.28.5 --ignore-scripts
       - name: Install the official DSH runtime
         run: npm install --prefix "$RUNNER_TEMP/dsh" --ignore-scripts --no-audit --no-fund '@deepseek-ai/dsh@${{ matrix.runtime }}'
       - name: Install bare name and verify version, API and restart recovery
