@@ -1,6 +1,6 @@
 /** Real package-manager and Host restart acceptance, entirely in a generated HOME. */
 import assert from 'node:assert/strict'
-import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, writeFile, realpath } from 'node:fs/promises'
 import { join, dirname, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { tmpdir } from 'node:os'
@@ -69,6 +69,7 @@ async function startHost(label) {
     const response = await fetch(login.origin + '/api/paper-review/update', { method: 'POST',
       headers: { ...headers, 'Content-Type': 'application/json' },
       body: JSON.stringify({ type:'client-request',rpcId:'update-smoke',method:'paper-review/update',payload }), signal: AbortSignal.timeout(45000) })
+    if (response.status === 404) throw Object.assign(new Error('Plugin is still loading'), { code: 'PLUGIN_LOADING' })
     assert.equal(response.status, 200, label + ' updater carrier')
     const envelope = await response.json(); assert.equal(envelope.result.ok,true,JSON.stringify(envelope.result)); return envelope.result.value
   }
@@ -76,7 +77,13 @@ async function startHost(label) {
   assert.equal(unauth.status,401)
   const crossSite = await fetch(login.origin + '/api/paper-review/update', { method:'POST',headers:{...headers,Origin:'https://untrusted.invalid','Content-Type':'application/json'},body:'{}' })
   assert.equal(crossSite.status,403)
-  const view = () => call({})
+  const view = async () => {
+    let value
+    try {
+      await wait(async () => { try { value = await call({}); return true } catch (error) { if (error.code === 'PLUGIN_LOADING') return false; throw error } }, 45000)
+    } catch (error) { console.error(output.replace(/token=[^&\s]+/g, 'token=<redacted>')); throw error }
+    return value
+  }
   const setEnabled = enabled => call({ enabled })
   const rpc = async (method, payload) => {
     const response = await fetch(login.origin + '/api/' + method, {method:'POST',headers:{...headers,'Content-Type':'application/json'},body:JSON.stringify({type:'client-request',rpcId:'fixture',method,payload})})
@@ -152,8 +159,10 @@ try {
   assert.equal(await readFile(join(workspace,'article.md'),'utf8'),manuscript)
   await host.setEnabled(false)
   host.child.kill('SIGTERM'); await new Promise(resolve => host.child.once('exit', resolve))
-  await exec(config.packageManager.command, [...config.packageManager.args, 'install', '--frozen-lockfile', '--offline', '--ignore-scripts', '--ignore-pnpmfile', '--registry=' + registry],
-    { cwd: profile, env: { ...env, ...config.packageManager.env }, timeout: 120000 })
+  try {
+    await exec(config.packageManager.command, [...config.packageManager.args, 'install', '--frozen-lockfile', '--ignore-scripts', '--ignore-pnpmfile', '--registry=' + registry],
+    { cwd: await realpath(profile), env: { ...env, ...config.packageManager.env, ELECTRON_RUN_AS_NODE: '1' }, timeout: 120000 })
+  } catch (error) { console.error(await readFile(join(root, 'package-manager.log'), 'utf8')); throw error }
   assert.equal(JSON.parse(await readFile(join(profile, 'node_modules/dsh-article-review/package.json'), 'utf8')).version, version)
   console.log('Self-update acceptance passed: real pnpm, verified archive, active Host protection, exit installation, retained article data, and new version after restart')
 } finally {
