@@ -1,5 +1,6 @@
 /** Updater adapted from Biogod2020/dsh-ssh; Apache-2.0, see THIRD-PARTY-NOTICES. */
 /** Standalone updater. This bundle has no DSH runtime imports. */
+import { realpathSync } from 'node:fs'
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, readFile, writeFile, rename, rm, readdir, lstat, symlink, realpath } from 'node:fs/promises'
 import { join, dirname, resolve } from 'node:path'
@@ -124,6 +125,7 @@ async function restore(root: string, journal: Journal): Promise<void> {
 
 /** One check prepares immutable files, waits for every registered Host, then commits. */
 export async function runUpdate(configFile: string, options: WorkerOptions = {}): Promise<void> {
+  configFile = await realpath(configFile)
   const root = dirname(configFile)
   const releaseWorker = await lock(join(root, 'worker.lock'))
   if (!releaseWorker) return
@@ -132,6 +134,7 @@ export async function runUpdate(configFile: string, options: WorkerOptions = {})
   const status = (phase: PluginUpdateView['phase'], extra = {}) => atomicJson(join(root, 'status.json'), { phase, checkedAt: Date.now(), ...extra })
   try {
     const config = await readJson<UpdateConfig>(configFile)
+    config.profile = await realpath(config.profile)
     if (resolve(config.profile, '.dsh-article-review-updates') !== resolve(root)) throw new Error('Invalid update profile')
     const interrupted = await textOrNull(join(root, 'transaction.json'))
     if (interrupted !== null) {
@@ -233,6 +236,11 @@ export async function runUpdate(configFile: string, options: WorkerOptions = {})
   }
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url) && process.argv[2] === '--config') {
-  void runUpdate(process.argv[3]!).catch(() => { process.exitCode = 1 })
+if (process.argv[1] && process.argv[2] === '--config') {
+  try {
+    if (realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))) {
+      void runUpdate(process.argv[3]!).catch(() => { process.exitCode = 1 })
+    }
+  } catch { /* Imported by a launcher whose entry has already moved. */ }
 }
+
