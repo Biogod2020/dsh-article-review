@@ -198,6 +198,7 @@ it.each(['pnpm.mjs', 'pnpm.cjs'])('reads the declared Windows shim entry %s with
     expect((await updater.view()).supported).toBe(true)
     const invocation = (await readJson<UpdateConfig>(f.configFile)).packageManager
     expect(invocation.command).toBe(process.execPath)
-    expect(invocation.args).toContain(await realpath(bin))
+    const captured = invocation.args.find(arg => arg.endsWith(entryName))!
+    expect(await realpath(captured)).toBe(await realpath(bin))
   } finally { Object.defineProperty(process, 'platform', platform) }
 })
