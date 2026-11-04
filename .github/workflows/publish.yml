@@ -198,7 +198,8 @@ jobs:
         run: |
           version=$(node -p 'require("./package.json").version')
           for runtime in 0.2.1-rc.3 0.2.1-rc.4 0.2.1-rc.5 0.2.2-alpha.2; do
-            npm install --prefix "$RUNNER_TEMP/dsh-$runtime" --ignore-scripts --no-audit --no-fund "@deepseek-ai/dsh@$runtime"
+            node scripts/prepare-test-runtime.mjs "$runtime" "$RUNNER_TEMP/dsh-$runtime"
+            npm install --prefix "$RUNNER_TEMP/dsh-$runtime" --ignore-scripts --no-audit --no-fund
             for registry in https://registry.npmjs.org https://registry.npmmirror.com; do
               DSH_SMOKE_REGISTRY="$registry" DSH_SMOKE_EXPECT_VERSION="$version" node scripts/runtime-smoke.mjs "$RUNNER_TEMP/dsh-$runtime/node_modules/.bin/dsh" "dsh-article-review@$version"
               DSH_SMOKE_REGISTRY="$registry" DSH_SMOKE_EXPECT_VERSION="$version" DSH_SMOKE_ALLOW_RECENT_PACKAGE=1 node scripts/runtime-smoke.mjs "$RUNNER_TEMP/dsh-$runtime/node_modules/.bin/dsh" dsh-article-review
