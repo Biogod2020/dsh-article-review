@@ -17,7 +17,7 @@ A plugin for academic writing in [DSH (DeepSeek Harness)](https://github.com/dee
 
 ### Automatic updates
 
-After installing **1.0.1**, open **Paper project → 插件更新** and enable **自动更新文章审阅插件** once. It is off by default. The independent helper checks at startup and every six hours, downloads only a newer npm release compatible with the installed DSH, verifies its SHA-512 checksum, waits for DSH to exit, and activates it on the next launch. Manuscripts, review records, sessions and model settings stay in place.
+After installing **1.0.1**, open **Paper → 插件更新** and enable **自动更新文章审阅插件** once. It is off by default. The independent helper checks at startup and every six hours, downloads only a newer npm release compatible with the installed DSH, verifies its SHA-512 checksum, waits for DSH to exit, and activates it on the next launch. Manuscripts, review records, sessions and model settings stay in place.
 
 Supported schedulers: Windows current-user Task Scheduler (no elevation), macOS LaunchAgent, and Linux user systemd. The account must be logged in / have its user service running, and the captured Node/DSH runtime and npm network access must remain available. Turning the setting off removes the scheduled job. Existing users need to install this release once before the switch becomes available.
 

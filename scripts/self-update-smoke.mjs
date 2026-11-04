@@ -47,6 +47,11 @@ await writeFile(fixtureConfig, JSON.stringify({ version: 1, hosts: [] }), { mode
 const originalConfig = await readFile(fixtureConfig)
 let host, helper, registry, stopRegistry
 const children = []
+process.once('SIGTERM', () => { void (async () => {
+  try { if (host?.child.exitCode === null) await host.setEnabled(false) } catch {}
+  for (const child of children) if (child.exitCode === null) child.kill('SIGTERM')
+  stopRegistry?.(); process.exit(143)
+})() })
 async function wait(check, milliseconds = 120000) {
   const deadline = Date.now() + milliseconds
   while (Date.now() < deadline) { if (await check().catch(() => false)) return; await new Promise(resolve => setTimeout(resolve, 100)) }
@@ -92,6 +97,7 @@ try {
   document = (await command({action:'review',path:'article.md',revision:document.current.id,blockIds:[block.id],locked:false})).document
   const savedReview = JSON.stringify({annotations:document.annotations,baselines:document.baselines})
   if (process.env.DSH_UPDATE_BROWSER_SMOKE === '1') {
+    await host.rpc('workspace/create', { args: { request: { path: workspace } } })
     await writeFile(join(root, 'browser.json'), JSON.stringify({ login: host.login.href, profile, root }), { mode: 0o600 })
     console.log(JSON.stringify({ browserFixture: root }))
     await wait(async () => { await readFile(join(root, 'browser-complete')); return true }, 180000)
@@ -114,6 +120,8 @@ try {
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
   registry = 'http://127.0.0.1:' + server.address().port
   stopRegistry = () => { server.closeAllConnections(); server.close() }
+  // A real UI opt-out can leave the already-started one-shot helper finishing.
+  await wait(async () => { try { await readFile(join(state, 'worker.lock')); return false } catch { return true } })
   const configFile = join(state, 'config.json')
   const config = JSON.parse(await readFile(configFile, 'utf8')); config.enabled = true
   const wrapper = join(root, 'package-manager.cjs')
