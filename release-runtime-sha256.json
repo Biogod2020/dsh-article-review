@@ -1,5 +1,5 @@
 {
-  "lib/index.js": "b83bae959e02a83bfa0e64cc666db5dd78706cdb1f20c1095a5e6e392ba286d3",
+  "lib/index.js": "30bf39d01fa1eb7c75eb5b57df5e06f030bc8d697fe899c2d27776be5d0ccce9",
   "lib/client.js": "aab76bb12d776a236f5d0f2b8a6412c075f1faf21c88a64f8c8db1ebac99a57a",
-  "lib/update-worker.js": "c599fe2708ba42f4012a7717c6d3c26ba544e9eef8d85a187a942b92240d37c6"
+  "lib/update-worker.js": "f022827a90e27bcd91f6a4829a8d4527ae9885e55ba6b70c2b7d89d18d23cf44"
 }
