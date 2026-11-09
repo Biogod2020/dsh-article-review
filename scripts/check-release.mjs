@@ -11,6 +11,7 @@ assert(pkg.engines.dsh.includes('0.2.1-rc.3'))
 assert(pkg.engines.dsh.includes('0.2.1-rc.4'))
 assert(pkg.engines.dsh.includes('0.2.1-rc.5'))
 assert(pkg.engines.dsh.includes('0.2.2-alpha.2'))
+assert(pkg.engines.dsh.includes('0.2.2-rc.1'))
 assert.equal(pkg.peerDependencies['@deepseek-ai/dsh-native-command'], pkg.engines.dsh)
 const hashes = JSON.parse(await readFile('release-runtime-sha256.json', 'utf8'))
 for (const file of ['lib/index.js', 'lib/client.js', 'lib/update-worker.js']) {
