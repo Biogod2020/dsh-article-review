@@ -85,6 +85,8 @@ jobs:
             source: b830ec950faba0a46dda564be3e2d854afed94f1
           - version: 0.2.2-alpha.2
             source: f3803c96974ad4a94195fb97e5c637e9c2a3afe3
+          - version: 0.2.2-rc.1
+            source: 66491b05e3f05ad35bcdd4f6cd7ed26041d9e3db
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
@@ -120,6 +122,10 @@ jobs:
           sha256sum --check SHA256SUMS
           cd ..
           node scripts/runtime-smoke.mjs "$RUNNER_TEMP/dsh-current/node_modules/.bin/dsh" release/*.tgz
+
+      - name: Accept native third-party update on 0.2.2-rc.1
+        if: matrix.version == '0.2.2-rc.1'
+        run: node scripts/native-update-smoke.mjs "$RUNNER_TEMP/dsh-current/node_modules/.bin/dsh" release/*.tgz
 
       - name: Accept independent update with retained annotations and review baselines
         if: matrix.version == '0.2.1-rc.5'
@@ -197,7 +203,7 @@ jobs:
       - name: Verify exact release and bare-name install with package-scoped recent-release opt-in
         run: |
           version=$(node -p 'require("./package.json").version')
-          for runtime in 0.2.1-rc.3 0.2.1-rc.4 0.2.1-rc.5 0.2.2-alpha.2; do
+          for runtime in 0.2.1-rc.3 0.2.1-rc.4 0.2.1-rc.5 0.2.2-alpha.2 0.2.2-rc.1; do
             node scripts/prepare-test-runtime.mjs "$runtime" "$RUNNER_TEMP/dsh-$runtime"
             npm install --prefix "$RUNNER_TEMP/dsh-$runtime" --ignore-scripts --no-audit --no-fund
             for registry in https://registry.npmjs.org https://registry.npmmirror.com; do

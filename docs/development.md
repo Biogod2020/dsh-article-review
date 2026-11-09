@@ -6,7 +6,7 @@ This document covers local builds, manuscript tools, persistence and platform co
 
 ## npm and Git installation
 
-For installation commands, see the [project README](../README.md#installation). The installer adds the package's [bundle patch](../cordis.patch.yml) after the Web layer; no separate launcher or model configuration is needed. Version `1.0.3` supports DSH Web `0.2.1-alpha.4` and macOS Desktop `0.2.0-rc.2` / `0.2.1-rc.2` / `0.2.1-rc.3` / `0.2.1-rc.4` / `0.2.1-rc.5` / `0.2.2-alpha.2`. The rc.4, rc.5 and 0.2.2-alpha.2 lanes run host/client type checks and the full integration suite in CI. Its installed-package check covers authentication, manuscript opening, annotations, human review baselines and recovery after a server restart. For other hosts, see [scope and compatibility](#scope-and-compatibility).
+For installation commands, see the [project README](../README.md#installation). The installer adds the package's [bundle patch](../cordis.patch.yml) after the Web layer; no separate launcher or model configuration is needed. Version `1.0.4` supports DSH Web `0.2.1-alpha.4` and macOS Desktop `0.2.0-rc.2` / `0.2.1-rc.2` / `0.2.1-rc.3` / `0.2.1-rc.4` / `0.2.1-rc.5` / `0.2.2-alpha.2` / `0.2.2-rc.1`. The rc.4, rc.5 and 0.2.2-alpha.2 lanes run host/client type checks and the full integration suite in CI. Its installed-package check covers authentication, manuscript opening, annotations, human review baselines and recovery after a server restart. For other hosts, see [scope and compatibility](#scope-and-compatibility).
 
 The browser receives the current manuscript plus a revision index; historical bodies load only for the selected comparison pair. Reader blocks share viewport observers. PDF previews share a byte-bounded cache and converter queue (`previewCacheBytes`, default 4194304; `previewConcurrency`, default 1). See the [performance measurements](performance.zh.md).
 
@@ -31,7 +31,7 @@ DSH_HARNESS_SOURCE=/absolute/path/to/dsh-v0.2.1-alpha.4 npm run test:published
 DSH_HARNESS_ROOT=/absolute/path/to/deepseek-harness npm run test:harness
 ```
 
-Set `DSH_HARNESS_RUNTIME=/absolute/path/to/node_modules` to check an installed Desktop `0.2.0-rc.2` / `0.2.1-rc.2` / `0.2.1-rc.3` / `0.2.1-rc.4` / `0.2.1-rc.5` / `0.2.2-alpha.2` runtime with declaration files; the default is the Web `0.2.1-alpha.4` runtime under `validation/harness/node_modules`.
+Set `DSH_HARNESS_RUNTIME=/absolute/path/to/node_modules` to check an installed Desktop `0.2.0-rc.2` / `0.2.1-rc.2` / `0.2.1-rc.3` / `0.2.1-rc.4` / `0.2.1-rc.5` / `0.2.2-alpha.2` / `0.2.2-rc.1` runtime with declaration files; the default is the Web `0.2.1-alpha.4` runtime under `validation/harness/node_modules`.
 
 Installation acceptance uses pnpm `11.28.5`, matching the current packaged DSH runtime. Earlier pnpm 11 releases can finish installation but leave worker threads alive; the upstream [worker-pool fix](https://github.com/pnpm/pnpm/pull/13226) shipped in `11.23.0`. The check requires a zero process exit and a working frozen lockfile.
 

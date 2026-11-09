@@ -6,7 +6,7 @@
 
 ## npm 与 Git 安装
 
-安装命令见 [项目首页](../README.zh.md#installation)。安装器将本包的[组合配置](../cordis.patch.yml)加入 Web 层之后；无需额外启动器或模型配置。`1.0.3` 支持 DSH Web `0.2.1-alpha.4` 与 macOS Desktop `0.2.0-rc.2` / `0.2.1-rc.2` / `0.2.1-rc.3` / `0.2.1-rc.4` / `0.2.1-rc.5` / `0.2.2-alpha.2`。rc.4、rc.5 和 0.2.2-alpha.2 在 CI 中运行宿主/客户端类型检查和完整集成测试；安装包检查覆盖认证、打开稿件、批注、人工审阅基线及服务重启后的记录恢复。其他平台的要求见 [支持范围与兼容性](#scope-and-compatibility)。
+安装命令见 [项目首页](../README.zh.md#installation)。安装器将本包的[组合配置](../cordis.patch.yml)加入 Web 层之后；无需额外启动器或模型配置。`1.0.3` 支持 DSH Web `0.2.1-alpha.4` 与 macOS Desktop `0.2.0-rc.2` / `0.2.1-rc.2` / `0.2.1-rc.3` / `0.2.1-rc.4` / `0.2.1-rc.5` / `0.2.2-alpha.2` / `0.2.2-rc.1`。rc.4、rc.5 和 0.2.2-alpha.2 在 CI 中运行宿主/客户端类型检查和完整集成测试；安装包检查覆盖认证、打开稿件、批注、人工审阅基线及服务重启后的记录恢复。其他平台的要求见 [支持范围与兼容性](#scope-and-compatibility)。
 
 浏览器只接收当前正文与版本目录，历史正文按对比选择读取。段落共享可见性观察器；PDF 预览共用缓存和转换队列（`previewCacheBytes` 默认 4194304，`previewConcurrency` 默认 1）。见[性能测量](performance.zh.md)。
 
@@ -31,7 +31,7 @@ DSH_HARNESS_SOURCE=/absolute/path/to/dsh-v0.2.1-alpha.4 npm run test:published
 DSH_HARNESS_ROOT=/absolute/path/to/deepseek-harness npm run test:harness
 ```
 
-通过 `DSH_HARNESS_RUNTIME=/absolute/path/to/node_modules` 可指定已安装的 Desktop `0.2.0-rc.2` / `0.2.1-rc.2` / `0.2.1-rc.3` / `0.2.1-rc.4` / `0.2.1-rc.5` / `0.2.2-alpha.2` 运行时进行同样的兼容性检查；该目录须包含包的类型声明。默认使用 `validation/harness/node_modules` 中的 Web `0.2.1-alpha.4`。 对于 rc.4、rc.5 和 0.2.2-alpha.2，`DSH_HARNESS_SOURCE` 必须指向同一发行版本的源码。可先运行 `node scripts/prepare-test-runtime.mjs <version> <new-directory>`，再用 `npm install --prefix <new-directory> --ignore-scripts` 准备隔离依赖，并将 `DSH_HARNESS_RUNTIME` 指向其 `node_modules`。
+通过 `DSH_HARNESS_RUNTIME=/absolute/path/to/node_modules` 可指定已安装的 Desktop `0.2.0-rc.2` / `0.2.1-rc.2` / `0.2.1-rc.3` / `0.2.1-rc.4` / `0.2.1-rc.5` / `0.2.2-alpha.2` / `0.2.2-rc.1` 运行时进行同样的兼容性检查；该目录须包含包的类型声明。默认使用 `validation/harness/node_modules` 中的 Web `0.2.1-alpha.4`。 对于 rc.4、rc.5 和 0.2.2-alpha.2，`DSH_HARNESS_SOURCE` 必须指向同一发行版本的源码。可先运行 `node scripts/prepare-test-runtime.mjs <version> <new-directory>`，再用 `npm install --prefix <new-directory> --ignore-scripts` 准备隔离依赖，并将 `DSH_HARNESS_RUNTIME` 指向其 `node_modules`。
 
 完整流程分别检查宿主/客户端类型，并在已安装依赖的上游工作区上运行真实组合测试，不修改该工作区。[使用体验报告](experience-review.zh.md)记录 DSH 0.2 的实测和剩余问题。
 
