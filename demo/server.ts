@@ -2,7 +2,7 @@
  * Local host for the project-mode demo: serves the built workbench and a JSON API over ProjectStore, and runs
  * agent tasks with an OpenAI-compatible model. In DSH the same tasks go to the conversation's agent instead.
  *
- * Usage: MODEL_URL=… MODEL_KEY=… MODEL=… tsx demo/server.ts --root <project dir> [--port 8790]
+ * Usage: MODEL_URL=… MODEL_KEY=… MODEL=… tsx demo/server.ts --root <project dir> [--port 8790] [--dist <client build dir>]
  * Listens on 127.0.0.1 only. Collaborators (X-Demo-Role: collaborator) may only comment.
  */
 import { createServer } from 'node:http'
@@ -19,7 +19,8 @@ const args = new Map<string, string>()
 for (let i = 2; i < process.argv.length; i += 2) args.set(process.argv[i]!.replace(/^--/, ''), process.argv[i + 1] ?? '')
 const ROOT = resolve(args.get('root') ?? '.')
 const PORT = Number(args.get('port') ?? 8790)
-const DIST = fileURLToPath(new URL('./dist/', import.meta.url))
+// --dist serves another build of the client, so that a second server can run a newer client beside the first
+const DIST = args.has('dist') ? resolve(args.get('dist')!) + '/' : fileURLToPath(new URL('./dist/', import.meta.url))
 const MODEL_URL = process.env.MODEL_URL ?? 'http://127.0.0.1:8317/v1/chat/completions'
 const MODEL = process.env.MODEL ?? 'gemini-3.8-flash-high'
 const store = new ProjectStore(ROOT)

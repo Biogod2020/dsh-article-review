@@ -8,7 +8,7 @@ import type { ReactNode } from 'react'
 import type { Target } from '../../project/model.ts'
 import type { ProjectView } from '../../project/store.ts'
 import type { AgentTask, ProjectActions } from './actions.ts'
-import { STAGE_LABEL, cx } from './common.tsx'
+import { STAGE_LABEL, cx, progressByType, unitFocus } from './common.tsx'
 import { StoryCanvas } from './StoryCanvas.tsx'
 import type { Focus } from './common.tsx'
 import { Figures } from './Figures.tsx'
@@ -45,7 +45,24 @@ const taskLabel = (t: AgentTask): string => {
 export function ProjectWorkbench({ actions, refresh: refreshKey = 0, agentBusy = false }: { actions: ProjectActions, refresh?: number, agentBusy?: boolean }): ReactNode {
   const [view, setView] = useState<ProjectView | null>(null)
   const [error, setError] = useState('')
-  const [tab, setTab] = useState<Tab>('story')
+  // the open tab survives a reload: it is kept in the address (#read) and, as a fallback, in local storage
+  const [tab, setTabState] = useState<Tab>(() => {
+    const ok = (x: string | null): x is Tab => !!x && TABS.some(t => t.key === x)
+    const h = location.hash.replace(/^#/, '')
+    let saved: string | null = null
+    try { saved = localStorage.getItem('paper-open-tab') } catch { /* private mode */ }
+    return ok(h) ? h : ok(saved) ? saved : 'story'
+  })
+  const setTab = useCallback((t: Tab) => {
+    setTabState(t)
+    try { localStorage.setItem('paper-open-tab', t) } catch { /* private mode */ }
+    if (location.hash !== `#${t}`) history.replaceState(null, '', `#${t}`)
+  }, [])
+  useEffect(() => {
+    const f = (): void => { const h = location.hash.replace(/^#/, ''); if (TABS.some(t => t.key === h)) setTabState(h as Tab) }
+    window.addEventListener('hashchange', f)
+    return () => window.removeEventListener('hashchange', f)
+  }, [])
   const [focus, setFocus] = useState<Focus | null>(null)
   const [readAt, setReadAt] = useState('')
   const [draftAt, setDraftAt] = useState('')
@@ -53,6 +70,18 @@ export function ProjectWorkbench({ actions, refresh: refreshKey = 0, agentBusy =
   const [busy, setBusy] = useState<string>('')
   const [log, setLog] = useState<{ at: string, text: string, ok: boolean }[]>([])
   const [showMore, setShowMore] = useState(false)
+  const [help, setHelp] = useState(false)
+  const nextRef = useRef<() => void>(() => undefined)
+  useEffect(() => {
+    const f = (e: KeyboardEvent): void => {
+      if ((e.target as HTMLElement | null)?.closest('input, textarea, select, [contenteditable=true]') || e.ctrlKey || e.metaKey || e.altKey) return
+      if (e.key === '?') setHelp(v => !v)
+      else if (e.key === 'Escape') setHelp(false)
+      else if (e.key === 'n' || e.key === 'N') nextRef.current()
+    }
+    window.addEventListener('keydown', f)
+    return () => window.removeEventListener('keydown', f)
+  }, [])
   const lastJump = useRef('')
   // appearance shared with the paper-argument frontend: follow the system, light or dark
   const [theme, setTheme] = useState<'auto' | 'light' | 'dark'>(() => (localStorage.getItem('paper-arch-theme') as 'auto' | 'light' | 'dark' | null) ?? 'auto')
@@ -117,7 +146,7 @@ export function ProjectWorkbench({ actions, refresh: refreshKey = 0, agentBusy =
     }
     else if (f.kind === 'figure') setTab('figures')
     else setTab('story')
-  }, [view])
+  }, [view, setTab])
 
   if (!view) return <div className={css.app}><div className={css.empty}>{error ? `无法载入项目：${error}` : '载入中…'}</div></div>
   // the tab badge counts people's comments and replies waiting for the author; model reviews are shown apart
@@ -126,9 +155,7 @@ export function ProjectWorkbench({ actions, refresh: refreshKey = 0, agentBusy =
   const answered = view.comments.filter(c => c.status === 'answered').length
   const modelOpen = view.comments.filter(c => c.status === 'open' && !human(c)).length
   const pendingDrafts = view.drafts.filter(d => d.status === 'pending').length
-  const units = Object.entries(view.status)
-  const nOk = units.filter(([, v]) => v === 'reviewed').length, nCh = units.filter(([, v]) => v === 'changed').length, nAll = units.length
-  const pct = (x: number): string => nAll ? `${(100 * x / nAll).toFixed(1)}%` : '0'
+  const prog = progressByType(view)
   /** Next unit changed since review, then never reviewed, in story order. */
   const nextPending = (): void => {
     const order = view.units.map(u => u.key)
@@ -139,6 +166,7 @@ export function ProjectWorkbench({ actions, refresh: refreshKey = 0, agentBusy =
     const [kind, id] = k.includes(':') ? k.split(':') as [string, string] : [k, k]
     go({ kind: kind as Focus['kind'], id })
   }
+  nextRef.current = nextPending
   return <div className={css.app} data-theme={dark ? 'dark' : 'light'}>
     <header className={css.top}>
       <h1 className={css.title} title={view.project.title}>{view.project.title}</h1>
@@ -150,10 +178,11 @@ export function ProjectWorkbench({ actions, refresh: refreshKey = 0, agentBusy =
         <button className={css.segMore} onClick={() => setShowMore(!showMore)}>{showMore ? '收起' : '更多 ▾'}</button></nav>
       <span className={css.grow} />
       {actions.user.role === 'author' && <>
-        <button className={css.btn} onClick={() => setTab('story')} title="已审 = 你确认过、之后未变；审后有修改 = 确认过之后被改；未审 = 从未确认">
-          <span className={css.prog}>已审 {nOk}/{nAll}<span className={css.meter}><i style={{ width: pct(nOk), background: 'var(--ok)' }} /><i style={{ width: pct(nCh), background: 'var(--chg)' }} /></span>
-            {nCh > 0 && <span style={{ color: 'var(--chg)' }}>审后有修改 {nCh}</span>}</span></button>
-        <button className={css.btn} onClick={nextPending} title="跳到下一处审后有修改或未审的地方">下一处待审 ▸</button></>}
+        <span className={css.progSet} title="已审 = 你确认过、之后未变；橙色 = 确认过之后被改；灰色 = 从未确认。点一类跳到这一类里下一处待审">
+          {prog.map(g => <button key={g.key} className={cx(css.progChip, g.ok === g.all && css.progDone)} onClick={() => { if (g.next) go(unitFocus(g.next)); else setTab(g.key === 'story' ? 'story' : g.key === 'figure' ? 'figures' : 'read') }}>
+            {g.label} {g.ok}/{g.all}<span className={css.meterS}><i style={{ width: `${g.all ? 100 * g.ok / g.all : 0}%`, background: 'var(--ok)' }} /><i style={{ width: `${g.all ? 100 * g.changed / g.all : 0}%`, background: 'var(--chg)' }} /></span></button>)}</span>
+        <button className={css.btn} onClick={nextPending} title="跳到下一处审后有修改或未审的地方（快捷键 N）">下一处待审 ▸</button></>}
+      <button className={css.btn} onClick={() => setHelp(true)} title="快捷键说明（?）">?</button>
       <button className={cx(css.btn, css.themeBtn)} onClick={cycleTheme} title="外观：跟随系统 → 浅色 → 深色">{THEMES[theme]}</button>
       {actions.user.role === 'collaborator' && <span className={css.hintbar}>协作者 · {actions.user.name}</span>}
     </header>
@@ -163,10 +192,10 @@ export function ProjectWorkbench({ actions, refresh: refreshKey = 0, agentBusy =
     </div>}
     {actions.user.role === 'collaborator' && <div className={css.collabBanner}>你以协作者身份查看：可以阅读全部内容并写意见；agent 修改、确认已审和推进阶段由作者进行。</div>}
     <main className={css.main}>
-      {tab === 'overview' && <Overview view={view} actions={wrapped} onAsk={t => void ask(t)} busy={!!busy} onTab={t => setTab(t as Tab)} />}
+      {tab === 'overview' && <Overview view={view} actions={wrapped} onAsk={t => void ask(t)} busy={!!busy} onTab={t => setTab(t as Tab)} onGo={go} />}
       {tab === 'story' && <StoryCanvas view={view} actions={wrapped} focus={focus} onGo={go} onAskComment={askComment}
         onRead={id => { setReadAt(id); setTab('read') }} />}
-      {tab === 'figures' && <Figures view={view} actions={wrapped} onFocus={go} />}
+      {tab === 'figures' && <Figures view={view} actions={wrapped} onFocus={go} focus={focus} />}
       {tab === 'draft' && <Draft view={view} actions={wrapped} onFocus={go} onAsk={t => void ask(t)} busy={!!busy} start={draftAt} from={origin} onBack={() => { setOrigin(''); setTab('inbox') }} onRead={id => { setReadAt(id); setTab('read') }} />}
       {tab === 'read' && <Reader view={view} actions={wrapped} start={readAt} onFocus={go} onAskComment={askComment} />}
       {tab === 'inbox' && <Inbox view={view} actions={wrapped} onGo={go} onAsk={t => void ask(t)} busy={!!busy} />}
@@ -174,5 +203,28 @@ export function ProjectWorkbench({ actions, refresh: refreshKey = 0, agentBusy =
       {tab === 'history' && <History view={view} onGo={go} />}
       {tab === 'network' && <Network view={view} onGo={go} />}
     </main>
+    {help && <div className={css.modalBack} onClick={() => setHelp(false)}><div className={css.modal} onClick={e => e.stopPropagation()} role="dialog" aria-label="快捷键说明">
+      <div className={css.cardHead}>快捷键</div>
+      <table className={css.keys}><tbody>
+        <tr><th colSpan={2}>任何页面</th></tr>
+        <tr><td><kbd>N</kbd></td><td>跳到下一处待审（先是审后有修改，再是未审）</td></tr>
+        <tr><td><kbd>?</kbd></td><td>打开或关闭本说明</td></tr>
+        <tr><th colSpan={2}>阅读</th></tr>
+        <tr><td><kbd>←</kbd> <kbd>→</kbd></td><td>上一页 / 下一页（PageUp / PageDown 也可以）</td></tr>
+        <tr><td><kbd>C</kbd></td><td>本页已审并翻到下一页；本页的增删标记随之消失</td></tr>
+        <tr><td><kbd>T</kbd></td><td>打开或关闭目录</td></tr>
+        <tr><td>选中文字 / 右键</td><td>高亮（四种颜色）、写笔记、针对这句话写意见；右键已有的高亮可以换颜色、改笔记、删除</td></tr>
+        <tr><th colSpan={2}>图</th></tr>
+        <tr><td><kbd>←</kbd> <kbd>→</kbd></td><td>上一张 / 下一张</td></tr>
+        <tr><td><kbd>C</kbd></td><td>这张图已审并看下一张</td></tr>
+        <tr><th colSpan={2}>故事流</th></tr>
+        <tr><td>滚轮 / 拖动</td><td>移动画布；Ctrl 或 ⌘ 加滚轮缩放</td></tr>
+        <tr><td><kbd>Esc</kbd></td><td>关闭详情、目录或放大的图</td></tr>
+        <tr><th colSpan={2}>写意见</th></tr>
+        <tr><td><kbd>Ctrl</kbd>/<kbd>⌘</kbd> + <kbd>Enter</kbd></td><td>保存意见</td></tr>
+      </tbody></table>
+      <div className={css.muted}>C 会写入你的确认记录，目前不能撤销。</div>
+      <div className={css.row}><button className={css.btn} onClick={() => setHelp(false)}>关闭</button></div>
+    </div></div>}
   </div>
 }

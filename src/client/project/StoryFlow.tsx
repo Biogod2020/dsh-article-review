@@ -6,11 +6,12 @@
  */
 import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
-import type { Claim, Comment, Project, Target } from '../../project/model.ts'
+import type { Claim, Comment, Target } from '../../project/model.ts'
 import type { ProjectView } from '../../project/store.ts'
 import type { ProjectActions } from './actions.ts'
 import { CommentBox, CommentCard, EV_KIND, EV_STATUS, EvidenceBar, ReviewDot, WordDiff, cx, Empty } from './common.tsx'
 import { AssetImg } from './common.tsx'
+import { useRevision } from './compare.tsx'
 import css from './project.module.css'
 
 export type { Focus } from './common.tsx'
@@ -90,21 +91,6 @@ function ThesisCard({ view, actions }: { view: ProjectView, actions: ProjectActi
     <div className={css.thesisTitle}>{t.title}</div>
     <div className={css.thesisText}>{t.statement}</div>
   </div>
-}
-
-/** Earlier project revision for the "since my review" diff, cached per revision number. */
-const revCache = new Map<number, Promise<Project>>()
-function useRevision(actions: ProjectActions, n: number | undefined): Project | null {
-  const [p, setP] = useState<Project | null>(null)
-  useEffect(() => {
-    if (n === undefined) { setP(null); return }
-    let live = true
-    let req = revCache.get(n)
-    if (!req) { req = actions.revision(n); revCache.set(n, req) }
-    req.then(x => { if (live) setP(x) }, () => { revCache.delete(n) })
-    return () => { live = false }
-  }, [actions, n])
-  return p
 }
 
 /** Claim detail; `embedded` drops the side-panel frame when it lives in the floating window of the story canvas. */

@@ -2,12 +2,15 @@
 import { build } from 'esbuild'
 import { copyFile, mkdir } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
+import { resolve } from 'node:path'
 const here = fileURLToPath(new URL('.', import.meta.url))
-await mkdir(`${here}dist`, { recursive: true })
+// node demo/build.mjs [out dir]; the default is demo/dist
+const out = process.argv[2] ? resolve(process.argv[2]) : `${here}dist`
+await mkdir(out, { recursive: true })
 await build({
-  entryPoints: [`${here}main.tsx`], bundle: true, outfile: `${here}dist/main.js`, format: 'esm', target: 'es2022',
+  entryPoints: [`${here}main.tsx`], bundle: true, outfile: `${out}/main.js`, format: 'esm', target: 'es2022',
   jsx: 'automatic', loader: { '.module.css': 'local-css' }, tsconfigRaw: {}, minify: true, sourcemap: true,
   define: { 'process.env.NODE_ENV': '"production"' }, logLevel: 'warning',
 })
-await copyFile(`${here}index.html`, `${here}dist/index.html`)
-console.log('built demo/dist')
+await copyFile(`${here}index.html`, `${out}/index.html`)
+console.log(`built ${out}`)

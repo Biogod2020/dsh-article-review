@@ -9,9 +9,10 @@ import type { Claim, Draft as RewriteDraft, Paragraph } from '../../project/mode
 import { claimHash } from '../../project/units.ts'
 import type { ProjectView } from '../../project/store.ts'
 import type { ProjectActions, AgentTask } from './actions.ts'
-import { ReviewDot, WordDiff, cx, Empty, paraLabel } from './common.tsx'
+import { ReviewDot, WordDiff, cx, Empty, paraLabel, claimNo } from './common.tsx'
 import { AssetImg } from './common.tsx'
 import type { Focus } from './StoryFlow.tsx'
+import { CHANGE_LABEL, CompareBar, ParaCompare, RemovedParas, useComparison } from './compare.tsx'
 import css from './project.module.css'
 
 /** Paragraph text with registry-missing numbers marked; each mark opens the number actions. */
@@ -77,7 +78,7 @@ function DraftContext({ paragraph, view, actions }: { paragraph: Paragraph, view
   const panels = [...new Map(claims.flatMap(c => c.evidence.flatMap(e => e.panels)).map(pn => [`${pn.figure}/${pn.label}`, pn])).values()].slice(0, 4)
   return <div className={css.draftCtx}>
     <div className={css.k}>它应当陈述</div>
-    {claims.map(c => <div key={c.id} className={css.ctxClaim}><b>{c.id}</b> {c.statement}</div>)}
+    {claims.map(c => <div key={c.id} className={css.ctxClaim}><b>{claimNo(view, c.id)}</b> {c.statement}</div>)}
     {panels.length > 0 && <div className={css.thumbs}>{panels.map(pn => { const f = figs.get(pn.figure), panel = f?.panels.find(x => x.label === pn.label)
       return panel ? <AssetImg key={pn.figure + pn.label} className={css.ctxImg} actions={actions} path={panel.image} alt={`${f!.label}${pn.label}`} title={`${f!.label}${pn.label}（点击放大）`}
         onClick={() => setZoom(panel.image)} /> : null })}</div>}
@@ -123,6 +124,7 @@ export function Draft({ view, actions, onFocus, onAsk, onRead, busy, start, from
   const [editing, setEditing] = useState<Record<string, string>>({})
   const [closeAsk, setCloseAsk] = useState<string[]>([])
   const fromComment = view.comments.find(c => c.id === from)
+  const cmp = useComparison(view, actions)
   /** Accept (possibly edited) and, when that settles every rewrite of a comment, offer to close the comment. */
   const accept = async (d: RewriteDraft, text?: string): Promise<void> => {
     const v = await actions.decideDraft(d.id, true, text)
@@ -172,17 +174,20 @@ export function Draft({ view, actions, onFocus, onAsk, onRead, busy, start, from
         <button key={b.id} className={css.btn} disabled={busy} onClick={() => onAsk({ kind: 'draft', beat: b.id })}>写「{b.title.slice(0, 16)}」</button>)}</span>}
       {unwritten.length > 0 && p.sections.length > 0 && <span className={css.muted}>还没有段落陈述：{unwritten.map(u => u.claim).join('、')}</span>}
     </div>
+    <CompareBar view={view} cmp={cmp} />
     {!p.sections.length && <Empty>还没有正文。骨架和图改得差不多后，点上面的按钮让 agent 按骨架逐节成文；风格要求：领域内 native 学者的专业水平，非 native 读者也读得舒服。</Empty>}
     {p.sections.map(s => <section key={s.id} className={css.draftSec}>
       <h3>{s.heading}{s.beat && <span className={css.muted}> · 第 {p.beats.findIndex(b => b.id === s.beat) + 1} 拍</span>}</h3>
       {s.paragraphs.map(x => {
         const st = stale.get(x.id)
         const d = drafts.get(x.id)
+        const ch = cmp.kind(x.id)
+        const marked = ch && ch !== 'same' ? ch : undefined
         const key = `paragraph:${x.id}`
-        return <div key={x.id} id={`dp-${x.id}`} className={cx(css.dpara, st && css.dparaStale, start === x.id && css.dparaFocus)}>
+        return <div key={x.id} id={`dp-${x.id}`} className={cx(css.dpara, st && css.dparaStale, start === x.id && css.dparaFocus, marked && css[`cmpRow_${marked}`])} {...(marked ? { 'data-change': marked } : {})}>
           <div className={css.dparaSide}>
             <ReviewDot status={view.status[key]} />
-            {x.claims.map(cid => <button key={cid} className={css.chip} onClick={() => onFocus({ kind: 'claim', id: cid })}>{cid}</button>)}
+            {x.claims.map(cid => <button key={cid} className={css.chip} title={view.project.claims.find(c => c.id === cid)?.title ?? cid} onClick={() => onFocus({ kind: 'claim', id: cid })}>{claimNo(view, cid)}</button>)}
           </div>
           <div className={css.dparaMain}>
             {d && d.status === 'pending' ? <div className={css.draftBox}>
@@ -200,7 +205,8 @@ export function Draft({ view, actions, onFocus, onAsk, onRead, busy, start, from
                   : <><button className={css.btnPrimary} onClick={() => void accept(d)}>接受改写</button>
                     <button className={css.btn} onClick={() => setEditing({ ...editing, [d.id]: d.after })}>改几个词再接受</button>
                     <button className={css.btnGhost} onClick={() => void actions.decideDraft(d.id, false)}>放弃</button></>}</div>}
-            </div> : <p><Marked text={x.text} values={nums.get(x.id) ?? []} onPick={(value, el) => {
+            </div> : marked ? <><span className={cx(css.cmpTag, css[`cmp_${marked}`])}>{CHANGE_LABEL[marked]}{cmp.n !== undefined ? ` · 相对 r${cmp.n}` : ''}</span>
+              <ParaCompare kind={marked} before={cmp.before(x.id)} after={x.text} /></> : <p><Marked text={x.text} values={nums.get(x.id) ?? []} onPick={(value, el) => {
               const r = el.getBoundingClientRect(); setPop({ value, where: key, at: { x: r.left, y: r.bottom } }) }} /></p>}
             {d && d.status === 'stale' && <div className={css.muted}>这段在起草改写后又被改过，旧草稿作废；需要的话重新起草。</div>}
             {st && !d && keep !== x.id && <div className={css.syncWarn}>论点 {st.join('、')} 在这段写好后改过。
@@ -215,6 +221,7 @@ export function Draft({ view, actions, onFocus, onAsk, onRead, busy, start, from
         </div>
       })}
     </section>)}
+    <RemovedParas cmp={cmp} />
     {pop && <NumberPop value={pop.value} where={pop.where} at={pop.at} view={view} actions={actions}
       onClose={next => { setPop(null); if (next) setTimeout(() => { nextNumber(true); const m = document.querySelector<HTMLElement>('mark[data-num]:focus'); if (m) { const r = m.getBoundingClientRect(); setPop({ value: m.dataset.num ?? '', where: m.closest('[id^=dp-]')?.id.replace('dp-', 'paragraph:') ?? '', at: { x: r.left, y: r.bottom } }) } }, 300) }} />}
   </div>
