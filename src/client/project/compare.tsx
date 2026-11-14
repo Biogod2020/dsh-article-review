@@ -40,6 +40,10 @@ export interface Comparison {
   kind: (paragraph: string) => ParaChange | undefined
   before: (paragraph: string) => string | undefined
   removed: RemovedPara[]
+  /** baseline paragraphs that stood just before this current paragraph and are gone */
+  removedBefore: (paragraph: string) => RemovedPara[]
+  /** baseline paragraphs after the last current paragraph that are gone */
+  removedEnd: RemovedPara[]
   counts: Record<ParaChange, number>
 }
 
@@ -86,23 +90,76 @@ export function useComparison(view: ProjectView, actions: ProjectActions): Compa
   const n = picked !== undefined && Number.isInteger(picked) && picked >= 0 && picked < view.revision ? picked : undefined
   const base = useRevision(actions, n)
   return useMemo(() => {
-    const old = new Map<string, RemovedPara>()
-    if (base && n !== undefined) for (const s of base.sections) for (const x of s.paragraphs) old.set(x.id, { id: x.id, heading: s.heading, text: x.text })
-    const kinds = new Map<string, ParaChange>()
+    const kinds = new Map<string, ParaChange>(), before = new Map<string, string>(), gone = new Map<string, RemovedPara[]>()
     const counts: Record<ParaChange, number> = { same: 0, edited: 0, rewritten: 0, new: 0 }
-    const now = new Set<string>()
-    if (base && n !== undefined) for (const s of view.project.sections) for (const x of s.paragraphs) {
-      now.add(x.id)
-      const b = old.get(x.id)
-      const k: ParaChange = !b ? 'new' : b.text === x.text ? 'same' : kept(b.text, x.text) >= 0.5 ? 'edited' : 'rewritten'
-      kinds.set(x.id, k); counts[k]++
+    let removed: RemovedPara[] = [], removedEnd: RemovedPara[] = []
+    if (base && n !== undefined) {
+      const old = base.sections.flatMap(s => s.paragraphs.map(x => ({ id: x.id, heading: s.heading, text: x.text })))
+      const cur = view.project.sections.flatMap(s => s.paragraphs)
+      const a = align(old, cur)
+      let pending: RemovedPara[] = []
+      for (const step of a) {
+        if (step.cur === undefined) { pending.push(old[step.old!]!); continue }
+        const x = cur[step.cur]!, b = step.old === undefined ? undefined : old[step.old]!
+        const k: ParaChange = !b ? 'new' : b.text === x.text ? 'same' : kept(b.text, x.text) >= 0.5 ? 'edited' : 'rewritten'
+        kinds.set(x.id, k); counts[k]++
+        if (b) before.set(x.id, b.text)
+        if (pending.length) { gone.set(x.id, pending); removed = removed.concat(pending); pending = [] }
+      }
+      removedEnd = pending; removed = removed.concat(pending)
     }
     return {
       choice, setChoice, n: base ? n : undefined, base,
-      kind: id => kinds.get(id), before: id => old.get(id)?.text,
-      removed: [...old.values()].filter(x => !now.has(x.id)), counts,
+      kind: id => kinds.get(id), before: id => before.get(id),
+      removed, removedBefore: id => gone.get(id) ?? NONE, removedEnd, counts,
     }
   }, [view, base, n, choice])
+}
+
+const NONE: RemovedPara[] = []
+const bag = (s: string): Map<string, number> => {
+  const m = new Map<string, number>()
+  for (const w of s.toLowerCase().split(/[^\p{L}\p{N}.%]+/u)) if (w) m.set(w, (m.get(w) ?? 0) + 1)
+  return m
+}
+/** Share of the longer paragraph's words that the two paragraphs have in common, whatever their order. */
+function overlap(a: Map<string, number>, b: Map<string, number>, na: number, nb: number): number {
+  let same = 0
+  for (const [w, c] of a) same += Math.min(c, b.get(w) ?? 0)
+  return same / Math.max(1, na, nb)
+}
+
+/**
+ * Line up the paragraphs of the baseline with the current ones by what they say, in order, the way a text diff lines
+ * up lines. Paragraph ids are not used: an id may name a position, so inserting one paragraph would pair every later
+ * paragraph with its neighbour. A step has both sides (kept or changed), only `cur` (added) or only `old` (removed).
+ */
+export function align(old: Array<{ text: string }>, cur: Array<{ text: string }>): Array<{ old?: number, cur?: number }> {
+  const n = old.length, m = cur.length
+  const ob = old.map(x => bag(x.text)), cb = cur.map(x => bag(x.text))
+  const size = (b: Map<string, number>): number => { let k = 0; for (const c of b.values()) k += c; return k }
+  const on = ob.map(size), cn = cb.map(size)
+  // score of pairing old i with current j; below 0.4 of shared words they are not the same paragraph
+  const score = new Float64Array(n * m).fill(-1)
+  for (let i = 0; i < n; i++) for (let j = 0; j < m; j++) {
+    if (old[i]!.text === cur[j]!.text) { score[i * m + j] = 2; continue }
+    const s = overlap(ob[i]!, cb[j]!, on[i]!, cn[j]!)
+    if (s >= 0.4) score[i * m + j] = s
+  }
+  const w = m + 1, best = new Float64Array((n + 1) * w)
+  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) {
+    const s = score[i * m + j]!
+    best[i * w + j] = Math.max(best[(i + 1) * w + j]!, best[i * w + j + 1]!, s > 0 ? s + best[(i + 1) * w + j + 1]! : 0)
+  }
+  const out: Array<{ old?: number, cur?: number }> = []
+  let i = 0, j = 0
+  while (i < n || j < m) {
+    const s = i < n && j < m ? score[i * m + j]! : -1
+    if (s > 0 && best[i * w + j] === s + best[(i + 1) * w + j + 1]!) { out.push({ old: i, cur: j }); i++; j++ }
+    else if (i < n && (j === m || best[i * w + j] === best[(i + 1) * w + j]!)) { out.push({ old: i }); i++ }
+    else { out.push({ cur: j }); j++ }
+  }
+  return out
 }
 
 export const CHANGE_LABEL: Record<ParaChange, string> = { same: '未改', edited: '有修改', rewritten: '重写', new: '新增' }
@@ -133,33 +190,21 @@ export function CompareBar({ view, cmp }: { view: ProjectView, cmp: Comparison }
       <span className={cx(css.cmpTag, css.cmp_new)}>新增 {c.new} 段</span>
       <span className={cx(css.cmpTag, css.cmp_removed)}>删除 {cmp.removed.length} 段</span>
       <span className={css.muted}>未改 {c.same} 段</span>
-      {c.rewritten + c.edited + c.new > 0 && <button className={css.btn} onClick={jump}>下一处修改</button>}
-      {cmp.removed.length > 0 && <button className={css.btn} onClick={() => document.getElementById('cmp-removed')?.scrollIntoView({ block: 'start', behavior: 'smooth' })}>看删除的段落</button>}
+      {c.rewritten + c.edited + c.new + cmp.removed.length > 0 && <button className={css.btn} onClick={jump}>下一处修改</button>}
     </>}
   </div>
 }
 
-/** One paragraph against the baseline: a word diff when most words are kept, the two versions one above the other otherwise. */
+/** One paragraph against the baseline: a word diff when most words are kept; otherwise the old paragraph as a removed block above the new one, like a text diff. */
 export function ParaCompare({ kind, before, after }: { kind: ParaChange, before: string | undefined, after: string }): ReactNode {
   if (kind === 'edited' && before !== undefined) return <p><WordDiff before={before} after={after} /></p>
-  if (kind === 'rewritten' && before !== undefined) return <div className={css.cmpPair}>
-    <div className={css.cmpOld}><span className={css.k}>对照版本</span><p>{before}</p></div>
-    <div className={css.cmpNew}><span className={css.k}>现在</span><p>{after}</p></div>
-  </div>
+  if (kind === 'rewritten' && before !== undefined) return <><div className={css.dfDel}><p>{before}</p></div><div className={css.dfAdd}><p>{after}</p></div></>
+  if (kind === 'new') return <div className={css.dfAdd}><p>{after}</p></div>
   return <p>{after}</p>
 }
 
-/** Paragraphs of the baseline that the current text no longer has, grouped under their old headings. */
-export function RemovedParas({ cmp }: { cmp: Comparison }): ReactNode {
-  if (cmp.n === undefined || !cmp.removed.length) return null
-  const groups: Array<{ heading: string, items: RemovedPara[] }> = []
-  for (const x of cmp.removed) { const g = groups.at(-1); if (g && g.heading === x.heading) g.items.push(x); else groups.push({ heading: x.heading, items: [x] }) }
-  return <section id="cmp-removed" className={css.cmpRemoved}>
-    <h3>r{cmp.n} 里有、现在已删除的段落（{cmp.removed.length}）</h3>
-    <div className={css.muted}>按对照版本的章节排列。这些段落在现在的正文里没有对应段落。</div>
-    {groups.map((g, i) => <details key={i} open>
-      <summary>{g.heading || '（无标题）'} · {g.items.length} 段</summary>
-      {g.items.map(x => <p key={x.id}>{x.text}</p>)}
-    </details>)}
-  </section>
+/** Baseline paragraphs that are gone, shown where they stood, like the removed lines of a text diff. */
+export function RemovedHere({ items, n }: { items: RemovedPara[], n: number | undefined }): ReactNode {
+  if (n === undefined || !items.length) return null
+  return <>{items.map(x => <div key={x.id} className={css.dfDel} data-change="removed" title={`r${n} 里有、现在已删除的段落`}><p>{x.text}</p></div>)}</>
 }

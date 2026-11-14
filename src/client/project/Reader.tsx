@@ -13,7 +13,7 @@ import type { Chunk, FigureRef } from '../../project/reader-pages.ts'
 import type { ProjectActions } from './actions.ts'
 import { AssetImg, CommentBox, CommentCard, Empty, claimNo, cx, readableDiff } from './common.tsx'
 import type { Focus } from './StoryFlow.tsx'
-import { CHANGE_LABEL, useComparison } from './compare.tsx'
+import { CHANGE_LABEL, useComparison, RemovedHere } from './compare.tsx'
 import type { ParaChange } from './compare.tsx'
 import css from './project.module.css'
 
@@ -274,18 +274,20 @@ export function Reader({ view, actions, start, onFocus, onAskComment }: {
           {at > 0 && !page.heads.length && crumb && <div className={css.rdSec}>{crumb}</div>}
           {page.heads.map((h, i) => h.level === 2 ? <h2 key={i}>{h.text}</h2> : <h3 key={i}>{h.text}</h3>)}
           {page.chunks.map((c, i) => <Fragment key={`${c.paragraph}~${c.part}`}>
-            {showOld(c.paragraph) && page.chunks[i - 1]?.paragraph !== c.paragraph && <div className={css.rdOld}><span>旧版（r{cmp.n}）{c.part > 0 ? '，整段' : ''}</span>{cmp.before(c.paragraph)}</div>}
-            <p data-para={c.paragraph} className={cx(c.front ? css.rdFront : css.rdP, c.part > 0 && css.rdCont, cur === c.paragraph && css.rdPCur, changeOf(c.paragraph) && css[`rdChange_${changeOf(c.paragraph)}`])}
+            {marks && c.part === 0 && <RemovedHere items={cmp.removedBefore(c.paragraph)} n={cmp.n} />}
+            {showOld(c.paragraph) && page.chunks[i - 1]?.paragraph !== c.paragraph && <div className={css.dfDel} title={`r${cmp.n} 的这一段${c.part > 0 ? '（整段）' : ''}`}><p>{cmp.before(c.paragraph)}</p></div>}
+            <p data-para={c.paragraph} className={cx(c.front ? css.rdFront : css.rdP, c.part > 0 && css.rdCont, cur === c.paragraph && css.rdPCur, changeOf(c.paragraph) && css[`rdChange_${changeOf(c.paragraph) === 'rewritten' && !showOld(c.paragraph) ? 'edited' : changeOf(c.paragraph)}`])}
               {...(changeOf(c.paragraph) ? { title: `${CHANGE_LABEL[changeOf(c.paragraph)!]}（相对 r${cmp.n}）` } : {})}
               onClick={() => setCur(c.paragraph)}>
               {render(c)}
               {c.part === 0 && openCount(c.paragraph) > 0 && <span className={css.rdBadge} title="这段有批注：点击查看" onClick={e => { e.stopPropagation(); setCur(c.paragraph); setSide('para') }}>{openCount(c.paragraph)}</span>}
             </p>
             {changeOf(c.paragraph) && page.chunks[i + 1]?.paragraph !== c.paragraph && <div className={cx(css.rdActs, css.rdActsOn)}>
-              {marks && changeOf(c.paragraph) === 'rewritten' && cmp.before(c.paragraph) !== undefined && <button className={css.btnGhost} title="这段改动很大：默认把旧版放在上面，新版干净显示；也可以改成在行内标出增删"
-                onClick={() => setInline(s => { const n = new Set(s); if (n.has(c.paragraph)) n.delete(c.paragraph); else n.add(c.paragraph); return n })}>{inline.has(c.paragraph) ? '新旧对照' : '行内标记'}</button>}
+              {marks && changeOf(c.paragraph) === 'rewritten' && cmp.before(c.paragraph) !== undefined && <button className={css.btnGhost} title="这段改动很大：默认像 diff 那样上面是删掉的旧段、下面是新段；也可以改成在行内标出增删"
+                onClick={() => setInline(s => { const n = new Set(s); if (n.has(c.paragraph)) n.delete(c.paragraph); else n.add(c.paragraph); return n })}>{inline.has(c.paragraph) ? '整段对照' : '行内标记'}</button>}
               {author && changeOf(c.paragraph) && <button className={cx(css.btn, css.rdOk)} onClick={() => void actions.confirm([`paragraph:${c.paragraph}`])} title="把这一段记为已审；之后不再显示这段的增删，直到它再被修改">✓ 批准这段修改</button>}</div>}
           </Fragment>)}
+          {marks && at === pages.length - 1 && <RemovedHere items={cmp.removedEnd} n={cmp.n} />}
         </article>
         <nav className={css.rdNav}>
           {at > 0 ? <button className={css.btn} onClick={() => go(at - 1)}>‹ {title(at - 1)}</button> : <span />}

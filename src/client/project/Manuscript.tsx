@@ -3,7 +3,7 @@
  * with sync and number warnings and the agent actions that fix them. Read: the text as a reader meets it, with
  * the figure panels of the paragraph in focus beside it; selecting text starts a comment on that paragraph.
  */
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { Claim, Draft as RewriteDraft, Paragraph } from '../../project/model.ts'
 import { claimHash } from '../../project/units.ts'
@@ -12,7 +12,7 @@ import type { ProjectActions, AgentTask } from './actions.ts'
 import { ReviewDot, WordDiff, cx, Empty, paraLabel, claimNo } from './common.tsx'
 import { AssetImg } from './common.tsx'
 import type { Focus } from './StoryFlow.tsx'
-import { CHANGE_LABEL, CompareBar, ParaCompare, RemovedParas, useComparison } from './compare.tsx'
+import { CHANGE_LABEL, CompareBar, ParaCompare, RemovedHere, useComparison } from './compare.tsx'
 import css from './project.module.css'
 
 /** Paragraph text with registry-missing numbers marked; each mark opens the number actions. */
@@ -184,7 +184,7 @@ export function Draft({ view, actions, onFocus, onAsk, onRead, busy, start, from
         const ch = cmp.kind(x.id)
         const marked = ch && ch !== 'same' ? ch : undefined
         const key = `paragraph:${x.id}`
-        return <div key={x.id} id={`dp-${x.id}`} className={cx(css.dpara, st && css.dparaStale, start === x.id && css.dparaFocus, marked && css[`cmpRow_${marked}`])} {...(marked ? { 'data-change': marked } : {})}>
+        return <Fragment key={x.id}><RemovedHere items={cmp.removedBefore(x.id)} n={cmp.n} /><div id={`dp-${x.id}`} className={cx(css.dpara, st && css.dparaStale, start === x.id && css.dparaFocus, marked && css[`cmpRow_${marked}`])} {...(marked ? { 'data-change': marked } : {})}>
           <div className={css.dparaSide}>
             <ReviewDot status={view.status[key]} />
             {x.claims.map(cid => <button key={cid} className={css.chip} title={view.project.claims.find(c => c.id === cid)?.title ?? cid} onClick={() => onFocus({ kind: 'claim', id: cid })}>{claimNo(view, cid)}</button>)}
@@ -218,10 +218,10 @@ export function Draft({ view, actions, onFocus, onAsk, onRead, busy, start, from
               {author && view.status[key] !== 'reviewed' && <button className={css.linkBtn} onClick={() => void actions.confirm([key])}>确认已审</button>}
             </div>
           </div>
-        </div>
+        </div></Fragment>
       })}
     </section>)}
-    <RemovedParas cmp={cmp} />
+    <RemovedHere items={cmp.removedEnd} n={cmp.n} />
     {pop && <NumberPop value={pop.value} where={pop.where} at={pop.at} view={view} actions={actions}
       onClose={next => { setPop(null); if (next) setTimeout(() => { nextNumber(true); const m = document.querySelector<HTMLElement>('mark[data-num]:focus'); if (m) { const r = m.getBoundingClientRect(); setPop({ value: m.dataset.num ?? '', where: m.closest('[id^=dp-]')?.id.replace('dp-', 'paragraph:') ?? '', at: { x: r.left, y: r.bottom } }) } }, 300) }} />}
   </div>

@@ -476,3 +476,20 @@
 .inbox { max-width: 940px } .ibSel { max-width: 132px } .ibSearch { min-width: 120px; max-width: none }
 .rdTabs button.rdTabOn, .tab2On { background: var(--accentBg); color: var(--accent); border-color: color-mix(in srgb, var(--accent) 55%, transparent); font-weight: 600 }
 .rdCmp select { max-width: 19em }
+
+/* ---- 2026-11-14 text-diff look: removed paragraphs in red with "−", added ones in green with "+", where they stand ---- */
+.dfDel, .dfAdd { position: relative; border-radius: 4px; padding: 1px 12px 1px 30px; margin: 2px 0 }
+.dfDel::before, .dfAdd::before { position: absolute; left: 10px; top: .55em; font: 700 14px/1 ui-monospace, SFMono-Regular, Menlo, monospace }
+.dfDel { background: rgba(224, 82, 62, .11); box-shadow: inset 3px 0 0 #d0553f; color: var(--ink2); user-select: none; -webkit-user-select: none }
+.dfDel::before { content: "\2212"; color: #d0553f }
+.dfAdd { background: rgba(47, 154, 120, .12); box-shadow: inset 3px 0 0 #2f9a78 }
+.dfAdd::before { content: "+"; color: #2f9a78 }
+.dfDel p, .dfAdd p { margin: .45em 0 }
+.dfDel + .dfAdd, .dfDel + .dfDel { margin-top: 0; border-top-left-radius: 0; border-top-right-radius: 0 }
+/* reader: the blocks hang into the left margin so the text stays on one line with the unchanged paragraphs */
+.rdText .dfDel { margin: 0 -6px 0 -30px; font-size: .94em }
+.rdText .dfDel p { line-height: 1.6 }
+.rdText p.rdChange_new, .rdText p.rdChange_rewritten { position: relative; margin-left: -30px; padding: .35em 12px .35em 30px; border-radius: 4px; background: rgba(47, 154, 120, .12); box-shadow: inset 3px 0 0 #2f9a78 }
+.rdText p.rdChange_new::before, .rdText p.rdChange_rewritten::before { content: "+"; position: absolute; left: 10px; top: .75em; font: 700 14px/1 ui-monospace, SFMono-Regular, Menlo, monospace; color: #2f9a78; text-indent: 0 }
+.rdText .dfDel + p.rdChange_rewritten { margin-top: 0; border-top-left-radius: 0; border-top-right-radius: 0 }
+.rdText .dfDel:has(+ p.rdChange_rewritten) { border-bottom-left-radius: 0; border-bottom-right-radius: 0 }
