@@ -39,3 +39,13 @@ describe('reading pages', () => {
     expect(figureKey('Fig. S3')).toBe('FS3')
   })
 })
+
+it('keeps a merged short section\'s heading where its text starts', () => {
+  const pages = paginate({ sections: [
+    { id: 'sa', heading: 'Abstract', beat: '', paragraphs: [{ id: 'pa', text: 'A short abstract that ends here.', claims: [], basis: {} }] },
+    { id: 'si', heading: 'Introduction', beat: '', paragraphs: [{ id: 'pi', text: 'A short introduction that ends here.', claims: [], basis: {} }] },
+  ] })
+  expect(pages).toHaveLength(1)
+  expect(pages[0]!.heads.map(h => h.text)).toEqual(['Abstract'])
+  expect(pages[0]!.chunks.map(c => [c.paragraph, c.heads?.map(h => h.text) ?? []])).toEqual([['pa', []], ['pi', ['Introduction']]])
+})

@@ -1,6 +1,7 @@
 /**
  * Project mode: a paper is a project that moves from materials to a story-flow skeleton, then to claims and
- * figures, then to prose, then to reading review. The skeleton stays the reference after drafting: every
+ * figures, then to the abstract and introduction (agreed and locked first), then to the rest of the prose, then to
+ * reading review. The skeleton stays the reference after drafting: every
  * paragraph records which claims it states and the claim text it was written from, so either side drifting
  * is visible.
  */
@@ -9,8 +10,11 @@ import { z } from 'zod'
 const id = z.string().min(1).max(80)
 const text = z.string().max(20_000)
 
-/** Ordered stages; the author advances them, checklists only advise. */
-export const STAGES = ['materials', 'skeleton', 'refine', 'draft', 'read', 'submit'] as const
+/**
+ * Ordered stages; the author advances them, checklists only advise. Two steps need a written reason when their list
+ * is not met: leaving the abstract and introduction unlocked, and entering submit.
+ */
+export const STAGES = ['materials', 'skeleton', 'refine', 'frame', 'draft', 'read', 'submit'] as const
 export const StageSchema = z.enum(STAGES)
 export type Stage = z.infer<typeof StageSchema>
 
@@ -100,6 +104,11 @@ export const ProjectSchema = z.object({
   numbers: z.array(NumberSchema).default([]),
   sections: z.array(SectionSchema).default([]),
   links: z.array(LinkSchema).default([]),
+  /**
+   * The abstract and introduction: written and agreed before the rest of the prose, which is then written against
+   * them. Empty = found by heading (Abstract, Introduction).
+   */
+  frame: z.object({ sections: z.array(id).default([]) }).default({ sections: [] }),
   /** Numbers the author checked and keeps unregistered (method parameters etc.): "value" for everywhere, "where|value" for one place. */
   numberIgnores: z.array(z.string().max(200)).default([]),
 })
@@ -124,6 +133,19 @@ export const DraftSchema = z.object({
 })
 export type Draft = z.infer<typeof DraftSchema>
 
+/**
+ * frameLock: the abstract and introduction text the author locked (hash of their paragraphs); agents may only
+ * propose drafts for them afterwards. frameRounds: agent calls that wrote or revised them (the advice stops at 3).
+ * polished: the revision at which the final language pass was proposed. Whether an outside review has run is read
+ * from the comments themselves (persona comments carry the stage they were made at).
+ */
+export const FlowStateSchema = z.object({
+  frameLock: z.object({ hash: z.string(), revision: z.number().int(), at: z.string() }).nullable().default(null),
+  frameRounds: z.number().int().default(0),
+  polished: z.number().int().nullable().default(null),
+})
+export type FlowState = z.infer<typeof FlowStateSchema>
+
 export const ReviewStateSchema = z.object({
   revision: z.number().int().default(0),
   comments: z.array(CommentSchema).default([]),
@@ -133,6 +155,8 @@ export const ReviewStateSchema = z.object({
   drafts: z.array(DraftSchema).default([]),
   /** Agent's first sort of unregistered numbers ("where|value" -> kind + why); a hint for the author, never a decision. */
   numberHints: z.record(z.string(), z.object({ kind: z.enum(['result', 'parameter', 'citation', 'other']), note: z.string().max(400) })).default({}),
+  /** Where the recommended workflow stands: rounds already spent and what the author has locked. */
+  flow: FlowStateSchema.default({ frameLock: null, frameRounds: 0, polished: null }),
 })
 export type ReviewState = z.infer<typeof ReviewStateSchema>
 
@@ -152,5 +176,7 @@ export const ChangeSchema = z.discriminatedUnion('op', [
   z.object({ op: z.literal('remove'), unit: z.enum(['beat', 'claim', 'figure', 'number', 'section', 'paragraph']), id }),
   z.object({ op: z.literal('set-links'), links: z.array(LinkSchema) }),
   z.object({ op: z.literal('ignore-number'), value: z.string().max(80), where: z.string().max(120).default('') }),
+  /** Name the sections that hold the abstract and introduction, in reading order. */
+  z.object({ op: z.literal('set-frame'), sections: z.array(id).max(6) }),
 ])
 export type Change = z.infer<typeof ChangeSchema>

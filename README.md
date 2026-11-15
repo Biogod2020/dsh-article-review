@@ -121,6 +121,7 @@ See the [paper projects guide](docs/user-guide.md#paper-projects-preview) for th
 
 - [User guide](docs/user-guide.md) — manuscript review, figures, references, configuration and paper projects.
 - [Development and compatibility](docs/development.md) — builds, releases, tools and persistence.
+- [Recommended way to use a paper project](docs/workflow-guide.md) — the recommended order, the Continue button, starting midway.
 - [Project mode design notes](docs/project-mode.zh.md) — how paper projects work inside (Chinese).
 
 [MIT License](LICENSE)

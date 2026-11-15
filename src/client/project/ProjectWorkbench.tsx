@@ -16,6 +16,7 @@ import { Draft } from './Manuscript.tsx'
 import { Reader } from './Reader.tsx'
 import { History, Inbox, Network, Numbers, Overview } from './Panels.tsx'
 import { PERSONAS } from '../../project/prompts.ts'
+import type { FlowStep } from '../../project/flow.ts'
 import css from './project.module.css'
 
 type Tab = 'overview' | 'story' | 'figures' | 'draft' | 'read' | 'inbox' | 'numbers' | 'history' | 'network'
@@ -35,6 +36,10 @@ const taskLabel = (t: AgentTask): string => {
     case 'resync': return `按新论点重写 ${t.paragraphs.length} 个段落`
     case 'chat': return '处理对话请求'
     case 'numbers': return '给未登记数字分类'
+    case 'frame': return '起草或修改摘要与引言'
+    case 'review': return t.scope === 'argument' ? '论点与图外审一轮' : '正文外审一轮'
+    case 'draft-all': return '按骨架写其余正文'
+    case 'polish': return '最后润色一次'
   }
 }
 
@@ -113,6 +118,7 @@ export function ProjectWorkbench({ actions, refresh: refreshKey = 0, agentBusy =
     assign: async (id, a) => { const v = await actions.assign(id, a); setView(v); return v },
     markInSync: async id => { const v = await actions.markInSync(id); setView(v); return v },
     decideDraft: async (id, accept, text) => { const v = await actions.decideDraft(id, accept, text); setView(v); return v },
+    lockFrame: async (lock, reason) => { const v = await actions.lockFrame(lock, reason); setView(v); return v },
   }
 
   const ask = useCallback(async (task: AgentTask) => {
@@ -148,6 +154,16 @@ export function ProjectWorkbench({ actions, refresh: refreshKey = 0, agentBusy =
     else setTab('story')
   }, [view, setTab])
 
+  /** Do the workflow's next step: hand an agent step over, perform a panel action, or open where the author does it. */
+  const runFlow = (s: FlowStep): void => {
+    const fail = (err: unknown): void => setLog(l => [{ at: new Date().toTimeString().slice(0, 5), text: `${s.title}失败：${String(err)}`, ok: false }, ...l].slice(0, 20))
+    if (s.who === 'agent' && s.task) { void ask(s.task); return }
+    if (s.action === 'lock-frame') { void wrapped.lockFrame(true).catch(fail); return }
+    if (s.action === 'advance') { void wrapped.setStage(s.stage).catch(fail); return }
+    if (s.focus) go(unitFocus(s.focus))
+    else if (s.go) setTab(s.go)
+  }
+
   if (!view) return <div className={css.app}><div className={css.empty}>{error ? `无法载入项目：${error}` : '载入中…'}</div></div>
   // the tab badge counts people's comments and replies waiting for the author; model reviews are shown apart
   const human = (c: { source: string }): boolean => c.source === 'author' || c.source === 'collaborator' || c.source === 'chat' || c.source === 'check'
@@ -181,7 +197,9 @@ export function ProjectWorkbench({ actions, refresh: refreshKey = 0, agentBusy =
         <span className={css.progSet} title="已审 = 你确认过、之后未变；橙色 = 确认过之后被改；灰色 = 从未确认。点一类跳到这一类里下一处待审">
           {prog.map(g => <button key={g.key} className={cx(css.progChip, g.ok === g.all && css.progDone)} onClick={() => { if (g.next) go(unitFocus(g.next)); else setTab(g.key === 'story' ? 'story' : g.key === 'figure' ? 'figures' : 'read') }}>
             {g.label} {g.ok}/{g.all}<span className={css.meterS}><i style={{ width: `${g.all ? 100 * g.ok / g.all : 0}%`, background: 'var(--ok)' }} /><i style={{ width: `${g.all ? 100 * g.changed / g.all : 0}%`, background: 'var(--chg)' }} /></span></button>)}</span>
-        <button className={css.btn} onClick={nextPending} title="跳到下一处审后有修改或未审的地方（快捷键 N）">下一处待审 ▸</button></>}
+        <button className={css.btn} onClick={nextPending} title="跳到下一处审后有修改或未审的地方（快捷键 N）">下一处待审 ▸</button>
+        {view.flow.next.who !== 'none' && <button className={css.btnPrimary} disabled={!!busy && view.flow.next.who === 'agent'} onClick={() => runFlow(view.flow.next)}
+          title={`推荐流程的下一步：${view.flow.next.title}（${view.flow.next.who === 'agent' ? '交给 agent' : '由你来做'}）`}>继续推进 ▸</button>}</>}
       <button className={css.btn} onClick={() => setHelp(true)} title="快捷键说明（?）">?</button>
       <button className={cx(css.btn, css.themeBtn)} onClick={cycleTheme} title="外观：跟随系统 → 浅色 → 深色">{THEMES[theme]}</button>
       {actions.user.role === 'collaborator' && <span className={css.hintbar}>协作者 · {actions.user.name}</span>}
@@ -192,7 +210,7 @@ export function ProjectWorkbench({ actions, refresh: refreshKey = 0, agentBusy =
     </div>}
     {actions.user.role === 'collaborator' && <div className={css.collabBanner}>你以协作者身份查看：可以阅读全部内容并写意见；agent 修改、确认已审和推进阶段由作者进行。</div>}
     <main className={css.main}>
-      {tab === 'overview' && <Overview view={view} actions={wrapped} onAsk={t => void ask(t)} busy={!!busy} onTab={t => setTab(t as Tab)} onGo={go} />}
+      {tab === 'overview' && <Overview view={view} actions={wrapped} onAsk={t => void ask(t)} busy={!!busy} onTab={t => setTab(t as Tab)} onGo={go} onFlow={runFlow} />}
       {tab === 'story' && <StoryCanvas view={view} actions={wrapped} focus={focus} onGo={go} onAskComment={askComment}
         onRead={id => { setReadAt(id); setTab('read') }} />}
       {tab === 'figures' && <Figures view={view} actions={wrapped} onFocus={go} focus={focus} />}

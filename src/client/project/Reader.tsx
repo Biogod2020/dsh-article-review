@@ -274,6 +274,7 @@ export function Reader({ view, actions, start, onFocus, onAskComment }: {
           {at > 0 && !page.heads.length && crumb && <div className={css.rdSec}>{crumb}</div>}
           {page.heads.map((h, i) => h.level === 2 ? <h2 key={i}>{h.text}</h2> : <h3 key={i}>{h.text}</h3>)}
           {page.chunks.map((c, i) => <Fragment key={`${c.paragraph}~${c.part}`}>
+            {c.heads?.map((h, j) => h.level === 2 ? <h2 key={`h${j}`}>{h.text}</h2> : <h3 key={`h${j}`}>{h.text}</h3>)}
             {marks && c.part === 0 && <RemovedHere items={cmp.removedBefore(c.paragraph)} n={cmp.n} />}
             {showOld(c.paragraph) && page.chunks[i - 1]?.paragraph !== c.paragraph && <div className={css.dfDel} title={`r${cmp.n} 的这一段${c.part > 0 ? '（整段）' : ''}`}><p>{cmp.before(c.paragraph)}</p></div>}
             <p data-para={c.paragraph} className={cx(c.front ? css.rdFront : css.rdP, c.part > 0 && css.rdCont, cur === c.paragraph && css.rdPCur, changeOf(c.paragraph) && css[`rdChange_${changeOf(c.paragraph) === 'rewritten' && !showOld(c.paragraph) ? 'edited' : changeOf(c.paragraph)}`])}

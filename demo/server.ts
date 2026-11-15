@@ -12,7 +12,7 @@ import { extname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { ProjectStore } from '../src/project/store.ts'
 import type { Comment, Project, Target } from '../src/project/model.ts'
-import { draftPrompt, numberTriagePrompt, personaReviewPrompt, PERSONAS, refinePrompt, resyncPrompt, skeletonPrompt } from '../src/project/prompts.ts'
+import { draftPrompt, framePrompt, numberTriagePrompt, personaReviewPrompt, PERSONAS, polishPrompt, refinePrompt, resyncPrompt, skeletonPrompt } from '../src/project/prompts.ts'
 import type { Persona } from '../src/project/prompts.ts'
 
 const args = new Map<string, string>()
@@ -74,6 +74,7 @@ async function materialsText(p: Project): Promise<string> {
 
 type Task = { kind: 'skeleton' } | { kind: 'persona', persona: Persona, focus: string } | { kind: 'refine', comments: string[] }
   | { kind: 'draft', beat: string } | { kind: 'resync', paragraphs: string[] } | { kind: 'chat', text: string, target: Target } | { kind: 'numbers' }
+  | { kind: 'frame' } | { kind: 'review', scope: 'argument' | 'prose' } | { kind: 'draft-all' } | { kind: 'polish' }
 
 /** Rewrite drafts for paragraphs (never applied directly: the author accepts each with its diff). */
 async function draftRewrites(ids: string[], actor: string, reason: string, comments: string[]): Promise<number> {
@@ -153,6 +154,49 @@ async function runTask(task: Task, user: string): Promise<{ summary: string }> {
     const n = (k: string): number => Object.values(hints).filter(h => h.kind === k).length
     return { summary: `分类 ${Object.keys(hints).length} 个数字：结果 ${n('result')}、参数 ${n('parameter')}、引用编号 ${n('citation')}、其他 ${n('other')}` }
   }
+  if (task.kind === 'review') {
+    const said: string[] = []
+    for (const persona of Object.keys(PERSONAS) as Persona[]) said.push((await runTask({ kind: 'persona', persona, focus: task.scope === 'argument' ? '论点与图，不看措辞' : '正文' }, user)).summary)
+    return { summary: said.join('；') }
+  }
+  if (task.kind === 'draft-all') {
+    const todo = project.beats.filter(b => !project.sections.some(s => s.beat === b.id && s.paragraphs.length))
+    for (const b of todo) await runTask({ kind: 'draft', beat: b.id }, user)
+    return { summary: `写了 ${todo.length} 拍` }
+  }
+  if (task.kind === 'frame') {
+    const v = await store.view()
+    if (v.flow.frame.paragraphs.length) {
+      // revisions answer the open comments on the frame as drafts the author accepts
+      const ids = v.comments.filter(c => c.status === 'open' && c.target.kind === 'paragraph' && v.flow.frame.paragraphs.includes(c.target.id)).map(c => c.target.id)
+      const n = await draftRewrites([...new Set(ids)], actor, '按意见修改摘要与引言', [])
+      await store.noteFlow('frame-round')
+      return { summary: `起草 ${n} 段改写，待你确认` }
+    }
+    const out = await model(framePrompt(project))
+    const paras = (k: string): { id: string, text: string, claims: string[], basis: Record<string, string> }[] =>
+      ((out[k] as { text: string, claims?: string[] }[]) ?? []).map(x => ({ id: shortId('p'), text: x.text, claims: x.claims ?? [], basis: {} }))
+    await store.apply({ changes: [
+      { op: 'upsert-section', section: { id: 's-abstract', heading: 'Abstract', beat: '', paragraphs: paras('abstract') }, index: 0 },
+      { op: 'upsert-section', section: { id: 's-intro', heading: 'Introduction', beat: '', paragraphs: paras('introduction') }, index: 1 },
+      { op: 'set-frame', sections: ['s-abstract', 's-intro'] }], actor, reason: '起草摘要与引言' })
+    await store.noteFlow('frame-round')
+    return { summary: '起草了摘要与引言' }
+  }
+  if (task.kind === 'polish') {
+    const all = project.sections.flatMap(s => s.paragraphs.map(x => ({ s, x })))
+    const drafts = []
+    for (let i = 0; i < all.length; i += 12) {
+      const out = await model(polishPrompt(project, all.slice(i, i + 12).map(({ x }) => ({ id: x.id, text: x.text }))))
+      for (const n of (out.paragraphs as { id: string, text: string }[]) ?? []) {
+        const hit = all.find(a => a.x.id === n.id)
+        if (hit && n.text && n.text !== hit.x.text) drafts.push({ section: hit.s.id, paragraph: hit.x.id, before: hit.x.text, after: n.text, claims: hit.x.claims, reason: '最后润色', actor, comments: [] })
+      }
+    }
+    if (drafts.length) await store.addDrafts(drafts)
+    await store.noteFlow('polished')
+    return { summary: `润色：${drafts.length} 段改写待你确认` }
+  }
   throw new Error(`unsupported task ${task.kind}`)
 }
 
@@ -194,6 +238,7 @@ createServer(async (req, res) => {
       if (op === 'stage') return send(res, 200, await store.setStage(b.stage as Project['stage'], user, String(b.reason ?? '')))
       if (op === 'assign') return send(res, 200, await store.setAssignee(String(b.id), String(b.assignee ?? '')))
       if (op === 'in-sync') return send(res, 200, await store.markInSync(String(b.paragraph), user))
+      if (op === 'frame-lock') return send(res, 200, await store.lockFrame(b.lock === true, user, String(b.reason ?? '')))
       if (op === 'draft') return send(res, 200, await store.decideDraft(String(b.id), b.accept === true, user, typeof b.text === 'string' ? b.text : undefined))
       if (op === 'ask') {
         const r = await runTask(b.task as Task, user)

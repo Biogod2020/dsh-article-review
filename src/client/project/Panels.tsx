@@ -4,6 +4,7 @@ import type { ReactNode } from 'react'
 import type { Comment, Stage } from '../../project/model.ts'
 import { STAGES } from '../../project/model.ts'
 import type { ProjectView } from '../../project/store.ts'
+import type { FlowStep } from '../../project/flow.ts'
 import { PERSONAS } from '../../project/prompts.ts'
 import type { Persona } from '../../project/prompts.ts'
 import type { ProjectActions, AgentTask } from './actions.ts'
@@ -23,8 +24,30 @@ export function targetLabel(view: ProjectView, c: Comment): string {
 
 export function focusOf(c: Comment): Focus { return { kind: c.target.kind, id: c.target.id } }
 
-export function Overview({ view, actions, onAsk, busy, onTab, onGo }: {
+/**
+ * The one next step of the recommended workflow and where the paper stands. The workflow is advice: the author can
+ * start at any stage; stages skipped on the way are listed, never forced.
+ */
+export function NextStep({ view, onFlow, busy, author }: { view: ProjectView, onFlow: (s: FlowStep) => void, busy: boolean, author: boolean }): ReactNode {
+  const f = view.flow, n = f.next
+  const button = n.who === 'agent' ? '交给 agent' : n.action === 'lock-frame' ? '锁定' : n.action === 'advance' ? '进入' : '去处理'
+  return <div className={css.flowCard}>
+    <div className={css.flowHead}><span className={css.muted}>推荐流程 · 下一步</span>
+      {f.detected !== f.recorded && <span className={css.muted} title="从头检查各阶段目标，第一个没达到的阶段">按内容判断在「{STAGE_LABEL[f.detected]}」</span>}</div>
+    <div className={css.flowMain}>
+      <span className={cx(css.flowWho, n.who === 'agent' ? css.flowAgent : css.flowAuthor)}>{n.who === 'agent' ? 'agent' : n.who === 'author' ? '你' : '完成'}</span>
+      <div><b>{n.title}</b><div className={css.muted}>{n.why}</div></div>
+      {author && n.who !== 'none' && <button className={css.btnPrimary} disabled={busy && n.who === 'agent'} onClick={() => onFlow(n)}>{button} ▸</button>}
+    </div>
+    <ol className={css.flowRail}>{f.milestones.map(m => <li key={m.stage} className={cx(m.done && css.flowDone, m.stage === n.stage && n.who !== 'none' && css.flowCur)}
+      title={`${m.label}：${m.detail}`}><i />{STAGE_LABEL[m.stage]}</li>)}</ol>
+    {f.skipped.length > 0 && <div className={css.muted}>跳过的阶段（可以回头补，不强制）：{f.skipped.map(m => `${STAGE_LABEL[m.stage]}·${m.detail}`).join('；')}</div>}
+  </div>
+}
+
+export function Overview({ view, actions, onAsk, busy, onTab, onGo, onFlow }: {
   view: ProjectView, actions: ProjectActions, onAsk: (t: AgentTask) => void, busy: boolean, onTab: (tab: string) => void, onGo: (f: Focus) => void,
+  onFlow: (s: FlowStep) => void,
 }): ReactNode {
   const p = view.project
   const author = actions.user.role === 'author'
@@ -39,7 +62,12 @@ export function Overview({ view, actions, onAsk, busy, onTab, onGo }: {
   const nothing = !answered.length && !openHuman.length && !pendingDrafts && !outOfSync && prog.every(g => g.ok === g.all)
   const next = STAGES[at + 1] as Stage | undefined
   const personas = Object.entries(PERSONAS) as [Persona, typeof PERSONAS[Persona]][]
+  const frame = view.flow.frame
+  const leavingFrame = p.stage === 'frame' && !frame.locked && frame.paragraphs.length > 0
+  const needReason = (next === 'submit' && view.checklist.some(i => !i.ok)) || leavingFrame
+  const [unlocking, setUnlocking] = useState(false)
   return <div className={css.overview}>
+    <NextStep view={view} onFlow={onFlow} busy={busy} author={author} />
     <ol className={css.stages}>{STAGES.map((s, i) => <li key={s} className={cx(css.stage, i < at && css.stageDone, i === at && css.stageCur)}>
       <span className={css.stageNo}>{i + 1}</span><b>{STAGE_LABEL[s]}</b><span className={css.stageHint}>{STAGE_HINT[s]}</span></li>)}</ol>
     <div className={css.ovGrid}>
@@ -47,11 +75,19 @@ export function Overview({ view, actions, onAsk, busy, onTab, onGo }: {
         <div className={css.cardHead}>当前阶段：{STAGE_LABEL[p.stage]}</div>
         <ul className={css.check}>{view.checklist.map(it => <li key={it.label} className={it.ok ? css.ok : css.todo}>
           <span>{it.ok ? '✓' : '·'}</span><b>{it.label}</b><span className={css.muted}>{it.detail}</span></li>)}</ul>
-        {author && next === 'submit' && view.checklist.some(i => !i.ok) && <div className={css.box}>
-          <div className={css.warnText}>投稿前还有未完成的项。要进入投稿，请写明理由（记入历史）。</div>
-          <textarea value={reason} onChange={e => setReason(e.target.value)} placeholder="例如：剩余 3 个数字是方法参数，已逐个核对" /></div>}
+        {author && (p.stage === 'frame' || frame.locked || frame.changedSinceLock) && frame.paragraphs.length > 0 && <div className={css.row}>
+          {!frame.locked && <button className={css.btn} onClick={() => void actions.lockFrame(true)}>{frame.changedSinceLock ? '重新锁定摘要与引言' : '锁定摘要与引言'}</button>}
+          {frame.locked && !unlocking && <button className={css.btnGhost} onClick={() => setUnlocking(true)}>🔒 已锁定 · 解锁…</button>}
+          {frame.locked && unlocking && <><button className={css.btn} disabled={reason.trim().length < 4}
+            onClick={() => void actions.lockFrame(false, reason).then(() => { setReason(''); setUnlocking(false) })}>确认解锁</button>
+            <button className={css.btnGhost} onClick={() => setUnlocking(false)}>取消</button></>}</div>}
+        {author && (needReason || unlocking) && <div className={css.box}>
+          <div className={css.warnText}>{unlocking ? '解锁后 agent 可以直接改摘要与引言。请写明理由（记入历史）。'
+            : leavingFrame ? '摘要与引言还没锁定。不锁定就往下写，请写明理由（记入历史）。' : '投稿前还有未完成的项。要进入投稿，请写明理由（记入历史）。'}</div>
+          <textarea value={reason} onChange={e => setReason(e.target.value)} placeholder={unlocking ? '例如：审稿人要求改动研究范围，摘要需要重写'
+            : leavingFrame ? '例如：引言等合作者定稿，先写结果部分' : '例如：剩余 3 个数字是方法参数，已逐个核对'} /></div>}
         {author && next && <div className={css.row}>
-          <button className={css.btnPrimary} disabled={next === 'submit' && view.checklist.some(i => !i.ok) && reason.trim().length < 10}
+          <button className={css.btnPrimary} disabled={needReason && reason.trim().length < 10}
             onClick={() => void actions.setStage(next, reason).then(() => setReason(''))}>进入下一阶段：{STAGE_LABEL[next]}</button>
           {at > 1 && <button className={css.btnGhost} onClick={() => void actions.setStage(STAGES[at - 1]!)}>退回{STAGE_LABEL[STAGES[at - 1]!]}</button>}
         </div>}
@@ -77,7 +113,7 @@ export function Overview({ view, actions, onAsk, busy, onTab, onGo }: {
         {(p.stage === 'materials' || p.stage === 'skeleton') && <button className={css.btn} disabled={busy} onClick={() => onAsk({ kind: 'skeleton' })}>根据材料起草故事流</button>}
         {open.length > 0 && <button className={css.btn} onClick={() => onTab('inbox')}>去意见页挑选要处理的意见（{open.length} 条未处理）</button>}
         {p.stage === 'draft' && <button className={css.btn} disabled={busy} onClick={() => onTab('draft')}>按骨架成文…</button>}
-        <div className={css.k}>请外部视角审阅（{p.stage === 'read' || p.stage === 'draft' ? '正文' : '论点与图'}）</div>
+        <div className={css.k}>请外部视角审阅（{p.stage === 'read' || p.stage === 'draft' || p.stage === 'submit' ? '正文' : p.stage === 'frame' ? '摘要与引言' : '论点与图'}）</div>
         {personas.map(([k, r]) => <button key={k} className={css.btn} disabled={busy} onClick={() => onAsk({ kind: 'persona', persona: k, focus: '' })}
           title={r.owns}>{r.name}</button>)}
       </div>}

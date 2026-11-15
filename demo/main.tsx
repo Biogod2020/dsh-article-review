@@ -29,6 +29,7 @@ const actions: ProjectActions = {
   setStage: (stage, reason) => call('stage', { stage, reason }),
   assign: (id, assignee) => call('assign', { id, assignee }),
   markInSync: paragraph => call('in-sync', { paragraph }),
+  lockFrame: (lock, reason) => call('frame-lock', { lock, reason }),
   decideDraft: (id, accept, text) => call('draft', { id, accept, text }),
   claimAt: async (claim, hash) => (await call<{ claim: Claim | null }>(`claim-at?claim=${encodeURIComponent(claim)}&hash=${encodeURIComponent(hash)}`)).claim,
   ask: task => call('ask', { task }),

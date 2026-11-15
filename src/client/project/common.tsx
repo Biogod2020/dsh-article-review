@@ -8,16 +8,15 @@ import type { ReviewStatus } from '../../project/units.ts'
 import type { ProjectView } from '../../project/store.ts'
 import css from './project.module.css'
 
-export const STAGE_LABEL: Record<Stage, string> = {
-  materials: '材料', skeleton: '骨架', refine: '论点与图', draft: '成文', read: '阅读审核', submit: '投稿',
-}
+export { STAGE_NAME as STAGE_LABEL } from '../../project/flow.ts'
 export const STAGE_HINT: Record<Stage, string> = {
   materials: '登记数据、结果、已有的图和目标期刊',
   skeleton: 'agent 起草故事流：核心论点、各拍、分论点和论据',
-  refine: '围绕故事流改论点和图，请编辑、审稿人、读者提意见',
-  draft: 'agent 按骨架逐节成文，正文与骨架保持同步',
+  refine: '围绕故事流改论点和图，外审一轮，你挑要处理的意见',
+  frame: '先写摘要与引言，讨论至多三轮后锁定，作为后文的依据',
+  draft: 'agent 按骨架和锁定的摘要与引言写其余正文',
   read: '按页阅读正文和对应面板，逐段审阅',
-  submit: '所有段落已审、数字有出处、意见已处理',
+  submit: '最后润色一次；所有段落已审、数字有出处、意见已处理',
 }
 export const SOURCE_LABEL: Record<Comment['source'], string> = {
   author: '作者', collaborator: '协作者', editor: '编辑', reviewer: '审稿人', audience: '读者', chat: '对话', check: '检查',

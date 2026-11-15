@@ -10,8 +10,11 @@ export const TARGET_WORDS = 220   // one page fits a laptop screen at 18px witho
 export const MAX_WORDS = 270
 export const SPLIT_WORDS = 300
 
-/** A piece of one paragraph on a page; `part` > 0 marks a continuation of a paragraph cut at a sentence end. */
-export interface Chunk { paragraph: string, text: string, part: number, front: boolean }
+/**
+ * A piece of one paragraph on a page; `part` > 0 marks a continuation of a paragraph cut at a sentence end. `heads`:
+ * headings of a short section merged onto the previous page, shown right before this chunk, where the section starts.
+ */
+export interface Chunk { paragraph: string, text: string, part: number, front: boolean, heads?: Array<{ level: 2 | 3, text: string }> }
 export interface ReadingPage {
   section: string, subsection: string,
   /** headings shown at the top of the page: the section (h2) and/or subsection (h3) that start here */
@@ -92,7 +95,12 @@ export function paginate(project: Pick<Project, 'sections'>): ReadingPage[] {
   const size = (p: ReadingPage): number => p.chunks.reduce((n, c) => n + words(c.text), 0) + p.heads.length * 4
   for (const { g: _g, ...p } of pages) {
     const prev = out.at(-1)
-    if (prev && size(p) < 120 && size(prev) < 120) { prev.heads.push(...p.heads); prev.chunks.push(...p.chunks) } else out.push(p)
+    if (prev && size(p) < 120 && size(prev) < 120) {
+      // the merged section's headings stay where its text starts, not at the top of the page
+      const [first, ...rest] = p.chunks
+      if (first) prev.chunks.push(p.heads.length ? { ...first, heads: p.heads } : first, ...rest)
+      else prev.heads.push(...p.heads)
+    } else out.push(p)
   }
   return out
 }

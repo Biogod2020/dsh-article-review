@@ -12,6 +12,10 @@ export type AgentTask =
   | { kind: 'resync', paragraphs: string[] }
   | { kind: 'chat', text: string, target: Target }
   | { kind: 'numbers' }
+  | { kind: 'frame' }
+  | { kind: 'review', scope: 'argument' | 'prose' }
+  | { kind: 'draft-all' }
+  | { kind: 'polish' }
 
 export interface ProjectUser { name: string, role: 'author' | 'collaborator' }
 
@@ -27,6 +31,8 @@ export interface ProjectActions {
   /** reason is required when entering submit with unmet checklist items */
   setStage(stage: Stage, reason?: string): Promise<ProjectView>
   assign(comment: string, assignee: string): Promise<ProjectView>
+  /** Lock the abstract and introduction at their current text, or unlock them (a reason is required). */
+  lockFrame(lock: boolean, reason?: string): Promise<ProjectView>
   markInSync(paragraph: string): Promise<ProjectView>
   /** Accept (replace the paragraph) or discard a rewrite draft. */
   decideDraft(id: string, accept: boolean, text?: string): Promise<ProjectView>

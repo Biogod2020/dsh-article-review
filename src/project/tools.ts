@@ -9,6 +9,9 @@ import { resolve } from 'node:path'
 import { z } from 'zod'
 import type { ProjectStore, ProjectView } from './store.ts'
 import { ChangeSchema, CommentSchema, TargetSchema } from './model.ts'
+import type { Change } from './model.ts'
+import { agentTaskMessage } from './prompts.ts'
+import { STAGE_NAME } from './flow.ts'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Args = Record<string, any>
@@ -33,6 +36,8 @@ export function modelView(v: ProjectView, include: string[], ids: string[]): obj
     ...(want('numbers') ? { registry: p.numbers, unregistered: v.numbers } : {}),
     ...(want('sync') ? { sync: v.sync, drafts: v.drafts.filter(d => d.status === 'pending').map(d => ({ id: d.id, paragraph: d.paragraph })) } : {}),
     ...(want('materials') ? { materials: p.materials } : {}),
+    ...(want('frame') ? { frame: { ...v.flow.frame, text: p.sections.filter(s => v.flow.frame.sections.includes(s.id)).map(s => ({ id: s.id, heading: s.heading,
+      paragraphs: s.paragraphs.map(x => ({ id: x.id, claims: x.claims, text: x.text })) })) } } : {}),
   }
 }
 
@@ -121,10 +126,25 @@ export async function applyTool(store: ProjectStore, args: Args, actor: string):
     rejected.push({ index, op: String(o.op ?? '?'), id: String(unit?.id ?? ''), error: r.error.issues.slice(0, 4).map(i => `${i.path.join('.')}: ${i.message}`).join('; ') })
     return []
   })
+  // locked abstract and introduction: agents propose rewrites there, they do not write
+  const before = await store.view()
+  const frame = before.flow.frame
+  const frameParas = new Set(frame.paragraphs), frameSecs = new Set(frame.sections)
+  const touchesFrame = (c: Change): boolean => (c.op === 'upsert-section' && frameSecs.has(c.section.id)) || (c.op === 'upsert-paragraph' && (frameSecs.has(c.section) || frameParas.has(c.paragraph.id)))
+    || (c.op === 'remove' && ((c.unit === 'paragraph' && frameParas.has(c.id)) || (c.unit === 'section' && frameSecs.has(c.id)))) || c.op === 'set-frame'
+  if (frame.locked || frame.changedSinceLock) {
+    for (let i = changes.length - 1; i >= 0; i--) if (touchesFrame(changes[i]!)) {
+      rejected.push({ index: -1, op: changes[i]!.op, id: '', error: 'the abstract and introduction are locked by the author; propose rewrites with project_draft instead' })
+      changes.splice(i, 1)
+    }
+  }
   if (!changes.length) return { written: 0, rejected, nextStep: 'Nothing was written. Fix the rejected changes and send them again.' }
+  // a round on the frame: the agent writing it at its own stage (copying a manuscript in at init does not count)
+  const wroteFrame = changes.some(c => c.op === 'set-frame') || (before.project.stage === 'frame' && changes.some(touchesFrame))
   const v = await store.apply({ changes, actor: actor, reason: String(args.reason),
     responses: z.array(z.object({ comment: z.string(), text: z.string().max(4000) })).default([]).parse(args.responses) })
   const h = v.history.at(-1)!
+  if (wroteFrame) await store.noteFlow('frame-round')
   // Quality checks on what this call wrote: the tool result is where an agent reliably reads corrections.
   const warnings: string[] = []
   const touched = new Set(h.units.filter(u => u.startsWith('claim:')).map(u => u.slice(6)))
@@ -177,7 +197,27 @@ export async function draftTool(store: ProjectStore, args: Args, actor: string):
     return { section: s.id, paragraph: para.id, before: para.text, after: d.text, claims: para.claims, reason: d.reason, actor: actor, comments: d.comments }
   })
   await store.addDrafts(drafts)
+  if (v.project.stage === 'frame' && !v.flow.frame.locked && drafts.some(d => v.flow.frame.paragraphs.includes(d.paragraph))) await store.noteFlow('frame-round')
+  if (args.polish === true) await store.noteFlow('polished')
   return { proposed: drafts.length }
+}
+
+/**
+ * Where the paper stands in the recommended workflow and the one next step. For an agent step it carries the same
+ * instructions the panel's button would send; an author step is described for the author to do in the panel.
+ */
+export async function statusTool(store: ProjectStore, project: string): Promise<Json> {
+  const v = await store.view()
+  const f = v.flow, n = f.next
+  const doNow = n.who === 'agent' && n.task ? agentTaskMessage(n.task, project, v.project.style) : null
+  return JSON.parse(JSON.stringify({
+    stage: { recorded: STAGE_NAME[f.recorded], detected: STAGE_NAME[f.detected] },
+    milestones: f.milestones.map(m => ({ stage: STAGE_NAME[m.stage], label: m.label, done: m.done, detail: m.detail })),
+    skipped: f.skipped.map(m => `${STAGE_NAME[m.stage]}：${m.label}（${m.detail}）`),
+    frame: { locked: f.frame.locked, changedSinceLock: f.frame.changedSinceLock, rounds: f.frame.rounds, paragraphs: f.frame.paragraphs.length },
+    next: { who: n.who, stage: STAGE_NAME[n.stage], title: n.title, why: n.why, ...(n.task ? { task: n.task } : {}), ...(n.go ? { panelTab: n.go } : {}), ...(n.action ? { panelAction: n.action } : {}) },
+    ...(doNow ? { instructions: doNow } : { tellAuthor: n.who === 'author' ? `下一步由作者在论文项目面板里做：${n.title}。${n.why}` : '没有剩下的步骤。' }),
+  }))
 }
 
 export async function linkTool(store: ProjectStore, args: Args, actor: string): Promise<Json> {

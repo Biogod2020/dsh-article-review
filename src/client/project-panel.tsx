@@ -140,6 +140,7 @@ export function ProjectPanel({ sessionId, useSession, rpc, openManuscriptReview 
       setStage: (stage, reason) => call('stage', { stage, reason: reason ?? '' }),
       assign: (id, assignee) => call('assign', { id, assignee }),
       markInSync: paragraph => call('in-sync', { paragraph }),
+      lockFrame: (lock, reason) => call('frame-lock', { lock, reason: reason ?? '' }),
       decideDraft: (id, accept, text) => call('draft', { id, accept, ...(text === undefined ? {} : { text }) }),
       claimAt: async (claim, hash) => (await call<{ claim: Project['claims'][number] | null }>('claim-at', { claim, hash })).claim,
       ask: async task => { const r = await call<{ summary: string }>('ask', { task, requestId: crypto.randomUUID() }); setAsked(true); return r },
