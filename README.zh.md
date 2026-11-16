@@ -17,7 +17,7 @@ kind: "package-bundle"
 
 ## 插件更新
 
-DSH `0.2.2-rc.1` 支持在 **插件** 页检查和安装第三方插件更新，热更新失败时会尝试恢复旧版本。通过 npm 包名安装后即可使用；需要重启时按界面提示操作。本版支持 DSH `0.2.2-rc.1`。
+DSH `0.2.2-rc.1` 起支持在 **插件** 页检查和安装第三方插件更新，热更新失败时会尝试恢复旧版本。通过 npm 包名安装后即可使用；需要重启时按界面提示操作。本版支持 DSH `0.2.2-rc.1` 至 `0.2.2-rc.3`。
 
 也可在 **论文 → 插件更新** 开启独立自动更新。默认关闭；开启后每 6 小时检查兼容新版，退出 DSH 后安装，下次启动生效。支持 Windows、macOS 和 Linux，原有稿件、批注和审阅基线保留。原生手动更新无需开启此选项。
 
@@ -40,7 +40,7 @@ DSH `0.2.2-rc.1` 支持在 **插件** 页检查和安装第三方插件更新，
 <a id="installation"></a>
 ## 安装
 
-**需要：** DSH 桌面版（`0.2.0-rc.2` 至 `0.2.2-rc.1`，含 `0.2.1-rc.5`，自带运行环境）或 DSH 网页版（`0.2.1-alpha.4`；网页版的 DSH `0.2.2-rc.1` 需要 Node.js 24.9+）。要导入 PDF、Word 或 LaTeX，请先自己安装一次 [`uv`](https://docs.astral.sh/uv/getting-started/installation/)；第一次导入时它会把 Python 和 PyMuPDF、Pandoc、Pillow 这几个包（约 100 MB）下载到工作区的 `.paper-tools/` 文件夹，所以需要联网；不会改动你系统里的 Python。插件沿用你现有的模型配置。
+**需要：** DSH 桌面版（`0.2.0-rc.2` 至 `0.2.2-rc.3`，含 `0.2.1-rc.5`，自带运行环境）或 DSH 网页版（`0.2.1-alpha.4`；网页版的 DSH `0.2.2-rc.1` 至 `0.2.2-rc.3` 需要 Node.js 24.9+）。要导入 PDF、Word 或 LaTeX，请先自己安装一次 [`uv`](https://docs.astral.sh/uv/getting-started/installation/)；第一次导入时它会把 Python 和 PyMuPDF、Pandoc、Pillow 这几个包（约 100 MB）下载到工作区的 `.paper-tools/` 文件夹，所以需要联网；不会改动你系统里的 Python。插件沿用你现有的模型配置。
 
 **桌面版**
 

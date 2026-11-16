@@ -649,6 +649,8 @@ exports[`boots from a composition, keeps ordinary tools, and lets agents and ope
     "project_link_paragraphs",
     "project_number_hints",
     "project_read",
+    "project_review_round",
+    "project_status",
   ],
   [
     "paper_annotations",
@@ -675,6 +677,8 @@ exports[`boots from a composition, keeps ordinary tools, and lets agents and ope
     "project_link_paragraphs",
     "project_number_hints",
     "project_read",
+    "project_review_round",
+    "project_status",
   ],
   [
     "paper_annotations",
@@ -701,6 +705,8 @@ exports[`boots from a composition, keeps ordinary tools, and lets agents and ope
     "project_link_paragraphs",
     "project_number_hints",
     "project_read",
+    "project_review_round",
+    "project_status",
   ],
   [
     "paper_annotations",
@@ -727,6 +733,8 @@ exports[`boots from a composition, keeps ordinary tools, and lets agents and ope
     "project_link_paragraphs",
     "project_number_hints",
     "project_read",
+    "project_review_round",
+    "project_status",
   ],
   [
     "paper_annotations",
@@ -753,6 +761,8 @@ exports[`boots from a composition, keeps ordinary tools, and lets agents and ope
     "project_link_paragraphs",
     "project_number_hints",
     "project_read",
+    "project_review_round",
+    "project_status",
   ],
 ]
 `;
