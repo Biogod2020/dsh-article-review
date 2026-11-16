@@ -32,7 +32,11 @@ export function modelView(v: ProjectView, include: string[], ids: string[]): obj
     ...(want('sections') ? { sections: p.sections.map(s => ({ id: s.id, heading: s.heading, beat: s.beat,
       paragraphs: s.paragraphs.filter(x => !ids.length || ids.includes(x.id) || x.claims.some(c => ids.includes(c))).map(x => ({ id: x.id, claims: x.claims, text: x.text })) })) } : {}),
     ...(want('comments') ? { comments: v.comments.filter(c => c.status === 'open' || c.status === 'answered').map(c => ({ id: c.id, source: c.source, author: c.author,
-      target: c.target, text: c.text, status: c.status })) } : {}),
+      target: c.target, text: c.text, status: c.status,
+      ...(c.reviewer ? { reviewer: c.reviewer, round: c.round, severity: c.severity } : {}),
+      ...(c.response ? { response: c.response.text, disposition: c.disposition } : {}) })) } : {}),
+    ...(want('reviewers') ? { reviewers: v.reviewers.map(r => ({ id: r.id, name: r.name, brief: r.brief, concerns: r.concerns, originalScore: r.originalScore,
+      rounds: r.rounds.map(x => ({ round: x.round, score: x.score, summary: x.summary.slice(0, 1500), raise: x.raise.slice(0, 1500) })) })) } : {}),
     ...(want('numbers') ? { registry: p.numbers, unregistered: v.numbers } : {}),
     ...(want('sync') ? { sync: v.sync, drafts: v.drafts.filter(d => d.status === 'pending').map(d => ({ id: d.id, paragraph: d.paragraph })) } : {}),
     ...(want('materials') ? { materials: p.materials } : {}),
@@ -185,6 +189,19 @@ export async function commentTool(store: ProjectStore, args: Args): Promise<Json
     recorded += 1
   }
   return { recorded, skippedDuplicates: list.length - recorded }
+}
+
+/** One review round of a role-play reviewer (called once by each reviewer subagent). */
+export async function reviewRoundTool(store: ProjectStore, args: Args, actor: string): Promise<Json> {
+  const input = z.object({
+    reviewer: z.string().min(1), score: z.number().int().min(1).max(10).nullable().default(null),
+    summary: z.string().max(20_000).default(''), raise: z.string().max(20_000).default(''),
+    comments: z.array(z.object({ target: TargetSchema, severity: z.enum(['fact', 'reader', 'taste']).optional(), text: CommentSchema.shape.text })).max(12),
+  }).parse(args)
+  const v = await store.view()
+  if (!v.reviewers.some(r => r.id === input.reviewer)) throw new Error(`unknown reviewer ${input.reviewer}; project_read include reviewers lists them`)
+  const r = await store.addReviewRound(input.reviewer, { score: input.score, summary: input.summary, raise: input.raise, model: actor, comments: input.comments })
+  return { reviewer: input.reviewer, round: r.round, recorded: input.comments.length }
 }
 
 export async function draftTool(store: ProjectStore, args: Args, actor: string): Promise<Json> {

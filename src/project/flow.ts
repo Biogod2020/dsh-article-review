@@ -54,7 +54,9 @@ export const STAGE_NAME: Record<Stage, string> = {
   materials: '材料', skeleton: '骨架', refine: '论点与图', frame: '摘要与引言', draft: '成文', read: '阅读审核', submit: '投稿',
 }
 
-export function flowStatus(p: Project, st: ReviewState): FlowStatus {
+export function flowStatus(p: Project, full: ReviewState): FlowStatus {
+  // role-play reviewers (the Reviewers tab) answer a real review; their comments are not this workflow's outside review
+  const st: ReviewState = { ...full, comments: full.comments.filter(c => !c.reviewer) }
   const status = reviewStatus(p, st)
   const frame = frameStatus(p, st)
   const inFrame = new Set(frame.paragraphs)

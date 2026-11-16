@@ -2,9 +2,13 @@
  * Local host for the project-mode demo: serves the built workbench and a JSON API over ProjectStore, and runs
  * agent tasks with an OpenAI-compatible model. In DSH the same tasks go to the conversation's agent instead.
  *
+ * Review rounds go to REVIEW_CMD when it is set (a command that reads the prompt on stdin and prints the answer, e.g.
+ * agy_call.sh; REVIEW_MODEL names it in the record), otherwise to the same model.
+ *
  * Usage: MODEL_URL=… MODEL_KEY=… MODEL=… tsx demo/server.ts --root <project dir> [--port 8790] [--dist <client build dir>]
  * Listens on 127.0.0.1 only. Collaborators (X-Demo-Role: collaborator) may only comment.
  */
+import { spawn } from 'node:child_process'
 import { createServer } from 'node:http'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { readFile, stat } from 'node:fs/promises'
@@ -12,7 +16,7 @@ import { extname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { ProjectStore } from '../src/project/store.ts'
 import type { Comment, Project, Target } from '../src/project/model.ts'
-import { draftPrompt, framePrompt, numberTriagePrompt, personaReviewPrompt, PERSONAS, polishPrompt, refinePrompt, resyncPrompt, skeletonPrompt } from '../src/project/prompts.ts'
+import { draftPrompt, framePrompt, numberTriagePrompt, personaReviewPrompt, PERSONAS, polishPrompt, refinePrompt, resyncPrompt, reviewerRoundPrompt, skeletonPrompt } from '../src/project/prompts.ts'
 import type { Persona } from '../src/project/prompts.ts'
 
 const args = new Map<string, string>()
@@ -57,6 +61,24 @@ async function model(prompt: string, retry = true): Promise<Record<string, unkno
   }
 }
 
+const REVIEW_CMD = process.env.REVIEW_CMD
+const REVIEW_MODEL = process.env.REVIEW_MODEL ?? (REVIEW_CMD ? 'review command' : MODEL)
+
+/** One review answer from REVIEW_CMD (prompt on stdin, JSON somewhere in stdout), else from the model. */
+async function reviewModel(prompt: string): Promise<Record<string, unknown>> {
+  if (!REVIEW_CMD) return model(prompt)
+  const text = await new Promise<string>((ok, fail) => {
+    const p = spawn('bash', ['-c', REVIEW_CMD], { stdio: ['pipe', 'pipe', 'pipe'] })
+    let out = '', err = ''
+    p.stdout.on('data', d => { out += d }); p.stderr.on('data', d => { err += d })
+    const timer = setTimeout(() => p.kill(), 1_800_000)
+    p.on('close', code => { clearTimeout(timer); if (code === 0) ok(out); else fail(new Error(`review command exit ${code}: ${err.slice(-300)}`)) })
+    p.stdin.end(`${prompt}\n\nReturn only one valid JSON object, with every quote inside strings escaped, and nothing else.`)
+  })
+  const json = text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1)
+  try { return JSON.parse(json) as Record<string, unknown> } catch { throw new Error(`review command did not return JSON: ${text.slice(0, 200)}`) }
+}
+
 const shortId = (prefix: string): string => `${prefix}${Date.now().toString(36).slice(-5)}${Math.random().toString(36).slice(2, 5)}`
 
 /** Text of the registered materials (text files only, bounded), for the skeleton task. */
@@ -75,6 +97,7 @@ async function materialsText(p: Project): Promise<string> {
 type Task = { kind: 'skeleton' } | { kind: 'persona', persona: Persona, focus: string } | { kind: 'refine', comments: string[] }
   | { kind: 'draft', beat: string } | { kind: 'resync', paragraphs: string[] } | { kind: 'chat', text: string, target: Target } | { kind: 'numbers' }
   | { kind: 'frame' } | { kind: 'review', scope: 'argument' | 'prose' } | { kind: 'draft-all' } | { kind: 'polish' }
+  | { kind: 'review-round', reviewers: string[] }
 
 /** Rewrite drafts for paragraphs (never applied directly: the author accepts each with its diff). */
 async function draftRewrites(ids: string[], actor: string, reason: string, comments: string[]): Promise<number> {
@@ -101,6 +124,27 @@ async function runTask(task: Task, user: string): Promise<{ summary: string }> {
         source: task.persona, author: `${PERSONAS[task.persona].name}（${MODEL}）`, text: `${c.severity === 'major' ? '【主要】' : ''}${c.text}` })
     }
     return { summary: `${PERSONAS[task.persona].name}提出 ${list.length} 条意见` }
+  }
+  if (task.kind === 'review-round') {
+    // one independent model call per reviewer, in parallel: the reviewers do not see each other (as subagents in DSH)
+    const chosen = state.reviewers.filter(r => task.reviewers.includes(r.id))
+    if (!chosen.length) throw new Error('no reviewer selected')
+    const results = await Promise.allSettled(chosen.map(async r => {
+      const out = await reviewModel(reviewerRoundPrompt(project, r, state.comments))
+      const list = ((out.comments as { target?: Target, text: string, severity?: string }[] | undefined) ?? []).filter(c => c && typeof c.text === 'string').slice(0, 12)
+      const score = typeof out.score === 'number' && Number.isInteger(out.score) ? out.score : null
+      // a target the project does not have (unknown kind or paragraph) becomes a comment on the whole paper, keeping the quote
+      const paras = new Set(project.sections.flatMap(s => s.paragraphs.map(x => x.id)))
+      const target = (t?: Partial<Target>): Target => t?.kind === 'paragraph' && t.id && paras.has(t.id) ? { kind: 'paragraph', id: t.id, quote: t.quote ?? '' }
+        : t?.kind === 'figure' && t.id && project.figures.some(f => f.id === t.id) ? { kind: 'figure', id: t.id, quote: t.quote ?? '' }
+          : { kind: 'project', id: 'project', quote: t?.quote ?? '' }
+      const sev = (s?: string): 'fact' | 'reader' | 'taste' | undefined => s === 'fact' || s === 'reader' || s === 'taste' ? s : undefined
+      const { round } = await store.addReviewRound(r.id, { score, summary: String(out.summary ?? ''), raise: String(out.raise ?? ''), model: REVIEW_MODEL,
+        comments: list.map(c => ({ target: target(c.target), text: c.text, severity: sev(c.severity) })) })
+      return `${r.name} 第 ${round} 轮：${score ?? '无'} 分，${list.length} 条`
+    }))
+    const lines = results.map((x, i) => x.status === 'fulfilled' ? x.value : `${chosen[i]!.name} 失败：${String(x.reason).slice(0, 120)}`)
+    return { summary: lines.join('；') }
   }
   if (task.kind === 'refine') {
     const comments = state.comments.filter((c: Comment) => task.comments.includes(c.id))
@@ -236,6 +280,11 @@ createServer(async (req, res) => {
       if (op === 'set-comment') return send(res, 200, await store.setComment(String(b.id), b.status as Comment['status']))
       if (op === 'confirm') return send(res, 200, await store.confirm(b.keys as string[]))
       if (op === 'stage') return send(res, 200, await store.setStage(b.stage as Project['stage'], user, String(b.reason ?? '')))
+      if (op === 'reviewer') return send(res, 200, await store.upsertReviewer({ id: typeof b.id === 'string' && b.id ? b.id : undefined, name: String(b.name ?? '').slice(0, 80),
+        brief: String(b.brief ?? ''), concerns: String(b.concerns ?? ''), originalScore: typeof b.originalScore === 'number' ? b.originalScore : null }))
+      if (op === 'remove-reviewer') return send(res, 200, await store.removeReviewer(String(b.id)))
+      if (op === 'respond') return send(res, 200, await store.respond(String(b.id), String(b.text ?? ''),
+        b.disposition === 'changed' || b.disposition === 'rebut' || b.disposition === 'decide' ? b.disposition : undefined))
       if (op === 'assign') return send(res, 200, await store.setAssignee(String(b.id), String(b.assignee ?? '')))
       if (op === 'in-sync') return send(res, 200, await store.markInSync(String(b.paragraph), user))
       if (op === 'frame-lock') return send(res, 200, await store.lockFrame(b.lock === true, user, String(b.reason ?? '')))

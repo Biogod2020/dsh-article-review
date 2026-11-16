@@ -87,6 +87,7 @@
     "../src/client/project/ProjectWorkbench.tsx",
     "../demo/main.tsx",
     "../demo/server.ts",
-    "../src/client/project/StoryCanvas.tsx"
+    "../src/client/project/StoryCanvas.tsx",
+    "../src/client/project/Reviewers.tsx"
   ]
 }

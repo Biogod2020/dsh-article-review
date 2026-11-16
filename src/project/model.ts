@@ -82,6 +82,13 @@ export const CommentSchema = z.object({
   createdAt: z.string(), stage: StageSchema,
   /** Person asked to handle it (a co-author, a student); empty = the author. */
   assignee: z.string().max(80).default(''),
+  /** Role-play reviewer that wrote it (Reviewer.id) and the review round; only on reviewer comments. */
+  reviewer: z.string().max(80).optional(),
+  round: z.number().int().min(1).optional(),
+  /** fact = a claim or number is wrong or unsupported; reader = it misleads or confuses; taste = style. */
+  severity: z.enum(['fact', 'reader', 'taste']).optional(),
+  /** The author's handling of a reviewer comment: changed in the paper, rebutted, or left for a decision. */
+  disposition: z.enum(['changed', 'rebut', 'decide']).optional(),
 })
 export type Comment = z.infer<typeof CommentSchema>
 
@@ -146,6 +153,32 @@ export const FlowStateSchema = z.object({
 })
 export type FlowState = z.infer<typeof FlowStateSchema>
 
+/**
+ * A role-play reviewer: who they are and what they asked (e.g. the summary of a real review), with one entry per
+ * review round. Their comments are ordinary comments with source "reviewer" and this id.
+ */
+export const ReviewRoundSchema = z.object({
+  round: z.number().int().min(1), at: z.string(), model: z.string().max(200).default(''),
+  /** Score on the venue's scale (ICLR: 1 clear reject ... 4 clear accept); null when the reviewer gave none. */
+  score: z.number().int().min(1).max(10).nullable().default(null),
+  summary: text.default(''),
+  /** What would still have to change for the reviewer to raise the score. */
+  raise: text.default(''),
+  /** Project revision the round read. */
+  revision: z.number().int().default(0),
+})
+export type ReviewRound = z.infer<typeof ReviewRoundSchema>
+export const ReviewerSchema = z.object({
+  id, name: z.string().max(80),
+  /** Role and position, in the reviewer's own voice ("You are ...") or as a summary of their report. */
+  brief: text.default(''),
+  /** The points they raised that the paper must answer. */
+  concerns: text.default(''),
+  originalScore: z.number().int().min(1).max(10).nullable().default(null),
+  rounds: z.array(ReviewRoundSchema).default([]),
+})
+export type Reviewer = z.infer<typeof ReviewerSchema>
+
 export const ReviewStateSchema = z.object({
   revision: z.number().int().default(0),
   comments: z.array(CommentSchema).default([]),
@@ -157,6 +190,8 @@ export const ReviewStateSchema = z.object({
   numberHints: z.record(z.string(), z.object({ kind: z.enum(['result', 'parameter', 'citation', 'other']), note: z.string().max(400) })).default({}),
   /** Where the recommended workflow stands: rounds already spent and what the author has locked. */
   flow: FlowStateSchema.default({ frameLock: null, frameRounds: 0, polished: null }),
+  /** Role-play reviewers of this project and their rounds. */
+  reviewers: z.array(ReviewerSchema).default([]),
 })
 export type ReviewState = z.infer<typeof ReviewStateSchema>
 

@@ -15,15 +15,16 @@ import { Figures } from './Figures.tsx'
 import { Draft } from './Manuscript.tsx'
 import { Reader } from './Reader.tsx'
 import { History, Inbox, Network, Numbers, Overview } from './Panels.tsx'
+import { Reviewers } from './Reviewers.tsx'
 import { PERSONAS } from '../../project/prompts.ts'
 import type { FlowStep } from '../../project/flow.ts'
 import css from './project.module.css'
 
-type Tab = 'overview' | 'story' | 'figures' | 'draft' | 'read' | 'inbox' | 'numbers' | 'history' | 'network'
+type Tab = 'overview' | 'story' | 'figures' | 'draft' | 'read' | 'inbox' | 'reviewers' | 'numbers' | 'history' | 'network'
 const THEMES = { auto: '◐ 跟随系统', light: '☀ 浅色', dark: '☾ 深色' } as const
 const TABS: { key: Tab, label: string, extra?: boolean }[] = [
   { key: 'overview', label: '概览' }, { key: 'story', label: '故事流' }, { key: 'figures', label: '图' },
-  { key: 'draft', label: '正文' }, { key: 'read', label: '阅读' }, { key: 'inbox', label: '意见' },
+  { key: 'draft', label: '正文' }, { key: 'read', label: '阅读' }, { key: 'inbox', label: '意见' }, { key: 'reviewers', label: '审稿人' },
   { key: 'numbers', label: '数字', extra: true }, { key: 'history', label: '历史', extra: true }, { key: 'network', label: '论点网络', extra: true },
 ]
 
@@ -40,6 +41,7 @@ const taskLabel = (t: AgentTask): string => {
     case 'review': return t.scope === 'argument' ? '论点与图外审一轮' : '正文外审一轮'
     case 'draft-all': return '按骨架写其余正文'
     case 'polish': return '最后润色一次'
+    case 'review-round': return `${t.reviewers.length} 位审稿人各审一轮`
   }
 }
 
@@ -115,6 +117,9 @@ export function ProjectWorkbench({ actions, refresh: refreshKey = 0, agentBusy =
     setComment: async (id, s) => { const v = await actions.setComment(id, s); setView(v); return v },
     confirm: async k => { const v = await actions.confirm(k); setView(v); return v },
     setStage: async (s, r) => { const v = await actions.setStage(s, r); setView(v); return v },
+    saveReviewer: async r => { const v = await actions.saveReviewer(r); setView(v); return v },
+    removeReviewer: async id => { const v = await actions.removeReviewer(id); setView(v); return v },
+    respond: async (id, t, d) => { const v = await actions.respond(id, t, d); setView(v); return v },
     assign: async (id, a) => { const v = await actions.assign(id, a); setView(v); return v },
     markInSync: async id => { const v = await actions.markInSync(id); setView(v); return v },
     decideDraft: async (id, accept, text) => { const v = await actions.decideDraft(id, accept, text); setView(v); return v },
@@ -165,13 +170,15 @@ export function ProjectWorkbench({ actions, refresh: refreshKey = 0, agentBusy =
   }
 
   if (!view) return <div className={css.app}><div className={css.empty}>{error ? `无法载入项目：${error}` : '载入中…'}</div></div>
+  // role-play reviewer comments live only in the 审稿人 tab; every other tab and count sees the rest
+  const pv: ProjectView = { ...view, comments: view.comments.filter(c => !c.reviewer) }
   // the tab badge counts people's comments and replies waiting for the author; model reviews are shown apart
   const human = (c: { source: string }): boolean => c.source === 'author' || c.source === 'collaborator' || c.source === 'chat' || c.source === 'check'
-  const openCount = view.comments.filter(c => c.status === 'open' && human(c)).length
-  const answered = view.comments.filter(c => c.status === 'answered').length
-  const modelOpen = view.comments.filter(c => c.status === 'open' && !human(c)).length
+  const openCount = pv.comments.filter(c => c.status === 'open' && human(c)).length
+  const answered = pv.comments.filter(c => c.status === 'answered').length
+  const modelOpen = pv.comments.filter(c => c.status === 'open' && !human(c)).length
   const pendingDrafts = view.drafts.filter(d => d.status === 'pending').length
-  const prog = progressByType(view)
+  const prog = progressByType(pv)
   /** Next unit changed since review, then never reviewed, in story order. */
   const nextPending = (): void => {
     const order = view.units.map(u => u.key)
@@ -210,16 +217,17 @@ export function ProjectWorkbench({ actions, refresh: refreshKey = 0, agentBusy =
     </div>}
     {actions.user.role === 'collaborator' && <div className={css.collabBanner}>你以协作者身份查看：可以阅读全部内容并写意见；agent 修改、确认已审和推进阶段由作者进行。</div>}
     <main className={css.main}>
-      {tab === 'overview' && <Overview view={view} actions={wrapped} onAsk={t => void ask(t)} busy={!!busy} onTab={t => setTab(t as Tab)} onGo={go} onFlow={runFlow} />}
-      {tab === 'story' && <StoryCanvas view={view} actions={wrapped} focus={focus} onGo={go} onAskComment={askComment}
+      {tab === 'overview' && <Overview view={pv} actions={wrapped} onAsk={t => void ask(t)} busy={!!busy} onTab={t => setTab(t as Tab)} onGo={go} onFlow={runFlow} />}
+      {tab === 'story' && <StoryCanvas view={pv} actions={wrapped} focus={focus} onGo={go} onAskComment={askComment}
         onRead={id => { setReadAt(id); setTab('read') }} />}
-      {tab === 'figures' && <Figures view={view} actions={wrapped} onFocus={go} focus={focus} />}
-      {tab === 'draft' && <Draft view={view} actions={wrapped} onFocus={go} onAsk={t => void ask(t)} busy={!!busy} start={draftAt} from={origin} onBack={() => { setOrigin(''); setTab('inbox') }} onRead={id => { setReadAt(id); setTab('read') }} />}
-      {tab === 'read' && <Reader view={view} actions={wrapped} start={readAt} onFocus={go} onAskComment={askComment} />}
-      {tab === 'inbox' && <Inbox view={view} actions={wrapped} onGo={go} onAsk={t => void ask(t)} busy={!!busy} />}
-      {tab === 'numbers' && <Numbers view={view} actions={wrapped} onGo={go} onAsk={t => void ask(t)} busy={!!busy} />}
-      {tab === 'history' && <History view={view} onGo={go} />}
-      {tab === 'network' && <Network view={view} onGo={go} />}
+      {tab === 'figures' && <Figures view={pv} actions={wrapped} onFocus={go} focus={focus} />}
+      {tab === 'draft' && <Draft view={pv} actions={wrapped} onFocus={go} onAsk={t => void ask(t)} busy={!!busy} start={draftAt} from={origin} onBack={() => { setOrigin(''); setTab('inbox') }} onRead={id => { setReadAt(id); setTab('read') }} />}
+      {tab === 'read' && <Reader view={pv} actions={wrapped} start={readAt} onFocus={go} onAskComment={askComment} />}
+      {tab === 'inbox' && <Inbox view={pv} actions={wrapped} onGo={go} onAsk={t => void ask(t)} busy={!!busy} />}
+      {tab === 'reviewers' && <Reviewers view={view} actions={wrapped} onGo={go} onAsk={t => void ask(t)} busy={!!busy} />}
+      {tab === 'numbers' && <Numbers view={pv} actions={wrapped} onGo={go} onAsk={t => void ask(t)} busy={!!busy} />}
+      {tab === 'history' && <History view={pv} onGo={go} />}
+      {tab === 'network' && <Network view={pv} onGo={go} />}
     </main>
     {help && <div className={css.modalBack} onClick={() => setHelp(false)}><div className={css.modal} onClick={e => e.stopPropagation()} role="dialog" aria-label="快捷键说明">
       <div className={css.cardHead}>快捷键</div>
@@ -231,7 +239,7 @@ export function ProjectWorkbench({ actions, refresh: refreshKey = 0, agentBusy =
         <tr><td><kbd>←</kbd> <kbd>→</kbd></td><td>上一页 / 下一页（PageUp / PageDown 也可以）</td></tr>
         <tr><td><kbd>C</kbd></td><td>本页已审并翻到下一页；本页的增删标记随之消失</td></tr>
         <tr><td><kbd>T</kbd></td><td>打开或关闭目录</td></tr>
-        <tr><td>选中文字 / 右键</td><td>高亮（四种颜色）、写笔记、针对这句话写意见；右键已有的高亮可以换颜色、改笔记、删除</td></tr>
+        <tr><td>选中文字 / 右键</td><td>高亮（四种颜色）、针对这句话写意见；右键已有的高亮可以换颜色、写意见、删除</td></tr>
         <tr><th colSpan={2}>图</th></tr>
         <tr><td><kbd>←</kbd> <kbd>→</kbd></td><td>上一张 / 下一张</td></tr>
         <tr><td><kbd>C</kbd></td><td>这张图已审并看下一张</td></tr>
