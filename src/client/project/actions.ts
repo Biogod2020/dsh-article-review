@@ -12,6 +12,7 @@ export type AgentTask =
   | { kind: 'resync', paragraphs: string[] }
   | { kind: 'chat', text: string, target: Target }
   | { kind: 'numbers' }
+  | { kind: 'review-round', reviewers: string[] }
 
 export interface ProjectUser { name: string, role: 'author' | 'collaborator' }
 
@@ -27,6 +28,11 @@ export interface ProjectActions {
   /** reason is required when entering submit with unmet checklist items */
   setStage(stage: Stage, reason?: string): Promise<ProjectView>
   assign(comment: string, assignee: string): Promise<ProjectView>
+  /** Add or edit a role-play reviewer; id empty for a new one. */
+  saveReviewer(r: { id?: string, name: string, brief: string, concerns: string, originalScore: number | null }): Promise<ProjectView>
+  removeReviewer(id: string): Promise<ProjectView>
+  /** The author's response to a comment and how it was handled. */
+  respond(id: string, text: string, disposition?: 'changed' | 'rebut' | 'decide'): Promise<ProjectView>
   markInSync(paragraph: string): Promise<ProjectView>
   /** Accept (replace the paragraph) or discard a rewrite draft. */
   decideDraft(id: string, accept: boolean, text?: string): Promise<ProjectView>

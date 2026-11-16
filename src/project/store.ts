@@ -6,8 +6,8 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
-import type { Change, Claim, Comment, Draft, Project, ReviewState, Stage, Target } from './model.ts'
-import { ChangeSchema, CommentSchema, DraftSchema, ProjectSchema, ReviewStateSchema, StageSchema } from './model.ts'
+import type { Change, Claim, Comment, Draft, Project, Reviewer, ReviewState, Stage, Target } from './model.ts'
+import { ChangeSchema, CommentSchema, DraftSchema, ProjectSchema, ReviewerSchema, ReviewStateSchema, StageSchema } from './model.ts'
 import type { CheckItem, NumberIssue, ReviewStatus, SyncIssue, Unit } from './units.ts'
 import { applyChanges, changedUnits, claimHash, resyncBasis, reviewStatus, stageChecklist, syncIssues, units, unregisteredNumbers } from './units.ts'
 
@@ -27,6 +27,8 @@ export interface ProjectView {
   /** Paragraph rewrites: pending ones wait for the author; a pending draft whose paragraph changed meanwhile is stale. */
   drafts: Draft[]
   numberHints: ReviewState['numberHints']
+  /** Role-play reviewers and their rounds; their comments are in comments with source "reviewer". */
+  reviewers: Reviewer[]
 }
 
 async function writeAtomic(path: string, value: unknown): Promise<void> {
@@ -89,6 +91,7 @@ export class ProjectStore {
       reviewed: Object.fromEntries(Object.entries(state.reviewed).map(([k, v]) => [k, v.revision])), sync: syncIssues(project),
       numbers: unregisteredNumbers(project), checklist: stageChecklist(project, state),
       numberHints: state.numberHints,
+      reviewers: state.reviewers,
       drafts: state.drafts.map(d => d.status === 'pending' && paragraphText(project, d.paragraph) !== d.before ? { ...d, status: 'stale' as const } : d),
     }
   }
@@ -140,6 +143,64 @@ export class ProjectStore {
       state.comments.push(comment)
       await writeAtomic(this.statePath, state)
       return { view: this.derive(project, state), comment }
+    })
+  }
+
+  /** Add or edit a role-play reviewer (name, brief, concerns, original score); rounds are kept. */
+  async upsertReviewer(input: { id?: string, name: string, brief?: string, concerns?: string, originalScore?: number | null }): Promise<ProjectView> {
+    return this.serial(async () => {
+      const { project, state } = await this.load()
+      const id = input.id || `r${Date.now().toString(36)}${randomUUID().slice(0, 3)}`
+      const old = state.reviewers.find(r => r.id === id)
+      const next = ReviewerSchema.parse({ ...old, ...input, id, rounds: old?.rounds ?? [] })
+      state.reviewers = old ? state.reviewers.map(r => r.id === id ? next : r) : [...state.reviewers, next]
+      await writeAtomic(this.statePath, state)
+      return this.derive(project, state)
+    })
+  }
+
+  async removeReviewer(id: string): Promise<ProjectView> {
+    return this.serial(async () => {
+      const { project, state } = await this.load()
+      state.reviewers = state.reviewers.filter(r => r.id !== id)
+      await writeAtomic(this.statePath, state)
+      return this.derive(project, state)
+    })
+  }
+
+  /**
+   * Record one review round of a reviewer: score, summary, what would raise the score, and its comments (source
+   * "reviewer", tagged with the reviewer and round). Returns the round number.
+   */
+  async addReviewRound(reviewer: string, input: { score: number | null, summary: string, raise: string, model: string, round?: number,
+    comments: { target: Target, text: string, severity?: Comment['severity'] }[] }): Promise<{ view: ProjectView, round: number }> {
+    return this.serial(async () => {
+      const { project, state } = await this.load()
+      const r = state.reviewers.find(x => x.id === reviewer)
+      if (!r) throw new Error(`unknown reviewer ${reviewer}`)
+      const round = input.round ?? (Math.max(0, ...r.rounds.map(x => x.round)) + 1)
+      r.rounds = [...r.rounds.filter(x => x.round !== round), { round, at: now(), model: input.model, score: input.score, summary: input.summary,
+        raise: input.raise, revision: state.revision }].sort((a, b) => a.round - b.round)
+      for (const c of input.comments) {
+        state.comments.push(CommentSchema.parse({ id: `c${Date.now().toString(36)}${randomUUID().slice(0, 4)}`, target: c.target, source: 'reviewer',
+          author: r.name, text: c.text, status: 'open', createdAt: now(), stage: project.stage, reviewer, round, severity: c.severity }))
+      }
+      await writeAtomic(this.statePath, state)
+      return { view: this.derive(project, state), round }
+    })
+  }
+
+  /** The author's response to a comment, with how it was handled; the comment counts as answered. */
+  async respond(id: string, text: string, disposition: Comment['disposition']): Promise<ProjectView> {
+    return this.serial(async () => {
+      const { project, state } = await this.load()
+      const c = state.comments.find(x => x.id === id)
+      if (!c) throw new Error(`unknown comment ${id}`)
+      c.response = { text, revision: state.revision, at: now() }
+      c.disposition = disposition
+      if (c.status === 'open') c.status = 'answered'
+      await writeAtomic(this.statePath, state)
+      return this.derive(project, state)
     })
   }
 

@@ -18,7 +18,8 @@ import type { ParaChange } from './compare.tsx'
 import css from './project.module.css'
 
 interface Sel { paragraph: string, quote: string, x: number, y: number }
-/** A private highlight or note of this reader, kept in this browser only (not sent to the server, not shown to the agent). */
+/** A private highlight of this reader, kept in this browser only. Text written on a highlight is a comment (sent to the
+ * server); `note` only holds text from the earlier private notes until it has been handed in as a comment. */
 interface Note { id: string, paragraph: string, quote: string, color: string, note: string }
 interface Menu { x: number, y: number, paragraph: string, quote: string, note: string | null }
 const HL: Record<string, string> = { yellow: 'rgba(255, 214, 51, .5)', green: 'rgba(110, 214, 140, .45)', pink: 'rgba(255, 140, 180, .45)', blue: 'rgba(110, 175, 255, .45)' }
@@ -65,8 +66,20 @@ export function Reader({ view, actions, start, onFocus, onAskComment }: {
   const notesKey = `paper-read-notes:${p.title}`
   const [notes, setNotes] = useState<Note[]>(() => { try { return JSON.parse(stored(notesKey, '[]')) as Note[] } catch { return [] } })
   const [menu, setMenu] = useState<Menu | null>(null)
-  const [edit, setEdit] = useState<{ id: string, x: number, y: number, text: string } | null>(null)
   const saveNotes = (next: Note[]): void => { setNotes(next); store(notesKey, JSON.stringify(next)) }
+  // notes and comments are one thing: text of the earlier private notes is handed in as comments, once
+  const migrating = useRef(false)
+  useEffect(() => {
+    const old = notes.filter(n => n.note.trim())
+    if (!old.length || migrating.current) return
+    migrating.current = true
+    saveNotes(notes.map(n => ({ ...n, note: '' })))
+    void (async () => {
+      const failed: Note[] = []
+      for (const n of old) { try { await actions.comment({ kind: 'paragraph', id: n.paragraph, quote: n.quote }, n.note.trim()) } catch { failed.push(n) } }
+      if (failed.length) { const cur = JSON.parse(stored(notesKey, '[]')) as Note[]; saveNotes(cur.map(x => failed.find(f => f.id === x.id) ?? x)); migrating.current = false }
+    })()
+  }, [])
   const [zoom, setZoom] = useState<{ src: string, cap: string, whole?: string } | null>(null)
   const textCol = useRef<HTMLDivElement>(null)
   const confirmPage = useRef<() => void>(() => undefined)
@@ -77,7 +90,7 @@ export function Reader({ view, actions, start, onFocus, onAskComment }: {
 
   const go = (i: number): void => {
     const n = Math.max(0, Math.min(pages.length - 1, i))
-    setAt(n); store(pageKey, String(n)); setSel(null); setMore(false); setMenu(null); setEdit(null)
+    setAt(n); store(pageKey, String(n)); setSel(null); setMore(false); setMenu(null)
     if (n !== at) { setCur(''); setDraftTarget(null) }
     textCol.current?.scrollTo({ top: 0 })
   }
@@ -95,7 +108,7 @@ export function Reader({ view, actions, start, onFocus, onAskComment }: {
       else if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault(); go(at - 1) }
       else if (e.key === 't' || e.key === 'T') setToc(v => !v)
       else if ((e.key === 'c' || e.key === 'C') && !e.ctrlKey && !e.metaKey && !e.altKey) confirmPage.current()
-      else if (e.key === 'Escape') { setToc(false); setZoom(null); setMenu(null); setEdit(null) }
+      else if (e.key === 'Escape') { setToc(false); setZoom(null); setMenu(null) }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -140,11 +153,10 @@ export function Reader({ view, actions, start, onFocus, onAskComment }: {
   const notesOf = (id: string): Note[] => notes.filter(n => n.paragraph === id)
   const pageNotes = [...new Set(page.chunks.map(c => c.paragraph))].flatMap(id => notesOf(id))
   const place = (x: number, y: number, w: number, h: number): { left: number, top: number } => ({ left: Math.max(8, Math.min(x, window.innerWidth - w - 8)), top: Math.max(8, Math.min(y, window.innerHeight - h - 8)) })
-  const addNote = (paragraph: string, quote: string, color: string, at?: { x: number, y: number }): void => {
+  const addNote = (paragraph: string, quote: string, color: string): void => {
     const n: Note = { id: `n${Date.now().toString(36)}`, paragraph, quote, color, note: '' }
     saveNotes([...notes.filter(x => !(x.paragraph === paragraph && x.quote === quote)), n])
     window.getSelection()?.removeAllRanges(); setSel(null); setMenu(null)
-    if (at) setEdit({ id: n.id, x: at.x, y: at.y, text: '' })
   }
   const patchNote = (id: string, patch: Partial<Note>): void => saveNotes(notes.map(n => n.id === id ? { ...n, ...patch } : n))
   const selectionIn = (): { paragraph: string, quote: string } | null => {
@@ -160,7 +172,7 @@ export function Reader({ view, actions, start, onFocus, onAskComment }: {
     const paragraph = el.closest('[data-para]')?.getAttribute('data-para')
     if (!paragraph) return
     const s = selectionIn(), hl = el.closest('[data-note]')?.getAttribute('data-note') ?? null
-    e.preventDefault(); setSel(null); setEdit(null)
+    e.preventDefault(); setSel(null)
     setMenu({ x: e.clientX, y: e.clientY, paragraph: s?.paragraph ?? paragraph, quote: s?.quote ?? '', note: s ? null : hl })
   }
   const annotate = (id: string, quote = ''): void => { setCur(id); setSide('para'); setDraftTarget({ kind: 'paragraph', id, quote }) }
@@ -221,7 +233,7 @@ export function Reader({ view, actions, start, onFocus, onAskComment }: {
       }
       if (quotes.some(([s, e]) => s <= a && b <= e)) node = <mark className={css.rdQuote} title="这句话有批注：点击查看" onClick={e => { e.stopPropagation(); setCur(c.paragraph); setSide('para') }}>{node}</mark>
       const h = hls.find(x => x.s <= a && b <= x.e)
-      if (h) node = <mark data-note={h.n.id} className={cx(css.rdHl, h.n.note && css.rdHlNote)} style={{ background: HL[h.n.color] ?? HL.yellow }} title={h.n.note || '右键：换颜色、写笔记、删除'}>{node}</mark>
+      if (h) node = <mark data-note={h.n.id} className={cx(css.rdHl, h.n.note && css.rdHlNote)} style={{ background: HL[h.n.color] ?? HL.yellow }} title="右键：换颜色、写意见、删除">{node}</mark>
       out.push(d?.adds.some(([s, e]) => s <= a && b <= e) ? <ins key={n}>{node}</ins> : <Fragment key={n}>{node}</Fragment>)
     }
     gone(c.text.length)
@@ -235,10 +247,8 @@ export function Reader({ view, actions, start, onFocus, onAskComment }: {
   }
   const noteCard = (n: Note): ReactNode => <div key={n.id} className={css.noteCard} style={{ borderLeftColor: HL[n.color] ?? HL.yellow }} onClick={() => setCur(n.paragraph)}>
     <q>{n.quote.length > 140 ? `${n.quote.slice(0, 140)}…` : n.quote}</q>
-    {n.note && <p>{n.note}</p>}
-    <div className={css.row}><button className={css.linkBtn} onClick={e => { const r = e.currentTarget.getBoundingClientRect(); setEdit({ id: n.id, x: r.left - 320, y: r.top, text: n.note }) }}>{n.note ? '改笔记' : '写笔记'}</button>
-      <button className={css.linkBtn} onClick={() => annotate(n.paragraph, n.quote)}>转成意见</button>
-      <button className={css.linkBtn} onClick={() => saveNotes(notes.filter(x => x.id !== n.id))}>删除</button></div>
+    <div className={css.row}><button className={css.linkBtn} onClick={() => annotate(n.paragraph, n.quote)}>写意见</button>
+      <button className={css.linkBtn} onClick={() => saveNotes(notes.filter(x => x.id !== n.id))}>删除高亮</button></div>
   </div>
   const fontSize = (d: number): void => { const v = Math.max(14, Math.min(24, fs + d)); setFs(v); store('paper-read-fs', String(v)) }
   const crumb = [page.section, page.subsection].filter(Boolean).join(' · ')
@@ -299,7 +309,7 @@ export function Reader({ view, actions, start, onFocus, onAskComment }: {
       <aside className={css.rdFigCol}>
         <div className={css.rdTabs}>
           <button className={cx(side === 'figs' && css.rdTabOn)} onClick={() => setSide('figs')}>本页的图（{cards.length}）</button>
-          <button className={cx(side === 'para' && css.rdTabOn)} onClick={() => setSide('para')}>笔记与意见（{pageLive.length + pageNotes.length}）</button>
+          <button className={cx(side === 'para' && css.rdTabOn)} onClick={() => setSide('para')}>意见（{pageLive.length}）</button>
         </div>
         {side === 'figs' && <>
           {!cards.length && <div className={css.rdEmpty}>这一页没有引用图表。</div>}
@@ -325,11 +335,11 @@ export function Reader({ view, actions, start, onFocus, onAskComment }: {
         </>}
         {side === 'para' && <div className={css.rdParaSide}>
           {!curPara && <>
-            <div className={css.rdEmpty}>在正文里选中文字，用浮出的工具条或右键：高亮、写笔记、写意见。右键一段话可以对整段写意见。高亮和笔记只存在这个浏览器里；意见会交给 agent。</div>
-            {pageNotes.length > 0 && <div className={css.k}>本页我的高亮和笔记（{pageNotes.length}）</div>}
-            {pageNotes.map(noteCard)}
+            <div className={css.rdEmpty}>在正文里选中文字，用浮出的工具条或右键：高亮、写意见。右键一段话可以对整段写意见。意见会交给 agent；高亮只是你自己的标记，存在这个浏览器里。</div>
             {pageLive.length > 0 && <div className={css.k}>本页的意见（{pageLive.length}）</div>}
             {pageLive.map(c => <div key={c.id} onClick={() => setCur(c.target.id)}><CommentCard c={c} view={view} onGo={onFocus} canDecide={author} onStatus={s => void actions.setComment(c.id, s)} /></div>)}
+            {pageNotes.length > 0 && <div className={css.k}>本页我的高亮（{pageNotes.length}）</div>}
+            {pageNotes.map(noteCard)}
           </>}
           {curPara && <>
             <div className={css.rdCurHead}><span>{curPara.text.slice(0, 46)}…</span><button className={css.linkBtn} onClick={() => { setCur(''); setDraftTarget(null) }}>看本页全部</button></div>
@@ -338,13 +348,13 @@ export function Reader({ view, actions, start, onFocus, onAskComment }: {
               placeholder={draftTarget?.id === cur && draftTarget.quote ? '针对上面选中的这句话写意见' : '对这一段写意见（想针对某句话，先在正文里选中它）'}
               onSave={async (t, text) => { await actions.comment(t, text); setDraftTarget(null) }}
               {...(actions.user.role === 'author' ? { onSaveAndAsk: async (t: Target, text: string) => { await onAskComment(t, text); setDraftTarget(null) } } : {})} />}
-            {notesOf(cur).length > 0 && <div className={css.k}>这段我的高亮和笔记（{notesOf(cur).length}）</div>}
-            {notesOf(cur).map(noteCard)}
             <div className={css.k}>这段陈述的分论点</div>
             <div className={css.row}>{curPara.claims.length ? curPara.claims.map(cid => <button key={cid} className={css.chip} onClick={() => onFocus({ kind: 'claim', id: cid })}>
               {claimNo(view, cid)} {p.claims.find(c => c.id === cid)?.title.slice(0, 18)}</button>) : <span className={css.muted}>没有（方法细节、背景等）</span>}</div>
             <div className={css.k}>这段的意见（{curComments.length}）</div>
             {curComments.map(c => <CommentCard key={c.id} c={c} {...(actions.user.role === 'author' ? { onAssign: (a: string) => void actions.assign(c.id, a) } : {})} view={view} onGo={onFocus} canDecide={actions.user.role === 'author'} onStatus={s => void actions.setComment(c.id, s)} />)}
+            {notesOf(cur).length > 0 && <div className={css.k}>这段我的高亮（{notesOf(cur).length}）</div>}
+            {notesOf(cur).map(noteCard)}
           </>}
         </div>}
       </aside>
@@ -359,35 +369,26 @@ export function Reader({ view, actions, start, onFocus, onAskComment }: {
     </div>}
     {sel && !menu && <div className={css.selBar} style={{ left: sel.x, top: sel.y - 40 }} onMouseDown={e => e.preventDefault()}>
       {Object.keys(HL).map(k => <button key={k} className={css.hlDot} style={{ background: HL[k] }} title={`${HL_NAME[k]}色高亮`} onClick={() => addNote(sel.paragraph, sel.quote, k)} />)}
-      <button onClick={() => addNote(sel.paragraph, sel.quote, 'yellow', { x: sel.x - 150, y: sel.y + 24 })} title="高亮并写一条自己的笔记">笔记</button>
       <button onClick={() => { annotate(sel.paragraph, sel.quote); setSel(null); window.getSelection()?.removeAllRanges() }} title="针对这句话写意见，可以交给 agent 修改">意见</button>
     </div>}
     {menu && <div className={css.ctxBack} onClick={() => setMenu(null)} onContextMenu={e => { e.preventDefault(); setMenu(null) }}>
       <div className={css.ctx} style={place(menu.x, menu.y, 220, 250)} onClick={e => e.stopPropagation()} role="menu">
         {menu.quote && <>
           <div className={css.ctxRow}><span>高亮</span>{Object.keys(HL).map(k => <button key={k} className={css.hlDot} style={{ background: HL[k] }} title={`${HL_NAME[k]}色`} onClick={() => addNote(menu.paragraph, menu.quote, k)} />)}</div>
-          <button onClick={() => addNote(menu.paragraph, menu.quote, 'yellow', { x: menu.x, y: menu.y })}>高亮并写笔记</button>
           <button onClick={() => { annotate(menu.paragraph, menu.quote); setMenu(null); window.getSelection()?.removeAllRanges() }}>针对这句话写意见</button>
           <button onClick={() => { void navigator.clipboard?.writeText(menu.quote); setMenu(null) }}>复制</button>
         </>}
         {!menu.quote && menu.note && <>
           <div className={css.ctxRow}><span>换颜色</span>{Object.keys(HL).map(k => <button key={k} className={css.hlDot} style={{ background: HL[k] }} title={`${HL_NAME[k]}色`} onClick={() => { patchNote(menu.note!, { color: k }); setMenu(null) }} />)}</div>
-          <button onClick={() => { setEdit({ id: menu.note!, x: menu.x, y: menu.y, text: notes.find(n => n.id === menu.note)?.note ?? '' }); setMenu(null) }}>{notes.find(n => n.id === menu.note)?.note ? '改笔记' : '写笔记'}</button>
-          <button onClick={() => { annotate(menu.paragraph, notes.find(n => n.id === menu.note)?.quote ?? ''); setMenu(null) }}>把这句话转成意见</button>
+          <button onClick={() => { annotate(menu.paragraph, notes.find(n => n.id === menu.note)?.quote ?? ''); setMenu(null) }}>针对这句话写意见</button>
           <button className={css.ctxDanger} onClick={() => { saveNotes(notes.filter(n => n.id !== menu.note)); setMenu(null) }}>删除高亮</button>
         </>}
         {!menu.quote && !menu.note && <>
           <button onClick={() => { annotate(menu.paragraph); setMenu(null) }}>对这一段写意见</button>
-          <button onClick={() => { setCur(menu.paragraph); setSide('para'); setMenu(null) }}>看这一段的笔记和意见</button>
-          <div className={css.ctxHint}>先选中文字再右键，可以高亮和写笔记</div>
+          <button onClick={() => { setCur(menu.paragraph); setSide('para'); setMenu(null) }}>看这一段的意见</button>
+          <div className={css.ctxHint}>先选中文字再右键，可以高亮或针对这句话写意见</div>
         </>}
       </div></div>}
-    {edit && <div className={css.noteEdit} style={place(edit.x, edit.y, 300, 170)}>
-      <textarea autoFocus value={edit.text} placeholder="写给自己的笔记（只存在这个浏览器里）" onChange={e => setEdit({ ...edit, text: e.target.value })}
-        onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { patchNote(edit.id, { note: edit.text.trim() }); setEdit(null) } }} />
-      <div className={css.row}><button className={css.btnPrimary} onClick={() => { patchNote(edit.id, { note: edit.text.trim() }); setEdit(null) }}>保存</button>
-        <button className={css.btnGhost} onClick={() => setEdit(null)}>取消</button></div>
-    </div>}
     {zoom && <div className={css.rdLb} onClick={() => setZoom(null)} role="dialog">
       {zoom.whole && <div className={css.rdLbTools}><button className={css.btn} onClick={e => { e.stopPropagation(); setZoom({ src: zoom.whole!, cap: zoom.cap }) }}>看整张图</button></div>}
       <AssetImg actions={actions} path={zoom.src} alt="" />

@@ -14,13 +14,13 @@ import { SessionId } from '@deepseek-ai/dsh-session'
 import { ProjectStore } from './project/store.ts'
 import { ChangeSchema, CommentSchema, StageSchema, TargetSchema } from './project/model.ts'
 import { agentTaskMessage } from './project/prompts.ts'
-import { applyTool, commentTool, draftTool, linkTool, numberHintsTool, readTool } from './project/tools.ts'
+import { applyTool, commentTool, draftTool, linkTool, numberHintsTool, readTool, reviewRoundTool } from './project/tools.ts'
 import type { ProjectTask } from './project/prompts.ts'
 import { argumentMessage, checkMessage, copyMessage, errorLines, copyState, planBatches, referencePages, prepareMessage } from './project/init-job.ts'
 import type { Batch, CopyState, InitPhase } from './project/init-job.ts'
 
 /** Model tools of project mode; available in every conversation, each names its project directory. */
-export const PROJECT_TOOLS = ['project_read', 'project_apply', 'project_comment', 'project_draft', 'project_number_hints', 'project_link_paragraphs'] as const
+export const PROJECT_TOOLS = ['project_read', 'project_apply', 'project_comment', 'project_draft', 'project_number_hints', 'project_link_paragraphs', 'project_review_round'] as const
 
 const IMAGE_TYPES: Record<string, string> = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.svg': 'image/svg+xml' }
 const MAX_ASSET_BYTES = 8_000_000
@@ -32,6 +32,7 @@ const TaskSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('draft'), beat: z.string() }),
   z.object({ kind: z.literal('resync'), paragraphs: z.array(z.string()).min(1).max(40) }),
   z.object({ kind: z.literal('numbers') }),
+  z.object({ kind: z.literal('review-round'), reviewers: z.array(z.string()).min(1).max(12) }),
 ])
 
 /** Fields of the panel's initialisation form, as workspace-relative paths. */
@@ -219,7 +220,7 @@ export function applyProject(ctx: Context, rootFor: (sessionId: SessionId) => Pr
   ctx.effect(() => ctx.tools.register(defineTool({
     name: 'project_read',
     description: 'Read a paper project: thesis, beats and claims always; add figures, sections, comments, numbers, sync or materials with include. ids narrows claims and paragraphs (a claim id also selects the paragraphs stating it). numberMatches (projects initialised with a repository) lists the manuscript numbers with the repository files that contain them, to confirm as sources.',
-    parameters: { project: projectParam, include: { type: 'array', items: { type: 'string' }, description: 'Any of figures, sections, comments, numbers, sync, materials, numberMatches.' },
+    parameters: { project: projectParam, include: { type: 'array', items: { type: 'string' }, description: 'Any of figures, sections, comments, numbers, sync, materials, numberMatches, reviewers.' },
       ids: { type: 'array', items: { type: 'string' }, description: 'Claim or paragraph ids to keep.' } }, output,
     async execute(args, exec) {
       const { store } = await storeAt(agentOf(exec), args.project)
@@ -295,10 +296,24 @@ export function applyProject(ctx: Context, rootFor: (sessionId: SessionId) => Pr
     presentCall: () => ({ card: 'generic', kind: 'other', title: 'Sort numbers' }),
   })))
 
+  ctx.effect(() => ctx.tools.register(defineTool({
+    name: 'project_review_round',
+    description: 'Record one review round of a role-play reviewer (project_read include reviewers lists them): the reviewer id you were asked to play, a score on the venue scale (or null), an overall summary, what would raise the score, and at most 12 comments, each with target {kind, id, quote}, severity fact|reader|taste and text. Call it once, as that reviewer.',
+    parameters: { project: projectParam, reviewer: { type: 'string', required: true, description: 'Reviewer id' },
+      score: { type: 'json', description: 'Integer score or null' }, summary: { type: 'string', description: 'Overall judgement' },
+      raise: { type: 'string', description: 'What would raise the score' },
+      comments: { type: 'array', required: true, items: { type: 'json' }, description: '[{target: {kind, id, quote}, severity, text}]' } }, output,
+    async execute(args, exec) {
+      const { store } = await storeAt(agentOf(exec), args.project)
+      return reviewRoundTool(store, args, actor(exec))
+    },
+    presentCall: () => ({ card: 'generic', kind: 'other', title: 'Record review round' }),
+  })))
+
   // Operator RPC for the panel: the same envelope as manuscript review, under paper-project/*.
   const methods = ['paper-project/open', 'paper-project/view', 'paper-project/revision', 'paper-project/apply', 'paper-project/comment', 'paper-project/set-comment',
     'paper-project/confirm', 'paper-project/stage', 'paper-project/in-sync', 'paper-project/draft', 'paper-project/claim-at', 'paper-project/assign',
-    'paper-project/ask', 'paper-project/asset'] as const
+    'paper-project/ask', 'paper-project/asset', 'paper-project/reviewer', 'paper-project/remove-reviewer', 'paper-project/respond'] as const
   const envelope = z.object({ type: z.literal('client-request'), rpcId: z.string(), method: z.enum(methods), payload: z.unknown() })
 
   // Initialise a project from an existing manuscript: check the form, browse the workspace for its paths, then hand the
@@ -404,6 +419,11 @@ export function applyProject(ctx: Context, rootFor: (sessionId: SessionId) => Pr
           case 'paper-project/in-sync': value = await store.markInSync(z.string().parse(body.paragraph), author); break
           case 'paper-project/draft': value = await store.decideDraft(z.string().parse(body.id), body.accept === true, author, typeof body.text === 'string' ? body.text : undefined); break
           case 'paper-project/claim-at': value = { claim: await store.claimAt(z.string().parse(body.claim), z.string().parse(body.hash)) }; break
+          case 'paper-project/reviewer': value = await store.upsertReviewer(z.object({ id: z.string().optional(), name: z.string().min(1).max(80),
+            brief: z.string().max(20_000).default(''), concerns: z.string().max(20_000).default(''), originalScore: z.number().int().min(1).max(10).nullable().default(null) }).parse(body)); break
+          case 'paper-project/remove-reviewer': value = await store.removeReviewer(z.string().parse(body.id)); break
+          case 'paper-project/respond': value = await store.respond(z.string().parse(body.id), z.string().max(20_000).parse(body.text),
+            z.enum(['changed', 'rebut', 'decide']).optional().parse(body.disposition)); break
           case 'paper-project/assign': value = await store.setAssignee(z.string().parse(body.id), z.string().default('').parse(body.assignee)); break
           case 'paper-project/asset': {
             // Panel images as data URLs, confined to the project directory.
@@ -423,7 +443,7 @@ export function applyProject(ctx: Context, rootFor: (sessionId: SessionId) => Pr
             launches.set(sessionId, input.requestId)
             current.set(sessionId, path)
             const { project } = await store.load()
-            agent.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: agentTaskMessage(input.task as ProjectTask, path, project.style) }] }))
+            agent.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: agentTaskMessage(input.task as ProjectTask, path, project.style, (await store.view()).reviewers) }] }))
             value = { summary: '已交给当前对话中的 agent；完成后面板会自动刷新' }
             break
           }

@@ -3,7 +3,7 @@
  * a reviewer and the intended reader would, because the author's own view is the one the paper already has.
  * The prompts carry data as JSON and say so; nothing in the project text is an instruction.
  */
-import type { Project, Comment, CommentSource, Section } from './model.ts'
+import type { Project, Comment, CommentSource, Reviewer, Section } from './model.ts'
 import { claimHash } from './units.ts'
 
 export type Persona = Extract<CommentSource, 'editor' | 'reviewer' | 'audience'>
@@ -69,6 +69,38 @@ ${DATA_NOTE}
 Return JSON: {"comments": [{"target": {"kind": "thesis"|"beat"|"claim"|"evidence"|"figure"|"paragraph", "id": "<id>", "quote": "<exact short quote or empty>"}, "text": "<the comment>", "severity": "major"|"minor"}]}.
 At most 8 comments, the most important first. Each comment names the problem, why it matters to you in your role, and what would fix it.
 Write comments in Chinese; keep quotes and technical terms in their original language.`
+}
+
+/** What a role-play reviewer has already said and how the author answered, so the next round can judge the answers. */
+function reviewerHistory(r: Reviewer, comments: Comment[]): object[] {
+  return comments.filter(c => c.reviewer === r.id).map(c => ({ round: c.round, text: c.text.slice(0, 600), severity: c.severity,
+    status: c.status, response: c.response?.text.slice(0, 600) ?? '', disposition: c.disposition ?? '' }))
+}
+
+/** The shared instruction of one review round, for a model call (demo) or a subagent (DSH). */
+export function reviewerRoundBrief(r: Reviewer, venue: string): string {
+  return `You are ${r.name}, a reviewer of this paper${venue ? ` for ${venue}` : ''}. Stay in this role.
+${r.brief}
+${r.concerns ? `The points you raised in your report:\n${r.concerns}\n` : ''}${r.originalScore ? `Your original score was ${r.originalScore}.\n` : ''}Read the current version of the paper. For each of your points, judge whether the text now answers it, and look for new problems:
+numbers that disagree between sections, claims stronger than their evidence, and passages that would confuse a reader in your position.
+If earlier rounds and the authors' responses are given, judge the responses too: a point that was answered well is not raised again.
+Give a score on the venue's scale (ICLR: 1 clear reject, 2 leaning reject, 3 leaning accept, 4 clear accept), a short overall judgement,
+and what would still have to change in the text, figures or framing for you to raise the score. Do not ask for new experiments.
+At most 8 comments, the most important first. Each names the problem, quotes the exact text it is about, and says what would fix it.
+Tag each comment fact (a claim or number is wrong or unsupported), reader (it misleads or confuses) or taste (style).
+Write in Chinese; keep quotes and technical terms in their original language.`
+}
+
+/** One review round of a role-play reviewer, as one model call that returns JSON (the demo host). */
+export function reviewerRoundPrompt(p: Project, r: Reviewer, comments: Comment[]): string {
+  const prose = p.sections.map(s => ({ id: s.id, heading: s.heading, paragraphs: s.paragraphs.map(x => ({ id: x.id, text: x.text })) }))
+  return `${reviewerRoundBrief(r, p.journal)}
+Your earlier rounds and the authors' responses: ${JSON.stringify(reviewerHistory(r, comments))}
+${DATA_NOTE}
+<project>${JSON.stringify({ title: p.title, journal: p.journal, thesis: p.thesis, sections: prose,
+    figures: p.figures.map(f => ({ id: f.id, label: f.label, caption: f.caption.slice(0, 2000) })) })}</project>
+Return JSON: {"score": <integer or null>, "summary": "<overall judgement>", "raise": "<what would raise your score>",
+"comments": [{"target": {"kind": "paragraph"|"figure"|"project", "id": "<paragraph or figure id, or empty>", "quote": "<exact short quote>"}, "severity": "fact"|"reader"|"taste", "text": "<the comment>"}]}.`
 }
 
 /** First skeleton from materials. */
@@ -169,12 +201,13 @@ export type ProjectTask =
   | { kind: 'draft', beat: string }
   | { kind: 'resync', paragraphs: string[] }
   | { kind: 'numbers' }
+  | { kind: 'review-round', reviewers: string[] }
 
 /**
  * The conversation message for a task when a tool-using agent (DSH) does the work. The agent reads the project with
  * project_read and records results with the project_* tools; the store, not the prose of the reply, is the outcome.
  */
-export function agentTaskMessage(task: ProjectTask, project: string, style: string): string {
+export function agentTaskMessage(task: ProjectTask, project: string, style: string, reviewers: Reviewer[] = []): string {
   const head = `Project: ${JSON.stringify(project)} (workspace-relative). Read it with project_read before acting; record every result with the project tools named below. ` +
     'Your chat reply is a short summary only: the project files are the outcome.\n\n'
   switch (task.kind) {
@@ -203,6 +236,15 @@ export function agentTaskMessage(task: ProjectTask, project: string, style: stri
     case 'resync':
       return `${head}The claims of paragraphs ${JSON.stringify(task.paragraphs)} changed after they were written. Propose rewrites that state the current claims, changing as little as possible.\n` +
         `${PERSPECTIVE}\nStyle: ${style || DEFAULT_STYLE}\nRecord them with project_draft; never replace prose directly.`
+    case 'review-round': {
+      const chosen = reviewers.filter(r => task.reviewers.includes(r.id))
+      return `${head}Run one review round with role-play reviewers. Start one subagent per reviewer below with your subagent tool, all in parallel; ` +
+        'give each child only its own instruction (below), the project path and the tool to use, so that the reviewers do not see each other. ' +
+        'Each child reads the project with project_read (include sections, figures, comments) and records its round with exactly one project_review_round call ' +
+        '(reviewer id, score, summary, raise, comments with target, severity and text). Do not review yourself and do not edit the reviewers\' comments; ' +
+        'when all children have finished, reply with one line per reviewer: name, score, number of comments.\n\n' +
+        chosen.map(r => `### Reviewer ${JSON.stringify(r.id)}\n${reviewerRoundBrief(r, '')}`).join('\n\n')
+    }
     case 'numbers':
       return `${head}Sort every unregistered number (project_read include numbers) into result, parameter, citation or other, with a few-word Chinese note on what it is. ` +
         'Be conservative: when unsure between result and parameter, choose result. Record with project_number_hints. These are hints for the author, not decisions.'
