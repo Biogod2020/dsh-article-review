@@ -2,6 +2,8 @@
 import type { Context } from '@deepseek-ai/cordis'
 import ConfigSchema from '@deepseek-ai/schemastery'
 import { z } from 'zod'
+import { SelfUpdate } from './self-update.ts'
+import type { UpdateProfile } from './update-types.ts'
 import { PdfPreviewCache } from './pdf-preview-cache.ts'
 import { readFile, realpath } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
@@ -73,6 +75,23 @@ function modelProposal(proposal: Proposal) {
  * @param config - validated local project settings.
  */
 export async function apply(ctx: Context, config: Config): Promise<void> {
+  const updater = new SelfUpdate(ctx.get('profileContext') as UpdateProfile | undefined)
+  // Connection supplies authentication, same-origin checks and the request-size limit.
+  ctx.effect(() => ctx.connection.fetch.register({ path: '/api/paper-review/update', methods: ['POST'], requestBody: 'buffered',
+    async fetch(request) {
+      if (request.headers.get('content-type')?.split(';', 1)[0]?.trim() !== 'application/json') return new Response('Expected application/json', { status: 415 })
+      const parsed = z.object({ type: z.literal('client-request'), rpcId: z.string(), method: z.literal('paper-review/update'),
+        payload: z.object({ enabled: z.boolean().optional() }).strict() }).safeParse(await request.json().catch(() => undefined))
+      if (!parsed.success) return new Response('Invalid update request', { status: 400 })
+      try {
+        const value = parsed.data.payload.enabled === undefined ? await updater.view() : await updater.setEnabled(parsed.data.payload.enabled)
+        return Response.json({ type: 'server-response', rpcId: parsed.data.rpcId, result: { ok: true, value } }, { headers: { 'Cache-Control': 'no-store' } })
+      } catch (error) {
+        return Response.json({ type: 'server-response', rpcId: parsed.data.rpcId,
+          result: { ok: false, error: { message: error instanceof Error ? error.message : 'Update settings failed' } } })
+      }
+    },
+  }))
   ctx.inject(['skills'], async (scope) => {
     for (const [name, description] of [
       ['paper-figure-panels', 'Split figure panels and place verified crops beside their exact manuscript paragraphs in Paper review.'],

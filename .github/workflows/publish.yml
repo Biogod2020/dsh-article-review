@@ -24,7 +24,7 @@ jobs:
         with:
           node-version: '24.16.0'
           package-manager-cache: false
-      - run: npm install --global npm@11.15.0 pnpm@11.20.0 --ignore-scripts
+      - run: npm install --global npm@11.15.0 pnpm@11.28.5 --ignore-scripts
       - name: Verify prepared runtime and portable source
         run: |
           node scripts/check-release.mjs
@@ -81,8 +81,12 @@ jobs:
         include:
           - version: 0.2.1-rc.4
             source: 504a01a9578abc2c6f1fb896b1dc322c9fe24f66
+          - version: 0.2.1-rc.5
+            source: b830ec950faba0a46dda564be3e2d854afed94f1
           - version: 0.2.2-alpha.2
             source: f3803c96974ad4a94195fb97e5c637e9c2a3afe3
+          - version: 0.2.2-rc.1
+            source: 66491b05e3f05ad35bcdd4f6cd7ed26041d9e3db
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
@@ -91,7 +95,7 @@ jobs:
         with:
           node-version: '24.16.0'
           package-manager-cache: false
-      - run: npm install --global pnpm@11.20.0 --ignore-scripts
+      - run: npm install --global pnpm@11.28.5 --ignore-scripts
       - run: npm ci --prefix validation --ignore-scripts --no-audit --no-fund
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
@@ -119,8 +123,39 @@ jobs:
           cd ..
           node scripts/runtime-smoke.mjs "$RUNNER_TEMP/dsh-current/node_modules/.bin/dsh" release/*.tgz
 
+      - name: Accept native third-party update on 0.2.2-rc.1
+        if: matrix.version == '0.2.2-rc.1'
+        run: node scripts/native-update-smoke.mjs "$RUNNER_TEMP/dsh-current/node_modules/.bin/dsh" release/*.tgz
+
+      - name: Accept independent update with retained annotations and review baselines
+        if: matrix.version == '0.2.1-rc.5'
+        run: node scripts/self-update-smoke.mjs "$RUNNER_TEMP/dsh-current/node_modules/.bin/dsh" release/*.tgz
+
+  windows-update:
+    needs: verify
+    runs-on: windows-2025
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: '24.16.0'
+          package-manager-cache: false
+      - run: npm install --global pnpm@11.28.5 --ignore-scripts
+      - run: npm ci --prefix validation --ignore-scripts --no-audit --no-fund
+      - run: node validation/run.mjs tests/self-update.spec.ts tests/plugin-updates.client.spec.tsx
+      - run: node scripts/windows-update-service-smoke.mjs
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: verified-npm-package
+          path: release
+      - run: npm install --prefix "$env:RUNNER_TEMP/dsh-windows" --ignore-scripts --no-audit --no-fund @deepseek-ai/dsh@0.2.1-rc.5
+      - run: |
+          $archive = (Get-ChildItem release/*.tgz).FullName
+          node scripts/self-update-smoke.mjs "$env:RUNNER_TEMP/dsh-windows/node_modules/@deepseek-ai/dsh/lib/bin.js" "$archive"
+
   publish:
-    needs: [verify, current-harness]
+    needs: [verify, current-harness, windows-update]
     if: github.repository == 'Biogod2020/dsh-article-review' && github.ref_type == 'tag'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -158,7 +193,7 @@ jobs:
         with:
           node-version: '24.16.0'
           package-manager-cache: false
-      - run: npm install --global pnpm@11.20.0 --ignore-scripts
+      - run: npm install --global pnpm@11.28.5 --ignore-scripts
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
         with:
           name: verified-npm-package
@@ -168,8 +203,9 @@ jobs:
       - name: Verify exact release and bare-name install with package-scoped recent-release opt-in
         run: |
           version=$(node -p 'require("./package.json").version')
-          for runtime in 0.2.1-rc.3 0.2.1-rc.4 0.2.2-alpha.2; do
-            npm install --prefix "$RUNNER_TEMP/dsh-$runtime" --ignore-scripts --no-audit --no-fund "@deepseek-ai/dsh@$runtime"
+          for runtime in 0.2.1-rc.3 0.2.1-rc.4 0.2.1-rc.5 0.2.2-alpha.2 0.2.2-rc.1; do
+            node scripts/prepare-test-runtime.mjs "$runtime" "$RUNNER_TEMP/dsh-$runtime"
+            npm install --prefix "$RUNNER_TEMP/dsh-$runtime" --ignore-scripts --no-audit --no-fund
             for registry in https://registry.npmjs.org https://registry.npmmirror.com; do
               DSH_SMOKE_REGISTRY="$registry" DSH_SMOKE_EXPECT_VERSION="$version" node scripts/runtime-smoke.mjs "$RUNNER_TEMP/dsh-$runtime/node_modules/.bin/dsh" "dsh-article-review@$version"
               DSH_SMOKE_REGISTRY="$registry" DSH_SMOKE_EXPECT_VERSION="$version" DSH_SMOKE_ALLOW_RECENT_PACKAGE=1 node scripts/runtime-smoke.mjs "$RUNNER_TEMP/dsh-$runtime/node_modules/.bin/dsh" dsh-article-review
