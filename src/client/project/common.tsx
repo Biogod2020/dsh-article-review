@@ -8,16 +8,15 @@ import type { ReviewStatus } from '../../project/units.ts'
 import type { ProjectView } from '../../project/store.ts'
 import css from './project.module.css'
 
-export const STAGE_LABEL: Record<Stage, string> = {
-  materials: '材料', skeleton: '骨架', refine: '论点与图', draft: '成文', read: '阅读审核', submit: '投稿',
-}
+export { STAGE_NAME as STAGE_LABEL } from '../../project/flow.ts'
 export const STAGE_HINT: Record<Stage, string> = {
   materials: '登记数据、结果、已有的图和目标期刊',
   skeleton: 'agent 起草故事流：核心论点、各拍、分论点和论据',
-  refine: '围绕故事流改论点和图，请编辑、审稿人、读者提意见',
-  draft: 'agent 按骨架逐节成文，正文与骨架保持同步',
+  refine: '围绕故事流改论点和图，外审一轮，你挑要处理的意见',
+  frame: '先写摘要与引言，讨论至多三轮后锁定，作为后文的依据',
+  draft: 'agent 按骨架和锁定的摘要与引言写其余正文',
   read: '按页阅读正文和对应面板，逐段审阅',
-  submit: '所有段落已审、数字有出处、意见已处理',
+  submit: '最后润色一次；所有段落已审、数字有出处、意见已处理',
 }
 export const SOURCE_LABEL: Record<Comment['source'], string> = {
   author: '作者', collaborator: '协作者', editor: '编辑', reviewer: '审稿人', audience: '读者', chat: '对话', check: '检查',
@@ -44,9 +43,63 @@ export function EvidenceBar({ evidence }: { evidence: Evidence[] }): ReactNode {
 }
 
 /** Word-level difference; whole numbers stay one token because diffWordsWithSpace splits on spaces only. */
+export interface DiffPart { value: string, added?: boolean, removed?: boolean }
+/**
+ * A word diff that a person can read: a run of fewer than three unchanged words between two changes is taken
+ * into the change, and each change is one removed piece followed by one added piece. A raw word diff of a heavily
+ * edited sentence alternates single words ("itaa doesfixed notreader"), which nobody can follow.
+ */
+export function readableDiff(before: string, after: string): DiffPart[] {
+  const raw = diffWordsWithSpace(before, after)
+  const out: DiffPart[] = []
+  let del = '', add = '', open = false
+  const flush = (): void => {
+    if (del.trim() || add.trim()) { if (del) out.push({ value: del, removed: true }); if (add) out.push({ value: add, added: true }) }
+    else if (del || add) out.push({ value: add || del })
+    del = ''; add = ''; open = false
+  }
+  raw.forEach((p, i) => {
+    if (p.removed) { del += p.value; open = true; return }
+    if (p.added) { add += p.value; open = true; return }
+    const short = p.value.trim().split(/\s+/).filter(Boolean).length < 3 && !/[.;:!?]\s*$/.test(p.value.trim())
+    const more = raw.slice(i + 1).some(x => x.added || x.removed) && (raw[i + 1]?.added || raw[i + 1]?.removed)
+    if (open && short && more) { del += p.value; add += p.value; return }
+    flush(); out.push({ value: p.value })
+  })
+  flush()
+  return out
+}
+
+export interface TypeProgress { key: 'story' | 'figure' | 'paragraph', label: string, ok: number, changed: number, all: number, next: string | undefined }
+/** Review progress split by what is reviewed: the story (thesis, beats, claims), the figures and the paragraphs. */
+export function progressByType(view: ProjectView): TypeProgress[] {
+  const groups: TypeProgress[] = [
+    { key: 'story', label: '故事', ok: 0, changed: 0, all: 0, next: undefined },
+    { key: 'figure', label: '图', ok: 0, changed: 0, all: 0, next: undefined },
+    { key: 'paragraph', label: '段落', ok: 0, changed: 0, all: 0, next: undefined },
+  ]
+  const firstNew: (string | undefined)[] = [undefined, undefined, undefined]
+  for (const u of view.units) {
+    const i = u.kind === 'figure' ? 1 : u.kind === 'paragraph' ? 2 : 0
+    const g = groups[i]!, s = view.status[u.key] ?? 'new'
+    g.all++
+    if (s === 'reviewed') g.ok++
+    else if (s === 'changed') { g.changed++; g.next ??= u.key }
+    else firstNew[i] ??= u.key
+  }
+  groups.forEach((g, i) => { g.next ??= firstNew[i] })
+  return groups
+}
+
+/** A claim as the story view numbers it (C1, C2, …); ids such as "c-accept" are internal. */
+export function claimNo(view: ProjectView, id: string): string {
+  const i = view.project.claims.findIndex(c => c.id === id)
+  return i < 0 ? id : `C${i + 1}`
+}
+
 export function WordDiff({ before, after }: { before: string, after: string }): ReactNode {
   if (before === after) return <span>{after}</span>
-  return <span className={css.diff}>{diffWordsWithSpace(before, after).map((part, i) =>
+  return <span className={css.diff}>{readableDiff(before, after).map((part, i) =>
     part.added ? <ins key={i}>{part.value}</ins> : part.removed ? <del key={i}>{part.value}</del> : <span key={i}>{part.value}</span>)}</span>
 }
 
@@ -73,7 +126,7 @@ export const unitFocus = (key: string): Focus => {
   return { kind: kind as Focus['kind'], id }
 }
 const UNIT_LABEL: Record<string, string> = { thesis: '核心论点', beat: '拍', claim: '分论点', figure: '图', paragraph: '段落' }
-const unitLabel = (key: string, view?: ProjectView): string => {
+export const unitLabel = (key: string, view?: ProjectView): string => {
   const f = unitFocus(key)
   if (f.kind === 'thesis') return '核心论点'
   if (f.kind === 'paragraph') return paraLabel(view, f.id)
@@ -83,8 +136,26 @@ const unitLabel = (key: string, view?: ProjectView): string => {
 }
 
 /**
- * A comment with its reply and the author's controls. The reply lists what the answering revision actually changed
- * (each a link to the change) and any paragraph rewrites still waiting, so a reply can be checked against the record.
+ * What the answering revision changed. The unit the comment was written on is the one link that matters; the rest of
+ * the revision (often every figure and claim it re-saved) stays folded.
+ */
+function ChangedUnits({ units, own, label, onPick }: { units: string[], own: string, label: (u: string) => string, onPick: (u: string) => void }): ReactNode {
+  const [all, setAll] = useState(false)
+  const rest = units.filter(u => u !== own)
+  if (!units.length) return <div className={css.changedUnits}><span className={css.warnText}>这一版没有修改任何内容</span></div>
+  return <div className={css.changedUnits}>
+    {units.includes(own) && <button className={css.unitLink} onClick={() => onPick(own)} title="打开并查看相对你上次审过的差异">查看这处的修改 ›</button>}
+    {rest.length > 0 && <button className={css.linkBtn} onClick={() => setAll(!all)}>{all ? '收起' : `同一版还改了 ${rest.length} 处`}</button>}
+    {all && <div className={css.unitMore}>{rest.map(u => <button key={u} className={css.chip} onClick={() => onPick(u)}>{label(u)}</button>)}</div>}
+  </div>
+}
+
+const MODEL_SOURCE = new Set<Comment['source']>(['editor', 'reviewer', 'audience'])
+const when = (iso: string): string => iso.slice(5, 16).replace('T', ' ')
+
+/**
+ * A comment as a short thread: the comment, the agent's reply under it, then the author's controls. The reply lists
+ * what the answering revision changed and any paragraph rewrites still waiting, so it can be checked against the record.
  */
 export function CommentCard({ c, view, onStatus, onGo, canDecide, targetLabel, onAssign }: {
   c: Comment, view?: ProjectView, onStatus?: (s: Comment['status']) => void, onGo?: (f: Focus) => void, canDecide: boolean, targetLabel?: string,
@@ -93,32 +164,44 @@ export function CommentCard({ c, view, onStatus, onGo, canDecide, targetLabel, o
   const people = [...new Set((view?.comments ?? []).filter(x => x.source === 'author' || x.source === 'collaborator').map(x => x.author))]
   const changed = c.response ? view?.history.find(h => h.revision === c.response!.revision)?.units : undefined
   const drafts = view?.drafts.filter(d => d.comments.includes(c.id) && d.status === 'pending') ?? []
-  return <div className={cx(css.comment, css[`cm_${c.status}`])}>
-    <div className={css.cmHead}>
-      <SourceTag c={c} />
-      {targetLabel && <button className={css.linkBtn} onClick={() => onGo?.({ kind: c.target.kind, id: c.target.id })} title="跳到位置">{targetLabel}</button>}
-      <span className={css.muted}>{c.createdAt.slice(5, 16).replace('T', ' ')}</span>
-      <span className={cx(css.pill, css[`pill_${c.status}`])}>{STATUS_LABEL[c.status]}</span>
-      {c.assignee && <span className={css.assignee}>指派：{c.assignee}</span>}
+  const model = MODEL_SOURCE.has(c.source)
+  const name = model ? SOURCE_LABEL[c.source] : c.author || SOURCE_LABEL[c.source]
+  return <article className={cx(css.comment, css[`cm_${c.status}`])}>
+    <div className={css.thMsg}>
+      <span className={cx(css.avatar, css[`src_${c.source}`])} aria-hidden>{name.trim().slice(0, 1).toUpperCase()}</span>
+      <div className={css.thBody}>
+        <div className={css.cmHead}>
+          <b>{name}</b><span className={css.thRole}>{model ? '模拟审阅' : SOURCE_LABEL[c.source]}</span>
+          <span className={css.thTime}>{when(c.createdAt)}</span>
+          {targetLabel && <button className={css.thWhere} onClick={() => onGo?.({ kind: c.target.kind, id: c.target.id })} title="跳到这个位置">{targetLabel}</button>}
+          <span className={css.grow} />
+          {c.assignee && <span className={css.assignee}>指派：{c.assignee}</span>}
+          <span className={cx(css.pill, css[`pill_${c.status}`])}>{STATUS_LABEL[c.status]}</span>
+        </div>
+        {c.target.quote && <blockquote className={css.quote}>{c.target.quote}</blockquote>}
+        <div className={css.cmText}>{c.text}</div>
+      </div>
     </div>
-    {c.target.quote && <blockquote className={css.quote}>{c.target.quote}</blockquote>}
-    <div className={css.cmText}>{c.text}</div>
-    {c.response && <div className={css.reply}><b>Agent 回应（r{c.response.revision}）</b>：{c.response.text}
-      {changed && <div className={css.changedUnits}>这次实际修改：{changed.length ? changed.map(u =>
-        <button key={u} className={css.unitLink} onClick={() => onGo?.({ ...unitFocus(u), from: c.id })} title="打开并查看相对你上次审过的差异">{unitLabel(u, view)}</button>) : <span className={css.warnText}>没有修改任何内容</span>}</div>}
-      {drafts.length > 0 && <div className={css.changedUnits}>正文改写草稿 {drafts.length} 段待你确认：{drafts.map(d =>
-        <button key={d.id} className={css.unitLink} onClick={() => onGo?.({ kind: 'paragraph', id: d.paragraph, from: c.id })}>{paraLabel(view, d.paragraph)}</button>)}</div>}
+    {c.response && <div className={cx(css.thMsg, css.thReply)}>
+      <span className={cx(css.avatar, css.avatarAgent)} aria-hidden>✦</span>
+      <div className={css.thBody}>
+        <div className={css.cmHead}><b>Agent</b><span className={css.thRole}>回应</span><span className={css.thRev}>r{c.response.revision}</span></div>
+        <div className={css.cmText}>{c.response.text}</div>
+        {changed && <ChangedUnits units={changed} own={`${c.target.kind}:${c.target.id}`} label={u => unitLabel(u, view)} onPick={u => onGo?.({ ...unitFocus(u), from: c.id })} />}
+        {drafts.length > 0 && <div className={css.changedUnits}>正文改写草稿 {drafts.length} 段待你确认：{drafts.map(d =>
+          <button key={d.id} className={css.unitLink} onClick={() => onGo?.({ kind: 'paragraph', id: d.paragraph, from: c.id })}>{paraLabel(view, d.paragraph)}</button>)}</div>}
+      </div>
     </div>}
-    {canDecide && onStatus && <div className={css.row}>
-      {c.status !== 'closed' && <button className={css.btn} onClick={() => onStatus('closed')}>{c.status === 'answered' ? '满意，关闭' : '关闭'}</button>}
+    {canDecide && onStatus && <div className={css.thActs}>
+      {c.status !== 'closed' && <button className={c.status === 'answered' ? css.btnOk : css.btn} onClick={() => onStatus('closed')}>{c.status === 'answered' ? '✓ 满意，关闭' : '关闭'}</button>}
       {c.status === 'open' && <button className={css.btnGhost} onClick={() => onStatus('declined')}>不采纳</button>}
-      {c.status !== 'open' && <button className={css.btnGhost} onClick={() => onStatus('open')}>重新打开</button>}
+      {c.status !== 'open' && <button className={css.btnGhost} onClick={() => onStatus('open')}>{c.status === 'answered' ? '不满意，重新打开' : '重新打开'}</button>}
       {onAssign && c.status === 'open' && <select className={css.assignSel} value={c.assignee} aria-label="指派给"
         onChange={e => { const v = e.target.value === '__other' ? (window.prompt('指派给谁？') ?? '') : e.target.value; onAssign(v) }}>
         <option value="">不指派</option>{[...new Set([...people, c.assignee].filter(Boolean))].map(n => <option key={n} value={n}>指派给 {n}</option>)}
         <option value="__other">指派给其他人…</option></select>}
     </div>}
-  </div>
+  </article>
 }
 
 /** Write a comment; the author can also hand it straight to the agent (the usual way of working). */
@@ -158,8 +241,10 @@ export function AssetImg({ actions, path, ...rest }: { actions: { asset(p: strin
     let live = true
     let req = assetCache.get(path)
     if (!req) { req = actions.loadAsset(path); assetCache.set(path, req); req.catch(() => assetCache.delete(path)) }
+    setUrl('')  // the same element can be given another path: never keep showing the old image
     req.then(u => { if (live) setUrl(u) }, () => undefined)
     return () => { live = false }
   }, [actions, path])
-  return url ? <img src={url} {...rest} /> : <span className={css.imgLoading} aria-label="载入图片" />
+  const src = actions.loadAsset ? url : direct
+  return src ? <img src={src} {...rest} /> : <span className={css.imgLoading} aria-label="载入图片" />
 }

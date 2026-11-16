@@ -6,10 +6,12 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
-import type { Change, Claim, Comment, Draft, Project, ReviewState, Stage, Target } from './model.ts'
-import { ChangeSchema, CommentSchema, DraftSchema, ProjectSchema, ReviewStateSchema, StageSchema } from './model.ts'
+import type { Change, Claim, Comment, Draft, Project, Reviewer, ReviewState, Stage, Target } from './model.ts'
+import { ChangeSchema, CommentSchema, DraftSchema, ProjectSchema, ReviewerSchema, ReviewStateSchema, STAGES, StageSchema } from './model.ts'
 import type { CheckItem, NumberIssue, ReviewStatus, SyncIssue, Unit } from './units.ts'
-import { applyChanges, changedUnits, claimHash, resyncBasis, reviewStatus, stageChecklist, syncIssues, units, unregisteredNumbers } from './units.ts'
+import { applyChanges, changedUnits, claimHash, frameHash, frameStatus, resyncBasis, reviewStatus, stageChecklist, syncIssues, units, unregisteredNumbers } from './units.ts'
+import type { FlowStatus } from './flow.ts'
+import { flowStatus } from './flow.ts'
 
 /** What the client renders: the project plus everything derived from it. */
 export interface ProjectView {
@@ -27,6 +29,10 @@ export interface ProjectView {
   /** Paragraph rewrites: pending ones wait for the author; a pending draft whose paragraph changed meanwhile is stale. */
   drafts: Draft[]
   numberHints: ReviewState['numberHints']
+  /** Where the recommended workflow stands and the one next step. */
+  flow: FlowStatus
+  /** Role-play reviewers and their rounds; their comments are in comments with source "reviewer". */
+  reviewers: Reviewer[]
 }
 
 async function writeAtomic(path: string, value: unknown): Promise<void> {
@@ -88,7 +94,8 @@ export class ProjectStore {
       status: reviewStatus(project, state), units: units(project),
       reviewed: Object.fromEntries(Object.entries(state.reviewed).map(([k, v]) => [k, v.revision])), sync: syncIssues(project),
       numbers: unregisteredNumbers(project), checklist: stageChecklist(project, state),
-      numberHints: state.numberHints,
+      numberHints: state.numberHints, flow: flowStatus(project, state),
+      reviewers: state.reviewers,
       drafts: state.drafts.map(d => d.status === 'pending' && paragraphText(project, d.paragraph) !== d.before ? { ...d, status: 'stale' as const } : d),
     }
   }
@@ -123,6 +130,9 @@ export class ProjectStore {
         answered.add(c.id)
       }
       state.revision = revision
+      // an author's own edit of locked text is the author's decision: the lock follows it (agents cannot write there)
+      if (state.flow.frameLock && !input.actor.startsWith('agent') && state.flow.frameLock.hash === frameHash(project) && frameHash(next) !== frameHash(project))
+        state.flow.frameLock = { hash: frameHash(next), revision, at: now() }
       state.history.push({ revision, at: now(), actor: input.actor, reason: input.reason, comments: [...answered],
         units: [...new Set(changes.flatMap(changedUnits))] })
       await writeAtomic(join(this.root, '.review', 'history', `r${revision}.json`), next)
@@ -140,6 +150,64 @@ export class ProjectStore {
       state.comments.push(comment)
       await writeAtomic(this.statePath, state)
       return { view: this.derive(project, state), comment }
+    })
+  }
+
+  /** Add or edit a role-play reviewer (name, brief, concerns, original score); rounds are kept. */
+  async upsertReviewer(input: { id?: string | undefined, name: string, brief?: string, concerns?: string, originalScore?: number | null }): Promise<ProjectView> {
+    return this.serial(async () => {
+      const { project, state } = await this.load()
+      const id = input.id || `r${Date.now().toString(36)}${randomUUID().slice(0, 3)}`
+      const old = state.reviewers.find(r => r.id === id)
+      const next = ReviewerSchema.parse({ ...old, ...input, id, rounds: old?.rounds ?? [] })
+      state.reviewers = old ? state.reviewers.map(r => r.id === id ? next : r) : [...state.reviewers, next]
+      await writeAtomic(this.statePath, state)
+      return this.derive(project, state)
+    })
+  }
+
+  async removeReviewer(id: string): Promise<ProjectView> {
+    return this.serial(async () => {
+      const { project, state } = await this.load()
+      state.reviewers = state.reviewers.filter(r => r.id !== id)
+      await writeAtomic(this.statePath, state)
+      return this.derive(project, state)
+    })
+  }
+
+  /**
+   * Record one review round of a reviewer: score, summary, what would raise the score, and its comments (source
+   * "reviewer", tagged with the reviewer and round). Returns the round number.
+   */
+  async addReviewRound(reviewer: string, input: { score: number | null, summary: string, raise: string, model: string, round?: number,
+    comments: { target: Target, text: string, severity?: Comment['severity'] }[] }): Promise<{ view: ProjectView, round: number }> {
+    return this.serial(async () => {
+      const { project, state } = await this.load()
+      const r = state.reviewers.find(x => x.id === reviewer)
+      if (!r) throw new Error(`unknown reviewer ${reviewer}`)
+      const round = input.round ?? (Math.max(0, ...r.rounds.map(x => x.round)) + 1)
+      r.rounds = [...r.rounds.filter(x => x.round !== round), { round, at: now(), model: input.model, score: input.score, summary: input.summary,
+        raise: input.raise, revision: state.revision }].sort((a, b) => a.round - b.round)
+      for (const c of input.comments) {
+        state.comments.push(CommentSchema.parse({ id: `c${Date.now().toString(36)}${randomUUID().slice(0, 4)}`, target: c.target, source: 'reviewer',
+          author: r.name, text: c.text, status: 'open', createdAt: now(), stage: project.stage, reviewer, round, severity: c.severity }))
+      }
+      await writeAtomic(this.statePath, state)
+      return { view: this.derive(project, state), round }
+    })
+  }
+
+  /** The author's response to a comment, with how it was handled; the comment counts as answered. */
+  async respond(id: string, text: string, disposition: Comment['disposition']): Promise<ProjectView> {
+    return this.serial(async () => {
+      const { project, state } = await this.load()
+      const c = state.comments.find(x => x.id === id)
+      if (!c) throw new Error(`unknown comment ${id}`)
+      c.response = { text, revision: state.revision, at: now() }
+      c.disposition = disposition
+      if (c.status === 'open') c.status = 'answered'
+      await writeAtomic(this.statePath, state)
+      return this.derive(project, state)
     })
   }
 
@@ -191,15 +259,19 @@ export class ProjectStore {
   }
 
   /**
-   * Move to a stage. Entering "submit" with unmet checklist items needs a written reason, kept in history:
-   * the checklist advises elsewhere, but submission is where skipping it must be a recorded decision.
+   * Move to a stage. Entering "submit" with unmet checklist items, or leaving the abstract-and-introduction stage
+   * with them unlocked, needs a written reason, kept in history: the checklist advises elsewhere, but these are
+   * where skipping it must be a recorded decision. Jumping over stages from earlier on is free.
    */
   async setStage(stage: Stage, actor: string, reason = ''): Promise<ProjectView> {
     const s = StageSchema.parse(stage)
     return this.serial(async () => {
       const { project, state } = await this.load()
-      const unmet = s === 'submit' ? stageChecklist(project, state, 'read').filter(i => !i.ok) : []
-      if (unmet.length && reason.trim().length < 10) throw new Error(`进入投稿前有 ${unmet.length} 项未完成，需要写明理由`)
+      // leaving the abstract-and-introduction stage forward with them unlocked is a recorded decision too
+      const leavingFrame = project.stage === 'frame' && STAGES.indexOf(s) > STAGES.indexOf('frame') && !frameStatus(project, state).locked
+      const unmet = s === 'submit' ? stageChecklist(project, state, 'read').filter(i => !i.ok)
+        : leavingFrame ? [{ label: '摘要与引言已锁定', ok: false, detail: '' }] : []
+      if (unmet.length && reason.trim().length < 10) throw new Error(s === 'submit' ? `进入投稿前有 ${unmet.length} 项未完成，需要写明理由` : '摘要与引言还没锁定；不锁定就往下写，需要写明理由')
       const next = { ...project, stage: s }
       state.revision += 1
       state.history.push({ revision: state.revision, at: now(), actor,
@@ -247,11 +319,43 @@ export class ProjectStore {
       d.status = 'accepted'
       d.after = text
       state.revision += 1
+      // accepting a rewrite of locked text is the author's decision: the lock moves with it
+      if (state.flow.frameLock && state.flow.frameLock.hash === frameHash(project) && frameHash(next) !== frameHash(project))
+        state.flow.frameLock = { hash: frameHash(next), revision: state.revision, at: now() }
       state.history.push({ revision: state.revision, at: now(), actor, reason: `${byAuthor ? '修改后接受' : '接受'}段落改写：${d.reason}`, comments: d.comments, units: [`paragraph:${d.paragraph}`] })
       await writeAtomic(join(this.root, '.review', 'history', `r${state.revision}.json`), next)
       await writeAtomic(this.projectPath, next)
       await writeAtomic(this.statePath, state)
       return this.derive(next, state)
+    })
+  }
+
+  /**
+   * Lock the abstract and introduction at their current text, or unlock them with a reason. Once locked, agents can
+   * only propose rewrites there, and the rest of the prose is written against them.
+   */
+  async lockFrame(lock: boolean, actor: string, reason = ''): Promise<ProjectView> {
+    return this.serial(async () => {
+      const { project, state } = await this.load()
+      if (lock && !frameStatus(project, state).paragraphs.length) throw new Error('还没有摘要与引言，无法锁定')
+      if (!lock && reason.trim().length < 4) throw new Error('解锁需要写明理由')
+      state.revision += 1
+      state.flow.frameLock = lock ? { hash: frameHash(project), revision: state.revision, at: now() } : null
+      state.history.push({ revision: state.revision, at: now(), actor, reason: lock ? '锁定摘要与引言' : `解锁摘要与引言：${reason.trim()}`, comments: [], units: [] })
+      await writeAtomic(join(this.root, '.review', 'history', `r${state.revision}.json`), project)
+      await writeAtomic(this.statePath, state)
+      return this.derive(project, state)
+    })
+  }
+
+  /** Record workflow progress the content cannot show: an agent round on the frame, the final language pass. */
+  async noteFlow(event: 'frame-round' | 'polished'): Promise<ProjectView> {
+    return this.serial(async () => {
+      const { project, state } = await this.load()
+      if (event === 'frame-round') state.flow.frameRounds += 1
+      else state.flow.polished = state.revision
+      await writeAtomic(this.statePath, state)
+      return this.derive(project, state)
     })
   }
 

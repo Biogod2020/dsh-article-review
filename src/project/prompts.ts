@@ -3,8 +3,8 @@
  * a reviewer and the intended reader would, because the author's own view is the one the paper already has.
  * The prompts carry data as JSON and say so; nothing in the project text is an instruction.
  */
-import type { Project, Comment, CommentSource, Section } from './model.ts'
-import { claimHash } from './units.ts'
+import type { Project, Comment, CommentSource, Reviewer, Section } from './model.ts'
+import { claimHash, frameParagraphs } from './units.ts'
 
 export type Persona = Extract<CommentSource, 'editor' | 'reviewer' | 'audience'>
 
@@ -61,7 +61,7 @@ export function personaReviewPrompt(p: Project, persona: Persona, focus: string,
   const prose = p.sections.length ? p.sections.map(s => ({ id: s.id, heading: s.heading, paragraphs: s.paragraphs.map(x => ({ id: x.id, claims: x.claims, text: x.text })) })) : undefined
   return `${r.brief}
 Your job is ${r.owns}. Leave other questions to the other reviewers.
-The paper is at stage "${p.stage}" (materials → skeleton → refine claims and figures → draft → reading review → submit). Judge what exists at this stage;
+The paper is at stage "${p.stage}" (materials → skeleton → refine claims and figures → abstract and introduction → draft → reading review → submit). Judge what exists at this stage;
 at skeleton or refine stage the argument and figures matter, not wording.
 ${focus ? `Focus: ${focus}\n` : ''}Already raised (do not repeat): ${JSON.stringify(comments.filter(c => c.status !== 'closed').map(c => c.text.slice(0, 160)))}
 ${DATA_NOTE}
@@ -69,6 +69,38 @@ ${DATA_NOTE}
 Return JSON: {"comments": [{"target": {"kind": "thesis"|"beat"|"claim"|"evidence"|"figure"|"paragraph", "id": "<id>", "quote": "<exact short quote or empty>"}, "text": "<the comment>", "severity": "major"|"minor"}]}.
 At most 8 comments, the most important first. Each comment names the problem, why it matters to you in your role, and what would fix it.
 Write comments in Chinese; keep quotes and technical terms in their original language.`
+}
+
+/** What a role-play reviewer has already said and how the author answered, so the next round can judge the answers. */
+function reviewerHistory(r: Reviewer, comments: Comment[]): object[] {
+  return comments.filter(c => c.reviewer === r.id).map(c => ({ round: c.round, text: c.text.slice(0, 600), severity: c.severity,
+    status: c.status, response: c.response?.text.slice(0, 600) ?? '', disposition: c.disposition ?? '' }))
+}
+
+/** The shared instruction of one review round, for a model call (demo) or a subagent (DSH). */
+export function reviewerRoundBrief(r: Reviewer, venue: string): string {
+  return `You are ${r.name}, a reviewer of this paper${venue ? ` for ${venue}` : ''}. Stay in this role.
+${r.brief}
+${r.concerns ? `The points you raised in your report:\n${r.concerns}\n` : ''}${r.originalScore ? `Your original score was ${r.originalScore}.\n` : ''}Read the current version of the paper. For each of your points, judge whether the text now answers it, and look for new problems:
+numbers that disagree between sections, claims stronger than their evidence, and passages that would confuse a reader in your position.
+If earlier rounds and the authors' responses are given, judge the responses too: a point that was answered well is not raised again.
+Give a score on the venue's scale (ICLR: 1 clear reject, 2 leaning reject, 3 leaning accept, 4 clear accept), a short overall judgement,
+and what would still have to change in the text, figures or framing for you to raise the score. Do not ask for new experiments.
+At most 8 comments, the most important first. Each names the problem, quotes the exact text it is about, and says what would fix it.
+Tag each comment fact (a claim or number is wrong or unsupported), reader (it misleads or confuses) or taste (style).
+Write in Chinese; keep quotes and technical terms in their original language.`
+}
+
+/** One review round of a role-play reviewer, as one model call that returns JSON (the demo host). */
+export function reviewerRoundPrompt(p: Project, r: Reviewer, comments: Comment[]): string {
+  const prose = p.sections.map(s => ({ id: s.id, heading: s.heading, paragraphs: s.paragraphs.map(x => ({ id: x.id, text: x.text })) }))
+  return `${reviewerRoundBrief(r, p.journal)}
+Your earlier rounds and the authors' responses: ${JSON.stringify(reviewerHistory(r, comments))}
+${DATA_NOTE}
+<project>${JSON.stringify({ title: p.title, journal: p.journal, thesis: p.thesis, sections: prose,
+    figures: p.figures.map(f => ({ id: f.id, label: f.label, caption: f.caption.slice(0, 2000) })) })}</project>
+Return JSON: {"score": <integer or null>, "summary": "<overall judgement>", "raise": "<what would raise your score>",
+"comments": [{"target": {"kind": "paragraph"|"figure"|"project", "id": "<paragraph or figure id, or empty>", "quote": "<exact short quote>"}, "severity": "fact"|"reader"|"taste", "text": "<the comment>"}]}.`
 }
 
 /** First skeleton from materials. */
@@ -101,6 +133,11 @@ ${DATA_NOTE}
 ${CHANGE_FORMAT}`
 }
 
+/** The agreed abstract and introduction bind the rest of the prose. */
+const FRAME_CONTRACT = `The abstract and introduction ("frame") were agreed first. They are the contract for the rest: use their terms,
+deliver what they promise in the order they promise it, and never claim more than they do. If a claim cannot be written
+consistently with them, say so instead of changing them.`
+
 /** Write one section from its beat and claims. */
 export function draftPrompt(p: Project, section: Section, previous: string): string {
   const beat = p.beats.find(b => b.id === section.beat)
@@ -111,11 +148,36 @@ Style: ${p.style || DEFAULT_STYLE}
 Rules: state each claim at the strength its evidence supports; use only numbers from the registry, written exactly;
 cite figure panels as (Fig. 2b) when the evidence lists a panel; answer each claim's reviewerQuestion in the text where a reader
 would ask it; no new claims. Each paragraph lists the claim ids it states.
+${FRAME_CONTRACT}
 ${DATA_NOTE}
-<project>${JSON.stringify({ title: p.title, thesis: p.thesis, beat, claims, numbers: p.numbers,
+<project>${JSON.stringify({ title: p.title, thesis: p.thesis, frame: frameParagraphs(p).map(x => x.text), beat, claims, numbers: p.numbers,
     figures: p.figures.map(f => ({ id: f.id, label: f.label, panels: f.panels.map(x => x.label) })) })}</project>
 <previous-section-end>${previous}</previous-section-end>
 Return JSON: {"heading": "<section heading in English>", "paragraphs": [{"text": "<English paragraph>", "claims": ["<claim id>"]}]}.`
+}
+
+/** First abstract and introduction, for hosts that call a model directly (the demo). */
+export function framePrompt(p: Project): string {
+  return `You are writing the abstract and introduction of a research paper before the rest of its prose. The author agrees and
+locks them; every other section is then written against them.
+${PERSPECTIVE}
+Style: ${p.style || DEFAULT_STYLE}
+Abstract: one paragraph of about 150-220 words: the problem, what was done, the core findings each with its key registered number,
+and what it means; promise only what the core claims support. Introduction: 4-6 paragraphs: the field and why it matters, what is
+missing, what this paper does, its core claims in story order, what a reader gains. Use only registered numbers, written exactly.
+${DATA_NOTE}
+<project>${JSON.stringify(compact(p))}</project>
+Return JSON: {"abstract": [{"text": "<English paragraph>", "claims": ["<claim id>"]}], "introduction": [{"text": "...", "claims": [...]}]}.`
+}
+
+/** The final language pass over some paragraphs, for hosts that call a model directly (the demo). */
+export function polishPrompt(p: Project, paragraphs: { id: string, text: string }[]): string {
+  return `Do the final language pass on these paragraphs of a research paper. Only the wording changes: keep every number, citation,
+figure reference and claim exactly; add no hedges or content. Return only paragraphs you would change.
+Style: ${p.style || DEFAULT_STYLE}
+${DATA_NOTE}
+<paragraphs>${JSON.stringify(paragraphs)}</paragraphs>
+Return JSON: {"paragraphs": [{"id": "<same id>", "text": "<rewritten>"}]}.`
 }
 
 /** Rewrite paragraphs whose claims changed after they were written. */
@@ -169,12 +231,21 @@ export type ProjectTask =
   | { kind: 'draft', beat: string }
   | { kind: 'resync', paragraphs: string[] }
   | { kind: 'numbers' }
+  /** Write the abstract and introduction, or revise them in answer to the open comments on them. */
+  | { kind: 'frame' }
+  /** One combined outside review (editor, reviewer, reader) of the argument or of the prose. */
+  | { kind: 'review', scope: 'argument' | 'prose' }
+  /** Write every beat that no paragraph states yet, against the locked frame. */
+  | { kind: 'draft-all' }
+  /** The final language pass: rewrite drafts only, numbers and claims unchanged. */
+  | { kind: 'polish' }
+  | { kind: 'review-round', reviewers: string[] }
 
 /**
  * The conversation message for a task when a tool-using agent (DSH) does the work. The agent reads the project with
  * project_read and records results with the project_* tools; the store, not the prose of the reply, is the outcome.
  */
-export function agentTaskMessage(task: ProjectTask, project: string, style: string): string {
+export function agentTaskMessage(task: ProjectTask, project: string, style: string, reviewers: Reviewer[] = []): string {
   const head = `Project: ${JSON.stringify(project)} (workspace-relative). Read it with project_read before acting; record every result with the project tools named below. ` +
     'Your chat reply is a short summary only: the project files are the outcome.\n\n'
   switch (task.kind) {
@@ -197,12 +268,44 @@ export function agentTaskMessage(task: ProjectTask, project: string, style: stri
         'Register numbers one value per entry, written as the text will write them, each with its source. ' +
         `Mark a claim core only if the thesis fails without it (most papers have 3–6). Prefer fewer, stronger claims. Read the registered materials first.\n${PERSPECTIVE}\nRecord it with project_apply and fix anything its warnings report.`
     case 'draft':
-      return `${head}Write the section for beat ${JSON.stringify(task.beat)} from its claims.\n${PERSPECTIVE}\nStyle: ${style || DEFAULT_STYLE}\n` +
+      return `${head}Write the section for beat ${JSON.stringify(task.beat)} from its claims.\n${PERSPECTIVE}\n${FRAME_CONTRACT} Read it first (project_read include frame).\nStyle: ${style || DEFAULT_STYLE}\n` +
         'State each claim at the strength its evidence supports; use only registered numbers, written exactly; cite panels as (Fig. 2b); answer each reviewerQuestion where a reader would ask it; no new claims. ' +
         'Record it with project_apply: one upsert-section (heading, beat) followed by upsert-paragraph changes, each listing the claim ids it states.'
     case 'resync':
       return `${head}The claims of paragraphs ${JSON.stringify(task.paragraphs)} changed after they were written. Propose rewrites that state the current claims, changing as little as possible.\n` +
         `${PERSPECTIVE}\nStyle: ${style || DEFAULT_STYLE}\nRecord them with project_draft; never replace prose directly.`
+    case 'frame':
+      return `${head}Write the abstract and introduction before the rest of the prose; the author agrees and locks them, and the other sections are then written against them.\n${PERSPECTIVE}\nStyle: ${style || DEFAULT_STYLE}\n` +
+        'Read the thesis, beats, core claims with their evidence and limits, the registered numbers, and the current frame (project_read include frame, comments, numbers). ' +
+        'Abstract: one paragraph of about 150-220 words: the problem, what was done, the core findings each with its key registered number, and what it means; promise only what the core claims support. ' +
+        'Introduction: usually 4-6 paragraphs: the field and why it matters, what is missing (the gap, with the closest prior work), what this paper does, its core claims in story order, and what a reader gains. Claims no stronger than their evidence. ' +
+        'Use only registered numbers, written exactly; register any missing one with its source first. Make sure each core claim has its main caveats as "limit" evidence items (they become the discussion), adding them with project_apply if missing. ' +
+        'If the frame has no paragraphs yet: one project_apply call with {"op":"upsert-section","index":0,...} for the abstract (heading "Abstract") and {"op":"upsert-section","index":1,...} for the introduction (heading "Introduction"), each paragraph listing the claim ids it states, plus {"op":"set-frame","sections":[the two ids]}. ' +
+        'If it exists: answer the open comments on its paragraphs with project_draft rewrites (linked to those comments), never by replacing text. If it is locked, change nothing unless a comment asks for it, and then only with project_draft.'
+    case 'review':
+      return `${head}Run one combined outside review of the ${task.scope === 'argument' ? 'argument and figures (thesis, beats, claims, evidence, figure plan; not wording)' : 'prose (abstract, introduction and every section, against the claims and figures)'}, in three roles one after another:\n` +
+        (Object.entries(PERSONAS) as [Persona, typeof PERSONAS[Persona]][]).map(([k, r]) => `- source "${k}": ${r.brief} Your job is ${r.owns}.`).join('\n') +
+        '\nSkip points already raised in open comments (project_read include comments). Each role records at most 8 comments with project_comment, most important first, each naming the problem, why it matters in that role and what would fix it; ' +
+        'prefix a major point with 【主要】. Target the exact claim, evidence, figure or paragraph id; quote exact text where useful. Write comments in Chinese; keep quotes and technical terms in their language. ' +
+        'Do not fix anything: the author picks which comments to act on.'
+    case 'draft-all':
+      return `${head}Write the sections for every beat whose claims no paragraph outside the abstract and introduction states yet (project_read include sections, frame), in story order.\n${PERSPECTIVE}\n${FRAME_CONTRACT}\nStyle: ${style || DEFAULT_STYLE}\n` +
+        'State each claim at the strength its evidence supports; use only registered numbers, written exactly; cite panels as (Fig. 2b); answer each reviewerQuestion where a reader would ask it; no new claims. ' +
+        'Close with a short discussion section built from the core claims\' "limit" evidence if there is none. ' +
+        'Record each section with project_apply: one upsert-section (heading, beat) followed by upsert-paragraph changes, each listing the claim ids it states. Never edit the abstract or introduction.'
+    case 'polish':
+      return `${head}Do the final language pass. The argument, numbers and claims are settled; only the wording changes.\nStyle: ${style || DEFAULT_STYLE}\n` +
+        'Read the prose (project_read include sections). For each paragraph whose wording can be made clearer, shorter or more natural, propose a rewrite with project_draft and pass "polish": true. ' +
+        'Keep every number, citation, figure reference and claim exactly; do not add hedges or new content; leave paragraphs that already read well. The author accepts each rewrite.'
+    case 'review-round': {
+      const chosen = reviewers.filter(r => task.reviewers.includes(r.id))
+      return `${head}Run one review round with role-play reviewers. Start one subagent per reviewer below with your subagent tool, all in parallel; ` +
+        'give each child only its own instruction (below), the project path and the tool to use, so that the reviewers do not see each other. ' +
+        'Each child reads the project with project_read (include sections, figures, comments) and records its round with exactly one project_review_round call ' +
+        '(reviewer id, score, summary, raise, comments with target, severity and text). Do not review yourself and do not edit the reviewers\' comments; ' +
+        'when all children have finished, reply with one line per reviewer: name, score, number of comments.\n\n' +
+        chosen.map(r => `### Reviewer ${JSON.stringify(r.id)}\n${reviewerRoundBrief(r, '')}`).join('\n\n')
+    }
     case 'numbers':
       return `${head}Sort every unregistered number (project_read include numbers) into result, parameter, citation or other, with a few-word Chinese note on what it is. ` +
         'Be conservative: when unsure between result and parameter, choose result. Record with project_number_hints. These are hints for the author, not decisions.'

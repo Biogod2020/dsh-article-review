@@ -120,7 +120,8 @@ export function StoryCanvas({ view, actions, focus, onGo, onAskComment, onRead }
           ey += h(ek, 90) + 8
         }
         bottom = Math.max(bottom, ey - 8)
-        if (sel?.kind === 'evidence' && sel.claim === c.id && pos[`E:${sel.id}`]) {
+        // evidence that names no panel is stated in the text only: nothing to draw beside it
+        if (sel?.kind === 'evidence' && sel.claim === c.id && pos[`E:${sel.id}`] && c.evidence.find(x => x.id === sel.id)?.panels.length) {
           const fy = pos[`E:${sel.id}`]!.y
           nodes.push({ key: 'FIG', kind: 'fig', id: sel.id })
           pos.FIG = { x: X.F, y: fy, w: W.F }
@@ -275,7 +276,7 @@ export function StoryCanvas({ view, actions, focus, onGo, onAskComment, onRead }
               onClick={click(() => { setOpen(isOpen && selClaim?.id === c.id ? '' : c.id); setSel({ kind: 'claim', id: c.id }) })}>
               {dot(view.status[`claim:${c.id}`])}
               <span className={css.role}>{c.role === 'core' ? '核心' : '支撑'}</span>
-              <div className={css.eyebrow}>{c.id}</div>
+              <div className={css.eyebrow} title={c.id}>C{[...claims.keys()].indexOf(c.id) + 1}</div>
               <div className={css.tt}>{c.title}</div>
               <div className={css.sbar}>{shown(c).map(e => <i key={e.id} style={{ background: ST[stOf(e)]![1], opacity: e.panels.length ? 1 : 0.45 }} />)}</div>
               <div className={css.badges}>
@@ -293,26 +294,28 @@ export function StoryCanvas({ view, actions, focus, onGo, onAskComment, onRead }
             const idx = shown(c).filter(x => x.kind === e.kind).indexOf(e) + 1
             const pn = e.panels[0], f = pn ? figs.get(pn.figure) : undefined, panel = f?.panels.find(x => x.label === pn!.label)
             const hasNote = view.comments.some(x => x.target.kind === 'evidence' && x.target.id === e.id && x.status === 'open')
-            return <div key={nd.key} ref={reg(nd.key)} className={cx(css.n, css.ev, css[`ev_${e.kind}`], !panel && css.todoEv,
+            return <div key={nd.key} ref={reg(nd.key)} className={cx(css.n, css.ev, css[`ev_${e.kind}`], pn && !panel && css.todoEv,
               sel?.kind === 'evidence' && sel.id === e.id && css.sel)} style={at(nd.key)} onClick={click(() => setSel({ kind: 'evidence', id: e.id, claim: c.id }))}>
               <div className={css.txt}>
                 <div className={css.lab}><span className={cx(css.rl, css[`rl_${e.kind}`])}>{RL[e.kind]} {idx}</span> <span style={{ color: ST[stOf(e)]![1] }}>{ST[stOf(e)]![0]}</span>
                   {hasNote && <span className={css.badge}>有意见</span>}</div>
                 {e.text}
               </div>
-              {panel ? <AssetImg actions={actions} path={panel.image} alt="" draggable={false} title="点击查看完整面板"
+              {panel ? <AssetImg key={panel.image} actions={actions} path={panel.image} alt="" draggable={false} title="点击查看完整面板"
                 onClick={click(() => setSel({ kind: 'evidence', id: e.id, claim: c.id }))} />
-                : <div className={css.todo}>待做面板{pn ? <><br />{f?.label ?? pn.figure}{pn.label}</> : null}</div>}
+                : pn ? <div className={css.todo}>待做面板<br />{f?.label ?? pn.figure}{pn.label}</div> : null}
             </div>
           }
           // the selected evidence's panel, drawn beside it
           const c = claims.get(open), e = c?.evidence.find(x => x.id === nd.id)
-          const pn = e?.panels[0], f = pn ? figs.get(pn.figure) : undefined, panel = f?.panels.find(x => x.label === pn!.label)
+          // every panel the evidence names, one under the other
+          const found = (e?.panels ?? []).map(pn => { const f = figs.get(pn.figure); return { pn, f, panel: f?.panels.find(x => x.label === pn.label) } })
           return <div key={nd.key} ref={reg(nd.key)} className={cx(css.n, css.fig)} style={at(nd.key)}>
-            {panel ? <><AssetImg actions={actions} path={panel.image} alt="" draggable={false} title="点击全屏查看"
-              onClick={click(() => setZoom({ src: panel.image, cap: `${f!.label}${pn!.label} ${panel.note}` }))} />
-              <div className={css.cap}><b>{f!.label}{pn!.label}</b> {panel.note}</div></>
-              : <div className={css.todo2}><b>待做面板</b><div className={css.sub}>{e?.text}</div></div>}
+            {found.map(({ pn, f, panel }) => panel
+              ? <div key={pn.figure + pn.label} className={css.figOne}><AssetImg key={panel.image} actions={actions} path={panel.image} alt="" draggable={false} title="点击全屏查看"
+                onClick={click(() => setZoom({ src: panel.image, cap: `${f!.label}${pn.label} ${panel.note}` }))} />
+                <div className={css.cap}><b>{f!.label}{pn.label}</b> {panel.note}</div></div>
+              : <div key={pn.figure + pn.label} className={css.todo2}><b>待做面板</b><div className={css.sub}>{f?.label ?? pn.figure}{pn.label}</div></div>)}
           </div>
         })}
       </div>
@@ -367,9 +370,13 @@ function BeatDetail({ id, ...props }: { id: string, view: ProjectView, actions: 
 function FloatWindow({ title, onClose, children }: { title: string, onClose: () => void, children: ReactNode }): ReactNode {
   const ref = useRef<HTMLDivElement>(null)
   const drag = useRef<{ x: number, y: number, l: number, t: number } | null>(null)
+  // docked (default): a column beside the canvas, so it never covers the story; floating: a window over it
+  const [docked, setDocked] = useState(() => { try { return localStorage.getItem('paper-project:float-dock') !== '0' } catch { return true } })
+  const dockRef = useRef(docked); dockRef.current = docked
   useLayoutEffect(() => {
     const f = ref.current, host = f?.parentElement
     if (!f || !host) return
+    if (docked) { Object.assign(f.style, { left: '', top: '', width: '', height: '' }); return }
     const m = host.getBoundingClientRect()
     let b: { x?: number, y?: number, w: number, h: number } | null = null
     try { b = JSON.parse(localStorage.getItem('paper-project:float') ?? 'null') } catch { b = null }
@@ -377,22 +384,25 @@ function FloatWindow({ title, onClose, children }: { title: string, onClose: () 
     const w = Math.min(Math.max(300, b.w), m.width - 20), h = Math.min(Math.max(180, b.h), m.height - 16)
     const x = Math.min(Math.max(0, b.x ?? m.width - w - 16), m.width - 120), y = Math.min(Math.max(0, b.y ?? 16), Math.max(0, m.height - h))
     Object.assign(f.style, { left: `${x}px`, top: `${y}px`, width: `${w}px`, height: `${h}px` })
-  }, [])
+  }, [docked])
   useEffect(() => {
     const f = ref.current
     if (!f) return
-    const save = (): void => localStorage.setItem('paper-project:float', JSON.stringify({ x: f.offsetLeft, y: f.offsetTop, w: f.offsetWidth, h: f.offsetHeight }))
+    const save = (): void => { if (!dockRef.current) localStorage.setItem('paper-project:float', JSON.stringify({ x: f.offsetLeft, y: f.offsetTop, w: f.offsetWidth, h: f.offsetHeight })) }
     const ro = new ResizeObserver(save); ro.observe(f)
-    const move = (e: PointerEvent): void => { const d = drag.current; if (!d) return; f.style.left = `${d.l + e.clientX - d.x}px`; f.style.top = `${Math.max(0, d.t + e.clientY - d.y)}px` }
+    const move = (e: PointerEvent): void => { const d = drag.current; if (!d || dockRef.current) return; f.style.left = `${d.l + e.clientX - d.x}px`; f.style.top = `${Math.max(0, d.t + e.clientY - d.y)}px` }
     const up = (): void => { if (drag.current) { drag.current = null; save() } }
     addEventListener('pointermove', move); addEventListener('pointerup', up)
     const esc = (e: KeyboardEvent): void => { if (e.key === 'Escape' && !(e.target as HTMLElement).closest('textarea,input')) onClose() }
     addEventListener('keydown', esc)
     return () => { ro.disconnect(); removeEventListener('pointermove', move); removeEventListener('pointerup', up); removeEventListener('keydown', esc) }
   }, [onClose])
-  return <div ref={ref} className={css.float} onClick={e => e.stopPropagation()} onPointerDown={e => e.stopPropagation()}>
+  return <div ref={ref} className={cx(css.float, docked && css.docked)} onClick={e => e.stopPropagation()} onPointerDown={e => e.stopPropagation()}>
     <div className={css.fhead} onPointerDown={e => { if (e.button !== 0 || (e.target as HTMLElement).closest('button')) return; const f = ref.current!; drag.current = { x: e.clientX, y: e.clientY, l: f.offsetLeft, t: f.offsetTop } }}>
-      <span className={css.ftitle}>{title}</span><button className={css.btn} onClick={onClose} title="关闭（Esc）">×</button></div>
+      <span className={css.ftitle}>{title}</span>
+      <button className={css.btn} style={{ fontSize: 12 }} onClick={() => { const v = !docked; setDocked(v); try { localStorage.setItem('paper-project:float-dock', v ? '1' : '0') } catch { /* private mode */ } }}
+        title={docked ? '改成浮在画布上的窗口，可以拖动和改大小' : '停靠在右侧，不遮住画布'}>{docked ? '浮动' : '停靠'}</button>
+      <button className={css.btn} onClick={onClose} title="关闭（Esc）">×</button></div>
     <div className={css.side}>{children}</div>
   </div>
 }

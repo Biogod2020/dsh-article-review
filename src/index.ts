@@ -96,6 +96,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     for (const [name, description] of [
       ['paper-figure-panels', 'Split figure panels and place verified crops beside their exact manuscript paragraphs in Paper review.'],
       ['paper-project-start', 'Import PDF, DOCX, LaTeX, TXT, Markdown, HTML or pasted article content, prepare available figures, and open Paper review.'],
+      ['paper-project-next', 'Push an open paper project one step along the recommended workflow: check where it stands, do the agent step, and tell the author exactly what they decide next.'],
       ['paper-project-init', 'Turn an existing manuscript, its figures and comments into a new paper project (story flow, claims, figures, numbers, linked paragraphs) without changing the originals.'],
     ]) {
       const path = fileURLToPath(new URL(`../skills/${name}/`, import.meta.url))

@@ -2,7 +2,7 @@
  * Pure project logic shared by the host, the client and the demo server: review units and their status,
  * claim/prose sync, registered-number checks, stage checklists and applying changes.
  */
-import type { Change, Claim, Project, ReviewState, Stage } from './model.ts'
+import type { Change, Claim, Paragraph, Project, ReviewState, Stage } from './model.ts'
 import { STAGES } from './model.ts'
 
 /** Stable 53-bit content hash (cyrb53); runs the same in Node and the browser. */
@@ -104,6 +104,25 @@ export function unregisteredNumbers(p: Project): NumberIssue[] {
   return out
 }
 
+const ABSTRACT_HEADING = /^\s*(abstract|summary|摘要)\s*$/i
+const INTRO_HEADING = /^\s*(?:\d+\.?\s*)?(introduction|background|引言|背景|前言)\b/i
+/** Sections holding the abstract and introduction: as named by set-frame, else found by heading. */
+export function frameSections(p: Project): string[] {
+  if (p.frame.sections.length) return p.frame.sections.filter(id => p.sections.some(s => s.id === id))
+  return [p.sections.find(s => ABSTRACT_HEADING.test(s.heading)), p.sections.find(s => INTRO_HEADING.test(s.heading))].flatMap(s => s ? [s.id] : [])
+}
+export const frameParagraphs = (p: Project): Paragraph[] =>
+  frameSections(p).flatMap(id => p.sections.find(s => s.id === id)?.paragraphs ?? [])
+/** What the author locks: the text of the abstract and introduction paragraphs, in order. */
+export const frameHash = (p: Project): string => contentHash(frameParagraphs(p).map(x => x.text))
+
+export interface FrameStatus { sections: string[], paragraphs: string[], locked: boolean, changedSinceLock: boolean, rounds: number }
+export function frameStatus(p: Project, st: ReviewState): FrameStatus {
+  const lock = st.flow.frameLock
+  return { sections: frameSections(p), paragraphs: frameParagraphs(p).map(x => x.id), locked: !!lock && lock.hash === frameHash(p),
+    changedSinceLock: !!lock && lock.hash !== frameHash(p), rounds: st.flow.frameRounds }
+}
+
 export interface CheckItem { label: string, ok: boolean, detail: string }
 /** Advice for leaving a stage. The author may advance anyway; the list says what will be carried forward. */
 export function stageChecklist(p: Project, st: ReviewState, stage: Stage = p.stage): CheckItem[] {
@@ -132,8 +151,20 @@ export function stageChecklist(p: Project, st: ReviewState, stage: Stage = p.sta
     const unplaced = p.figures.filter(f => f.placement === 'unplaced')
     items.push({ label: '每张图已定主图或扩展数据', ok: !unplaced.length, detail: unplaced.length ? unplaced.map(f => f.label).join('、') : `${p.figures.length} 张` })
   }
+  if (stage === 'frame') {
+    const f = frameStatus(p, st)
+    items.push({ label: '已写摘要与引言', ok: f.paragraphs.length > 0, detail: f.paragraphs.length ? `${f.sections.length} 节 ${f.paragraphs.length} 段` : '还没有' })
+    const fnums = unregisteredNumbers(p).filter(n => f.paragraphs.some(id => n.where === `paragraph:${id}`))
+    items.push({ label: '摘要与引言的数字都有出处', ok: !fnums.length, detail: fnums.length ? `${fnums.length} 个数字不在登记表` : '全部登记' })
+    items.push({ label: '摘要与引言已锁定', ok: f.locked, detail: f.locked ? '已锁定，后文按它写' : f.changedSinceLock ? '锁定后有改动，需要重新锁定' : `未锁定（已讨论 ${f.rounds} 轮）` })
+  }
   if (stage === 'draft' || stage === 'read') {
-    const sync = syncIssues(p)
+    // the abstract and introduction name claims but do not write them up: only the body counts
+    const fs = new Set(frameSections(p))
+    const stated = new Set(p.sections.filter(x => !fs.has(x.id)).flatMap(x => x.paragraphs.flatMap(y => y.claims)))
+    const unwritten = p.claims.filter(c => !stated.has(c.id))
+    items.push({ label: '每个分论点都写进了正文', ok: !unwritten.length, detail: unwritten.length ? `${unwritten.length} 个未写` : `${p.claims.length} 个` })
+    const sync = syncIssues(p).filter(x => x.kind !== 'unwritten')
     items.push({ label: '正文与骨架同步', ok: !sync.length, detail: sync.length ? `${sync.length} 处不同步` : '全部同步' })
     const nums = unregisteredNumbers(p).filter(n => n.where.startsWith('paragraph:'))
     items.push({ label: '正文数字都有出处', ok: !nums.length, detail: nums.length ? `${nums.length} 个数字不在登记表` : '全部登记' })
@@ -152,7 +183,7 @@ export const nextStage = (s: Stage): Stage => STAGES[Math.min(STAGES.indexOf(s) 
 /** Unit keys a change touches; used for history and "changed since review". */
 export function changedUnits(change: Change): string[] {
   switch (change.op) {
-    case 'set-meta': case 'set-links': case 'ignore-number': return []
+    case 'set-meta': case 'set-links': case 'ignore-number': case 'set-frame': return []
     case 'set-thesis': return ['thesis']
     case 'upsert-beat': return [`beat:${change.beat.id}`]
     case 'upsert-claim': return [`claim:${change.claim.id}`]
@@ -229,6 +260,7 @@ export function applyChanges(p: Project, changes: Change[]): Project {
         break
       }
       case 'set-links': next.links = ch.links; break
+      case 'set-frame': next.frame = { sections: ch.sections }; break
       case 'ignore-number': {
         const key = ch.where ? `${ch.where}|${ch.value}` : ch.value
         if (!next.numberIgnores.includes(key)) next.numberIgnores = [...next.numberIgnores, key]

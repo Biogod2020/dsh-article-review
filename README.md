@@ -17,7 +17,7 @@ A plugin for academic writing in [DSH (DeepSeek Harness)](https://github.com/dee
 
 ### Plugin updates
 
-DSH `0.2.2-rc.1` can check and install third-party plugin updates from its **Plugins** page, with an attempt to restore the previous version if hot activation fails. Install this plugin by its npm name to use that flow, and follow any restart prompt. This release supports DSH `0.2.2-rc.1`. The independent scheduled updater below remains optional.
+DSH `0.2.2-rc.1` and later can check and install third-party plugin updates from its **Plugins** page, with an attempt to restore the previous version if hot activation fails. Install this plugin by its npm name to use that flow, and follow any restart prompt. This release supports DSH `0.2.2-rc.1` to `0.2.2-rc.3`. The independent scheduled updater below remains optional.
 
 ### Automatic updates
 
@@ -44,7 +44,7 @@ Supported schedulers: Windows current-user Task Scheduler (no elevation), macOS 
 <a id="installation"></a>
 ## Install
 
-**Requirements:** DSH Desktop (`0.2.0-rc.2` to `0.2.2-rc.1`, including `0.2.1-rc.5`; runtime included) or DSH Web (`0.2.1-alpha.4`; DSH `0.2.2-rc.1` on the web needs Node.js 24.9+). To import PDF, Word or LaTeX, install [`uv`](https://docs.astral.sh/uv/getting-started/installation/) once yourself; on first use it downloads Python with the PyMuPDF, Pandoc and Pillow packages (about 100 MB) into the workspace's `.paper-tools/` folder, so that first import needs network access. Nothing is installed into your system Python. The plugin uses your existing model configuration.
+**Requirements:** DSH Desktop (`0.2.0-rc.2` to `0.2.2-rc.3`, including `0.2.1-rc.5`; runtime included) or DSH Web (`0.2.1-alpha.4`; DSH `0.2.2-rc.1` to `0.2.2-rc.3` on the web need Node.js 24.9+). To import PDF, Word or LaTeX, install [`uv`](https://docs.astral.sh/uv/getting-started/installation/) once yourself; on first use it downloads Python with the PyMuPDF, Pandoc and Pillow packages (about 100 MB) into the workspace's `.paper-tools/` folder, so that first import needs network access. Nothing is installed into your system Python. The plugin uses your existing model configuration.
 
 **Desktop app**
 
@@ -130,6 +130,7 @@ See the [paper projects guide](docs/user-guide.md#paper-projects-preview) for th
 
 - [User guide](docs/user-guide.md) — manuscript review, figures, references, configuration and paper projects.
 - [Development and compatibility](docs/development.md) — builds, releases, tools and persistence.
+- [Recommended way to use a paper project](docs/workflow-guide.md) — the recommended order, the Continue button, starting midway.
 - [Project mode design notes](docs/project-mode.zh.md) — how paper projects work inside (Chinese).
 
 [MIT License](LICENSE)
